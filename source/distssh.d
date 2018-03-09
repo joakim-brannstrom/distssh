@@ -29,6 +29,7 @@ struct Host {
     alias payload this;
 }
 
+/// Returns: the lowest loaded server.
 Nullable!Host selectLowest() nothrow {
     import std.array : array;
     import std.range;
@@ -72,11 +73,18 @@ Nullable!Host selectLowest() nothrow {
     return typeof(return)();
 }
 
+/// The load of a host.
 struct Load {
     double payload;
     alias payload this;
 }
 
+/**
+ * Params:
+ *  h = remote host to check
+ *
+ * Returns: the Load of the remote host
+ */
 Nullable!Load getLoad(Host h) nothrow {
     import std.conv : to;
     import std.process : tryWait, pipeProcess, kill;
@@ -93,6 +101,7 @@ Nullable!Load getLoad(Host h) nothrow {
         auto stop_at = MonoTime.currTime + timeout;
         while (true) {
             auto st = res.pid.tryWait;
+
             if (st.terminated && st.status == 0)
                 break;
             else if (st.terminated && st.status != 0) {
