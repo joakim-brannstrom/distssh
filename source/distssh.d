@@ -6,8 +6,8 @@ Author: Joakim Brännström (joakim.brannstrom@gmx.com)
 */
 module distssh;
 
-import std.algorithm;
-import std.exception;
+import std.algorithm : splitter, map, filter, joiner;
+import std.exception : collectException;
 import std.typecons : Nullable;
 import logger = std.experimental.logger;
 
@@ -32,13 +32,13 @@ struct Host {
 /// Returns: the lowest loaded server.
 Nullable!Host selectLowest() nothrow {
     import std.array : array;
-    import std.range;
+    import std.range : take;
     import std.typecons : tuple;
     import std.algorithm : sort;
     import std.random : uniform;
     import std.parallelism : taskPool;
     import std.string : fromStringz;
-    import core.stdc.stdlib;
+    static import core.stdc.stdlib;
 
     try {
         auto hosts = core.stdc.stdlib.getenv("DISTSSH_HOSTS").fromStringz.idup;
