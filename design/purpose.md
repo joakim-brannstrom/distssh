@@ -78,6 +78,13 @@ Low need to be split in two categories to be useful.
  * The environment can be slow to startup if e.g. .bashrc has to run.
    One way of speeding up this is to make a copy of the environment variables and "load" them on the target computer.
    This probably work well if the host and remote host is similar enough.
+
+# SPC-meta_design
+partof: REQ-purpose
+###
+
+This is a meta-design requirement for design decision that can't directly be traced to a requirement.
+
 # SPC-ssh_relaxed_remote_host
 partof: SPC-meta_design
 ###
@@ -92,3 +99,9 @@ It is thus relaxed to reduce/remove the dump of junk in the console and make mor
 
 It assumes that this program is used on a closed network.
 If it is used over internet.... this should be changed.
+
+# SPC-load_balance
+partof: REQ-uc_shell
+###
+
+The load balance is static after the login. This may be problematic if many users end up on the same server because the program do not do "live migration".
