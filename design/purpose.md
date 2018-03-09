@@ -78,3 +78,17 @@ Low need to be split in two categories to be useful.
  * The environment can be slow to startup if e.g. .bashrc has to run.
    One way of speeding up this is to make a copy of the environment variables and "load" them on the target computer.
    This probably work well if the host and remote host is similar enough.
+# SPC-ssh_relaxed_remote_host
+partof: SPC-meta_design
+###
+
+The program shall use the flag `-oStrictHostKeyChecking=no` when logging in via ssh.
+
+## Why?
+It is probable the case that the user hasn't logged on to all remote hosts.
+It can be assumed that the environment variable holding the remote hosts are safe thus this is not a strictly needed check.
+
+It is thus relaxed to reduce/remove the dump of junk in the console and make more hosts available to the user.
+
+It assumes that this program is used on a closed network.
+If it is used over internet.... this should be changed.

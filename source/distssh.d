@@ -16,7 +16,7 @@ int main(string[] args) {
 
     auto host = selectLowest;
     if (!host.isNull) {
-        return spawnProcess(["ssh", host]).wait;
+        return spawnProcess(["ssh", "-oStrictHostKeyChecking=no", host]).wait;
     }
 
     return 0;
@@ -88,7 +88,7 @@ Nullable!Load getLoad(Host h) nothrow {
     enum timeout = 2.dur!"seconds";
 
     try {
-        auto res = pipeProcess(["ssh", h, "cat", "/proc/loadavg"]);
+        auto res = pipeProcess(["ssh", "-oStrictHostKeyChecking=no", h, "cat", "/proc/loadavg"]);
 
         auto stop_at = MonoTime.currTime + timeout;
         while (true) {
