@@ -1,2 +1,80 @@
 # REQ-purpose
-The purpose of this project is...
+
+The purpose of this project is to provide automatic load balanced shells to the user.
+
+# REQ-uc_shell
+partof: REQ-purpose
+###
+
+The user want an *interactive shell* on the *best remote host* where he/she can do its daily work.
+
+*Info*: For this to work the program need to login on the server. It isn't really useful if it would just print out which server it is.
+
+# SPC-best_remote_host
+partof: REQ-uc_shell
+###
+
+The *best remote host* shall be calculated from the available servers.
+
+Pseudo code for calculating the *best remote host*:
+ * Check the 5min load on all available server.
+   Use a 3s timeout to make sure it doesn't affect the user too much if one server is slow.
+ * Choose at random one of the three servers with the lowest loadavg
+
+## Info
+A simple way of choosing the best server is to check the load average.
+
+I chose the 5min average just because it is the first value when reading from `/proc/loadavg`.
+No other reason than that.
+
+This should probably be investigated further.
+
+# REQ-uc_remote_command
+partof: REQ-purpose
+###
+
+The user want a *command* to be executed on one the *best remote host*.
+
+The user experience should be as if the user ran it locally which probably affect how stdin/stdout/stderr is handled.
+For now stdin is ignored.
+
+# SPC-load_balance_heavy_commands
+partof: REQ-uc_shell
+###
+
+The program shall distribute the command from the user to a *best remote host* when the command is in the environ variable DISTSSH_CMD.
+
+# REQ-uc_fast_experience
+partof: REQ-uc_shell
+###
+
+Running a command on a remote host over ssh can be slow. The program should implement a strategy to handle it in such a way that the overhead of using the program is *low*.
+
+The overall goal that must be fulfilled is that the program shall always be fast and succeed. The user **must** feel that the program can be used for any use case.
+The user should never have to really think of different use cases such as "I think this command is lightweight so I run it normally" compared to "I know this command is heavy weight so I should use the program".
+
+There should be one way that always work and is fast.
+
+Low need to be split in two categories to be useful.
+
+*Interactive shell*:
+ * The important aspect is that the program should always succeed in spawning a shell.
+   This implicit that it shouldn't stop just because one of the remote hosts are unavailable.
+   Or one of the remote hosts are down and because of timeouts it feels for the user as if the program stopped/hanged/failed.
+
+*Best Remote Host Cache*:
+ * The program should try and avoid having to login on the servers for every little command that is ran.
+   This creates unnecessary overhead.
+   The program should therefore use a local cache that is updated *when suitable*.
+   This should give the user experience that most commands are just fast.
+   That the program have "warm up" time
+
+*Non-interactive shell*:
+ * This is commands that are ran but not directly by the user.
+   This could be for example make calling the shell.
+   The program should in this case intercept configured commands and distribute those over servers.
+
+*Env Startup*:
+ * The environment can be slow to startup if e.g. .bashrc has to run.
+   One way of speeding up this is to make a copy of the environment variables and "load" them on the target computer.
+   This probably work well if the host and remote host is similar enough.
