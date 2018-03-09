@@ -3,3 +3,6 @@ description "Distributed shell over SSH"
 authors "Joakim Brännström"
 copyright "Copyright © 2018, Joakim Brännström"
 license "BSL-1.0"
+
+targetPath "build"
+targetType "executable"
