@@ -1,0 +1,5 @@
+name "distssh"
+description "Distributed shell over SSH"
+authors "Joakim Brännström"
+copyright "Copyright © 2018, Joakim Brännström"
+license "BSL-1.0"
