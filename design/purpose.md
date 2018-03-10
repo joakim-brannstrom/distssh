@@ -38,6 +38,30 @@ The user want a *command* to be executed on one the *best remote host*.
 The user experience should be as if the user ran it locally which probably affect how stdin/stdout/stderr is handled.
 For now stdin is ignored.
 
+# REQ-uc_user_ctrl_of_remote_login
+partof: REQ-purpose
+###
+
+It isn't wise to hardcode how ssh is used to login on the remote server. It may need other arguments, a specific key or even some other command than ssh.
+Therefore the user wants to be able to control what *proxy command* is used and how it is used.
+
+*proxy command*:
+ * an example could be as rsync do it: `rsync -e 'ssh -p22' .....`
+   notice the `-e`.
+
+## Investigate
+
+Maybe an environment variable should be used too? I think ssh do that. It wouldn't hurt.
+It would make it possible to centrally change/control the defaul but still allow the user to override.
+
+# SPC-remote_shell_config
+partof: REQ-uc_user_ctrl_of_remote_login
+###
+
+The program shall use the argument from the CLI option `-e` when logging in on the *remote host*.
+
+The program shall use `ssh -oStrictHostKeyChecking=no` as the default for `-e`.
+
 # SPC-load_balance_heavy_commands
 partof: REQ-uc_shell
 ###
