@@ -7,12 +7,7 @@ It gives the user a shell to work in.
 
 distssh depends on the following software packages:
 
- * [D compiler](https://dlang.org/download.html) (dmd 2.072+, ldc 1.1.0+)
-
-For users running Ubuntu one of the dependencies can be installed with apt.
-```sh
-sudo apt install x
-```
+ * [D compiler](https://dlang.org/download.html)
 
 Download the D compiler of your choice, extract it and add to your PATH shell
 variable.
