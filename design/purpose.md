@@ -19,7 +19,7 @@ The *best remote host* shall be calculated from the available servers.
 Pseudo code for calculating the *best remote host*:
  * Check the 5min load on all available server.
    Use a 3s timeout to make sure it doesn't affect the user too much if one server is slow.
- * Choose at random one of the three servers with the lowest loadavg
+ * Choose at random one of the three servers with the lowest loadavg.
 
 ## Info
 A simple way of choosing the best server is to check the load average.
@@ -33,7 +33,7 @@ This should probably be investigated further.
 partof: REQ-purpose
 ###
 
-The user want a *command* to be executed on one the *best remote host*.
+The user want a *command* to be executed on the *best remote host*.
 
 The user experience should be as if the user ran it locally which probably affect how stdin/stdout/stderr is handled.
 For now stdin is ignored.
@@ -46,7 +46,7 @@ It isn't wise to hardcode how ssh is used to login on the remote server. It may 
 Therefore the user wants to be able to control what *proxy command* is used and how it is used.
 
 *proxy command*:
- * an example could be as rsync do it: `rsync -e 'ssh -p22' .....`
+ * an example could is how rsync do it: `rsync -e 'ssh -p22' .....`
    notice the `-e`.
 
 ## Investigate
@@ -129,3 +129,42 @@ partof: REQ-uc_shell
 ###
 
 The load balance is static after the login. This may be problematic if many users end up on the same server because the program do not do "live migration".
+
+# SPC-remote_command
+partof: REQ-uc_remote_command
+###
+
+The program shall run the *command* on the *best remote host* by default when the user execute the program.
+ * The arguments to use are either:
+     * those left after distssh has parsed the command line
+     * those that are after the `--`
+
+The program shall run the *command* on the *best remote host* when the program name (`args[0]`) is `distcmd`.
+ * The arguments to use are `args[1 .. $]`
+
+## Why?
+
+Why the compliation with what arguments to use when running on the remote host?
+
+It is because there may exist program which have the same arguments as those used by distssh.
+If there are no way of avoiding distssh command line parsing these commands could become unusable.
+
+By having a dedicated command for just this, `distcmd`, it becomes easy to integrate in scripts.
+
+# SPC-draft_remote_cmd_spec
+partof: REQ-purpose
+###
+
+The design is such that the environment is exported on command from the user.
+This means that it is not always done.
+
+The command on the receiving end is a symlinked version of distssh that know that it should try and configure the environemnt variables from a file, if it exists, before running the command.
+
+Thus the process of launching a remote process is a multi stage rocket.
+ * store the env to a file, if the user uses `--export-env`
+ * choose a host with the lowest load
+ * ssh to the remote host with a the command:
+   `distcmd_env` `current working directory` `path to env file` `the user commands`
+ * when logged in on the remote host `distcmd_env` triggers which:
+    * read the env from the file
+    * runs the user command with the configured env
