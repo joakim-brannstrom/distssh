@@ -171,6 +171,7 @@ Options parseUserArgs(string[] args) nothrow {
         logger.warning(e.msg).collectException;
     }
 
+    // #SPC-remote_command_parse
     switch (opts.selfBinary.baseName) {
     case distShell:
         opts.mode = Options.Mode.shell;
@@ -250,7 +251,12 @@ struct Host {
     alias payload this;
 }
 
-/// Returns: the lowest loaded server.
+/**
+ * #SPC-load_balance
+ * #SPC-best_remote_host
+ *
+ * Returns: the lowest loaded server.
+ */
 Nullable!Host selectLowest(string hosts) nothrow {
     import std.array : array;
     import std.range : take;
