@@ -6,6 +6,7 @@ Author: Joakim Brännström (joakim.brannstrom@gmx.com)
 */
 module distssh;
 
+import core.time : Duration;
 import std.algorithm : splitter, map, filter, joiner;
 import std.exception : collectException;
 import std.typecons : Nullable;
@@ -54,7 +55,7 @@ int main(string[] args) nothrow {
         break;
     default:
         hosts_env = core.stdc.stdlib.getenv(&globalEnvironemntKey[0]).fromStringz.idup;
-        host = selectLowest(hosts_env);
+        host = selectLowest(hosts_env, opts.timeout);
 
         if (host.isNull) {
             logger.errorf("No remote host found (%s='%s')", globalEnvironemntKey, hosts_env).collectException;
@@ -151,6 +152,8 @@ struct Options {
     bool exportEnv;
     std.getopt.GetoptResult help_info;
 
+    Duration timeout;
+
     string selfBinary;
     string selfDir;
 
@@ -191,6 +194,7 @@ Options parseUserArgs(string[] args) nothrow {
 
     bool remote_shell;
     bool install;
+    ulong timeout_s = 2;
 
     try {
         // dfmt off
@@ -199,9 +203,13 @@ Options parseUserArgs(string[] args) nothrow {
             "install", "install distssh by setting up the correct symlinks", &install,
             "shell", "open an interactive shell on the remote host", &remote_shell,
             "export-env", "export the current env to the remote host to be used", &opts.exportEnv,
+            "timeout", "timeout to use when checking remote hosts", &timeout_s,
             );
         // dfmt on
         opts.help = opts.help_info.helpWanted;
+
+        import core.time : dur;
+        opts.timeout = timeout_s.dur!"seconds";
     }
     catch (std.getopt.GetOptException e) {
         // unknown option
@@ -257,7 +265,7 @@ struct Host {
  *
  * Returns: the lowest loaded server.
  */
-Nullable!Host selectLowest(string hosts) nothrow {
+Nullable!Host selectLowest(string hosts, Duration timeout) nothrow {
     import std.array : array;
     import std.range : take;
     import std.typecons : tuple;
@@ -269,13 +277,13 @@ Nullable!Host selectLowest(string hosts) nothrow {
         if (hosts.length == 0)
             return typeof(return)();
 
-        static auto loadHost(Host host) {
-            return tuple(host, getLoad(host));
+        static auto loadHost(T)(T host_to) {
+            return tuple(host_to[0], getLoad(host_to[0], host_to[1]));
         }
 
-        auto shosts = hosts.splitter(";").map!Host.array;
+        auto shosts = hosts.splitter(";").map!(a => tuple(Host(a), timeout)).array;
         if (shosts.length == 1)
-            return typeof(return)(Host(shosts[0]));
+            return typeof(return)(Host(shosts[0][0]));
 
         // dfmt off
         auto measured =
@@ -312,15 +320,13 @@ struct Load {
  *
  * Returns: the Load of the remote host
  */
-Nullable!Load getLoad(Host h) nothrow {
+Nullable!Load getLoad(Host h, Duration timeout) nothrow {
     import std.conv : to;
     import std.process : tryWait, pipeProcess, kill;
     import std.range : takeOne;
     import std.stdio : writeln;
-    import core.time : dur, MonoTime;
+    import core.time : MonoTime;
     import core.sys.posix.signal : SIGKILL;
-
-    enum timeout = 2.dur!"seconds";
 
     try {
         auto res = pipeProcess(["ssh", "-oStrictHostKeyChecking=no", h, "cat", "/proc/loadavg"]);
