@@ -25,7 +25,14 @@ immutable distsshEnvExport = "distssh_env.export";
 version (unittest) {
 } else {
     int main(string[] args) nothrow {
-        const opts = parseUserArgs(args);
+        Options opts;
+        try {
+            opts = parseUserArgs(args);
+        }
+        catch (Exception e) {
+            logger.error(e.msg).collectException;
+            return 1;
+        }
 
         if (opts.help) {
             printHelp(opts);
@@ -177,17 +184,14 @@ struct Options {
     string[] command;
 }
 
-Options parseUserArgs(string[] args) nothrow {
-    import std.path : dirName, expandTilde, absolutePath, baseName;
+Options parseUserArgs(string[] args) {
+    import std.file : thisExePath;
+    import std.path : dirName, baseName, buildPath;
 
     Options opts;
-    opts.selfBinary = args[0];
-    try {
-        opts.selfDir = opts.selfBinary.expandTilde.absolutePath.dirName;
-    }
-    catch (Exception e) {
-        logger.warning(e.msg).collectException;
-    }
+
+    opts.selfBinary = buildPath(thisExePath.dirName, args[0].baseName);
+    opts.selfDir = opts.selfBinary.dirName;
 
     // #SPC-remote_command_parse
     switch (opts.selfBinary.baseName) {
@@ -260,10 +264,9 @@ Options parseUserArgs(string[] args) nothrow {
 @("shall determine the absolute path of self")
 unittest {
     import std.path;
+    import std.file;
 
     auto opts = parseUserArgs(["distssh", "ls"]);
-    logger.trace(opts.selfBinary);
-
     assert(opts.selfBinary[0] == '/');
     assert(opts.selfBinary.baseName == "distssh");
 
@@ -275,7 +278,7 @@ unittest {
     assert(opts.selfBinary[0] == '/');
     assert(opts.selfBinary.baseName == "distcmd");
 
-    opts = parseUserArgs(["distcmd_recv"]);
+    opts = parseUserArgs(["distcmd_recv", getcwd, distsshEnvExport]);
     assert(opts.selfBinary[0] == '/');
     assert(opts.selfBinary.baseName == "distcmd_recv");
 }
