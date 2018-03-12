@@ -160,6 +160,8 @@ int appMain(const Options opts) nothrow {
 private:
 
 struct Options {
+    import core.time : dur;
+
     enum Mode {
         shell,
         cmd,
@@ -173,7 +175,7 @@ struct Options {
     bool exportEnv;
     std.getopt.GetoptResult help_info;
 
-    Duration timeout;
+    Duration timeout = defaultTimeout_s.dur!"seconds";
 
     string selfBinary;
     string selfDir;
@@ -212,9 +214,10 @@ Options parseUserArgs(string[] args) {
 
     bool remote_shell;
     bool install;
-    ulong timeout_s = defaultTimeout_s;
 
     try {
+        ulong timeout_s;
+
         // dfmt off
         opts.help_info = std.getopt.getopt(args, std.getopt.config.passThrough,
             std.getopt.config.keepEndOfOptions,
@@ -228,7 +231,8 @@ Options parseUserArgs(string[] args) {
 
         import core.time : dur;
 
-        opts.timeout = timeout_s.dur!"seconds";
+        if (timeout_s > 0)
+            opts.timeout = timeout_s.dur!"seconds";
     }
     catch (std.getopt.GetOptException e) {
         // unknown option
@@ -295,10 +299,17 @@ unittest {
     opts = parseUserArgs(["distshell"]);
     assert(opts.timeout == defaultTimeout_s.dur!"seconds", opts.timeout.to!string);
     opts = parseUserArgs(["distshell", "--timeout", "10"]);
-    assert(opts.timeout == 10.dur!"seconds");
-
-    opts = parseUserArgs(["distcmd", "ls"]);
     assert(opts.timeout == defaultTimeout_s.dur!"seconds");
+}
+
+@("shall only be the default timeout because --timeout should be passed on to the command")
+unittest {
+    import core.time : dur;
+    import std.conv;
+
+    auto opts = parseUserArgs(["distcmd", "ls"]);
+    assert(opts.timeout == defaultTimeout_s.dur!"seconds");
+
     opts = parseUserArgs(["distcmd", "--timeout", "10"]);
     assert(opts.timeout == defaultTimeout_s.dur!"seconds");
 }
