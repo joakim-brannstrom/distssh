@@ -3,12 +3,16 @@
 Copyright: Copyright (c) 2018, Joakim Brännström. All rights reserved.
 License: $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost Software License 1.0)
 Author: Joakim Brännström (joakim.brannstrom@gmx.com)
+
+Methods prefixed with `cli_` are strongly related to user commands.
+They more or less fully implement a command line interface command.
 */
 module distssh;
 
 import core.time : Duration;
 import std.algorithm : splitter, map, filter, joiner;
 import std.exception : collectException;
+import std.stdio : File;
 import std.typecons : Nullable;
 import logger = std.experimental.logger;
 
@@ -46,118 +50,161 @@ version (unittest) {
 
 int appMain(const Options opts) nothrow {
     if (opts.exportEnv) {
-        import std.stdio : File;
-
-        auto s = cloneEnv(environ);
         try {
             auto fout = File(distsshEnvExport, "w");
-            foreach (kv; s.byKeyValue) {
-                fout.writefln("%s=%s", kv.key, kv.value);
-            }
+            cli_exportEnv(opts, fout);
+            return 0;
         }
         catch (Exception e) {
             logger.error(e.msg).collectException;
-        }
-    }
-
-    import std.string : fromStringz;
-
-    static import core.stdc.stdlib;
-
-    string hosts_env;
-    Nullable!Host host;
-
-    switch (opts.mode) with (Options.Mode) {
-    case importEnvCmd:
-        break;
-    default:
-        hosts_env = core.stdc.stdlib.getenv(&globalEnvironemntKey[0]).fromStringz.idup;
-        host = selectLowest(hosts_env, opts.timeout);
-
-        if (host.isNull) {
-            logger.errorf("No remote host found (%s='%s')",
-                    globalEnvironemntKey, hosts_env).collectException;
             return 1;
         }
     }
-
-    import std.process : spawnProcess, wait, Config;
-    import std.path : absolutePath, expandTilde, dirName, baseName, buildPath,
-        buildNormalizedPath;
-    import std.file : symlink;
 
     final switch (opts.mode) with (Options.Mode) {
     case install:
-        try {
-            symlink(opts.selfBinary, buildPath(opts.selfDir, distShell));
-            symlink(opts.selfBinary, buildPath(opts.selfDir, distCmd));
-            symlink(opts.selfBinary, buildPath(opts.selfDir, distsshCmdRecv));
-            return 0;
-        }
-        catch (Exception e) {
-            logger.error(e.msg).collectException;
-            return 1;
-        }
+        import std.file : symlink;
+
+        return cli_install(opts, (string src, string dst) => symlink(src, dst));
     case shell:
-        try {
-            return spawnProcess(["ssh", "-oStrictHostKeyChecking=no", host]).wait;
-        }
-        catch (Exception e) {
-            logger.error(e.msg).collectException;
-            return 1;
-        }
+        return cli_shell(opts);
     case cmd:
-        // #SPC-draft_remote_cmd_spec
-        try {
-            import std.file : getcwd;
-
-            immutable abs_cmd = buildNormalizedPath(opts.selfDir, distsshCmdRecv);
-            return spawnProcess(["ssh", "-oStrictHostKeyChecking=no", host,
-                    abs_cmd, getcwd, distsshEnvExport.absolutePath] ~ opts.command).wait;
-        }
-        catch (Exception e) {
-            logger.error(e.msg).collectException;
-            return 1;
-        }
+        return cli_cmd(opts);
     case importEnvCmd:
-        import std.stdio : File;
-        import std.file : exists;
-        import std.process : spawnShell;
-        import std.utf : toUTF8;
-
-        if (opts.command.length == 0)
-            return 0;
-
-        string[string] env;
-        try {
-            foreach (kv; File(opts.importEnv).byLine.map!(a => a.splitter("="))) {
-                string k = kv.front.idup;
-                string v;
-                kv.popFront;
-                if (!kv.empty)
-                    v = kv.front.idup;
-                env[k] = v;
-            }
-        }
-        catch (Exception e) {
-        }
-
-        try {
-            if (exists(opts.command[0])) {
-                return spawnProcess(opts.command, env, Config.none, opts.workDir).wait;
-            } else {
-                return spawnShell(opts.command.dup.joiner(" ").toUTF8, env,
-                        Config.none, opts.workDir).wait;
-            }
-        }
-        catch (Exception e) {
-            logger.error(e.msg).collectException;
-            return 1;
-        }
+        return cli_cmdWithImportedEnv(opts);
     }
 }
 
 private:
+
+void cli_exportEnv(const Options opts, ref File fout) {
+    auto s = cloneEnv(environ);
+    foreach (kv; s.byKeyValue) {
+        fout.writefln("%s=%s", kv.key, kv.value);
+    }
+}
+
+@("shall export the environment to the file")
+unittest {
+    import std.algorithm : canFind;
+    import std.file;
+
+    immutable remove_me = "remove_me.export";
+    auto fout = File(remove_me, "w");
+    scope (exit)
+        remove(remove_me);
+
+    auto opts = parseUserArgs(["distssh", "--export-env"]);
+
+    cli_exportEnv(opts, fout);
+
+    auto first_line = File(remove_me).byLine.front;
+    assert(first_line.canFind("="), first_line);
+}
+
+int cli_install(const Options opts, void delegate(string src, string dst) symlink) nothrow {
+    import std.path : buildPath;
+
+    try {
+        symlink(opts.selfBinary, buildPath(opts.selfDir, distShell));
+        symlink(opts.selfBinary, buildPath(opts.selfDir, distCmd));
+        symlink(opts.selfBinary, buildPath(opts.selfDir, distsshCmdRecv));
+        return 0;
+    }
+    catch (Exception e) {
+        logger.error(e.msg).collectException;
+        return 1;
+    }
+}
+
+@("shall create symlinks to self")
+unittest {
+    string[2][] symlinks;
+    void fakeSymlink(string src, string dst) {
+        string[2] v = [src, dst];
+        symlinks ~= v;
+    }
+
+    Options opts;
+    opts.selfBinary = "/foo/src";
+    opts.selfDir = "/bar";
+
+    cli_install(opts, &fakeSymlink);
+
+    assert(symlinks[0] == ["/foo/src", "/bar/distshell"]);
+    assert(symlinks[1] == ["/foo/src", "/bar/distcmd"]);
+    assert(symlinks[2] == ["/foo/src", "/bar/distcmd_recv"]);
+}
+
+int cli_shell(const Options opts) nothrow {
+    import std.process : spawnProcess, wait;
+
+    try {
+        auto host = selectLowestFromEnv(opts.timeout);
+        return spawnProcess(["ssh", "-oStrictHostKeyChecking=no", host]).wait;
+    }
+    catch (Exception e) {
+        logger.error(e.msg).collectException;
+        return 1;
+    }
+}
+
+int cli_cmd(const Options opts) nothrow {
+    import std.process : spawnProcess, wait;
+    import std.path : absolutePath, buildNormalizedPath;
+
+    // #SPC-draft_remote_cmd_spec
+    try {
+        import std.file : getcwd;
+
+        auto host = selectLowestFromEnv(opts.timeout);
+
+        immutable abs_cmd = buildNormalizedPath(opts.selfDir, distsshCmdRecv);
+        return spawnProcess(["ssh", "-oStrictHostKeyChecking=no", host,
+                abs_cmd, getcwd, distsshEnvExport.absolutePath] ~ opts.command).wait;
+    }
+    catch (Exception e) {
+        logger.error(e.msg).collectException;
+        return 1;
+    }
+}
+
+int cli_cmdWithImportedEnv(const Options opts) nothrow {
+    import std.stdio : File;
+    import std.file : exists;
+    import std.process : spawnProcess, wait, Config, spawnShell;
+    import std.utf : toUTF8;
+
+    if (opts.command.length == 0)
+        return 0;
+
+    string[string] env;
+    try {
+        foreach (kv; File(opts.importEnv).byLine.map!(a => a.splitter("="))) {
+            string k = kv.front.idup;
+            string v;
+            kv.popFront;
+            if (!kv.empty)
+                v = kv.front.idup;
+            env[k] = v;
+        }
+    }
+    catch (Exception e) {
+    }
+
+    try {
+        if (exists(opts.command[0])) {
+            return spawnProcess(opts.command, env, Config.none, opts.workDir).wait;
+        } else {
+            return spawnShell(opts.command.dup.joiner(" ").toUTF8, env, Config.none, opts.workDir)
+                .wait;
+        }
+    }
+    catch (Exception e) {
+        logger.error(e.msg).collectException;
+        return 1;
+    }
+}
 
 struct Options {
     import core.time : dur;
@@ -331,6 +378,22 @@ void printHelp(const Options opts) nothrow {
 struct Host {
     string payload;
     alias payload this;
+}
+
+Host selectLowestFromEnv(Duration timeout) {
+    import std.string : fromStringz;
+
+    static import core.stdc.stdlib;
+
+    string hosts_env = core.stdc.stdlib.getenv(&globalEnvironemntKey[0]).fromStringz.idup;
+    auto host = selectLowest(hosts_env, timeout);
+
+    if (host.isNull) {
+        throw new Exception("No remote host found (" ~ globalEnvironemntKey ~ "='" ~ hosts_env
+                ~ "')");
+    }
+
+    return host.get;
 }
 
 /**
