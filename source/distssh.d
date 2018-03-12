@@ -61,74 +61,17 @@ int appMain(const Options opts) nothrow {
         }
     }
 
-    import std.process : spawnProcess, wait, Config;
-    import std.path : absolutePath, expandTilde, dirName, baseName, buildPath,
-        buildNormalizedPath;
-
     final switch (opts.mode) with (Options.Mode) {
     case install:
         import std.file : symlink;
 
         return cli_install(opts, (string src, string dst) => symlink(src, dst));
     case shell:
-        try {
-            auto host = selectLowestFromEnv(opts.timeout);
-            return spawnProcess(["ssh", "-oStrictHostKeyChecking=no", host]).wait;
-        }
-        catch (Exception e) {
-            logger.error(e.msg).collectException;
-            return 1;
-        }
+        return cli_shell(opts);
     case cmd:
-        // #SPC-draft_remote_cmd_spec
-        try {
-            import std.file : getcwd;
-
-            auto host = selectLowestFromEnv(opts.timeout);
-
-            immutable abs_cmd = buildNormalizedPath(opts.selfDir, distsshCmdRecv);
-            return spawnProcess(["ssh", "-oStrictHostKeyChecking=no", host,
-                    abs_cmd, getcwd, distsshEnvExport.absolutePath] ~ opts.command).wait;
-        }
-        catch (Exception e) {
-            logger.error(e.msg).collectException;
-            return 1;
-        }
+        return cli_cmd(opts);
     case importEnvCmd:
-        import std.stdio : File;
-        import std.file : exists;
-        import std.process : spawnShell;
-        import std.utf : toUTF8;
-
-        if (opts.command.length == 0)
-            return 0;
-
-        string[string] env;
-        try {
-            foreach (kv; File(opts.importEnv).byLine.map!(a => a.splitter("="))) {
-                string k = kv.front.idup;
-                string v;
-                kv.popFront;
-                if (!kv.empty)
-                    v = kv.front.idup;
-                env[k] = v;
-            }
-        }
-        catch (Exception e) {
-        }
-
-        try {
-            if (exists(opts.command[0])) {
-                return spawnProcess(opts.command, env, Config.none, opts.workDir).wait;
-            } else {
-                return spawnShell(opts.command.dup.joiner(" ").toUTF8, env,
-                        Config.none, opts.workDir).wait;
-            }
-        }
-        catch (Exception e) {
-            logger.error(e.msg).collectException;
-            return 1;
-        }
+        return cli_cmdWithImportedEnv(opts);
     }
 }
 
@@ -191,6 +134,76 @@ unittest {
     assert(symlinks[0] == ["/foo/src", "/bar/distshell"]);
     assert(symlinks[1] == ["/foo/src", "/bar/distcmd"]);
     assert(symlinks[2] == ["/foo/src", "/bar/distcmd_recv"]);
+}
+
+int cli_shell(const Options opts) nothrow {
+    import std.process : spawnProcess, wait;
+
+    try {
+        auto host = selectLowestFromEnv(opts.timeout);
+        return spawnProcess(["ssh", "-oStrictHostKeyChecking=no", host]).wait;
+    }
+    catch (Exception e) {
+        logger.error(e.msg).collectException;
+        return 1;
+    }
+}
+
+int cli_cmd(const Options opts) nothrow {
+    import std.process : spawnProcess, wait;
+    import std.path : absolutePath, buildNormalizedPath;
+
+    // #SPC-draft_remote_cmd_spec
+    try {
+        import std.file : getcwd;
+
+        auto host = selectLowestFromEnv(opts.timeout);
+
+        immutable abs_cmd = buildNormalizedPath(opts.selfDir, distsshCmdRecv);
+        return spawnProcess(["ssh", "-oStrictHostKeyChecking=no", host,
+                abs_cmd, getcwd, distsshEnvExport.absolutePath] ~ opts.command).wait;
+    }
+    catch (Exception e) {
+        logger.error(e.msg).collectException;
+        return 1;
+    }
+}
+
+int cli_cmdWithImportedEnv(const Options opts) nothrow {
+    import std.stdio : File;
+    import std.file : exists;
+    import std.process : spawnProcess, wait, Config, spawnShell;
+    import std.utf : toUTF8;
+
+    if (opts.command.length == 0)
+        return 0;
+
+    string[string] env;
+    try {
+        foreach (kv; File(opts.importEnv).byLine.map!(a => a.splitter("="))) {
+            string k = kv.front.idup;
+            string v;
+            kv.popFront;
+            if (!kv.empty)
+                v = kv.front.idup;
+            env[k] = v;
+        }
+    }
+    catch (Exception e) {
+    }
+
+    try {
+        if (exists(opts.command[0])) {
+            return spawnProcess(opts.command, env, Config.none, opts.workDir).wait;
+        } else {
+            return spawnShell(opts.command.dup.joiner(" ").toUTF8, env, Config.none, opts.workDir)
+                .wait;
+        }
+    }
+    catch (Exception e) {
+        logger.error(e.msg).collectException;
+        return 1;
+    }
 }
 
 struct Options {
@@ -376,7 +389,8 @@ Host selectLowestFromEnv(Duration timeout) {
     auto host = selectLowest(hosts_env, timeout);
 
     if (host.isNull) {
-        throw new Exception("No remote host found (" ~ globalEnvironemntKey, "='" ~ hosts_env ~ "')");
+        throw new Exception("No remote host found (" ~ globalEnvironemntKey ~ "='" ~ hosts_env
+                ~ "')");
     }
 
     return host.get;
