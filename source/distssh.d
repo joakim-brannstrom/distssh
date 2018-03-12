@@ -282,6 +282,27 @@ unittest {
     assert(opts.selfBinary.baseName == "distcmd_recv");
 }
 
+@("shall either return the default timeout or the user specified timeout")
+unittest {
+    import core.time : dur;
+    import std.conv;
+
+    auto opts = parseUserArgs(["distssh", "ls"]);
+    assert(opts.timeout == defaultTimeout_s.dur!"seconds");
+    opts = parseUserArgs(["distssh", "--timeout", "10", "ls"]);
+    assert(opts.timeout == 10.dur!"seconds");
+
+    opts = parseUserArgs(["distshell"]);
+    assert(opts.timeout == defaultTimeout_s.dur!"seconds", opts.timeout.to!string);
+    opts = parseUserArgs(["distshell", "--timeout", "10"]);
+    assert(opts.timeout == 10.dur!"seconds");
+
+    opts = parseUserArgs(["distcmd", "ls"]);
+    assert(opts.timeout == defaultTimeout_s.dur!"seconds");
+    opts = parseUserArgs(["distcmd", "--timeout", "10"]);
+    assert(opts.timeout == defaultTimeout_s.dur!"seconds");
+}
+
 void printHelp(const Options opts) nothrow {
     import std.getopt : defaultGetoptPrinter;
     import std.format : format;
