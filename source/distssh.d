@@ -14,24 +14,40 @@ import logger = std.experimental.logger;
 
 static import std.getopt;
 
-extern extern(C) __gshared char** environ;
+extern extern (C) __gshared char** environ;
 
 immutable globalEnvironemntKey = "DISTSSH_HOSTS";
 immutable distShell = "distshell";
 immutable distCmd = "distcmd";
 immutable distsshCmdRecv = "distcmd_recv";
 immutable distsshEnvExport = "distssh_env.export";
+immutable ulong defaultTimeout_s = 2;
 
-int main(string[] args) nothrow {
-    const opts = parseUserArgs(args);
+version (unittest) {
+} else {
+    int main(string[] args) nothrow {
+        Options opts;
+        try {
+            opts = parseUserArgs(args);
+        }
+        catch (Exception e) {
+            logger.error(e.msg).collectException;
+            return 1;
+        }
 
-    if (opts.help) {
-        printHelp(opts);
-        return 0;
+        if (opts.help) {
+            printHelp(opts);
+            return 0;
+        }
+
+        return appMain(opts);
     }
+}
 
+int appMain(const Options opts) nothrow {
     if (opts.exportEnv) {
         import std.stdio : File;
+
         auto s = cloneEnv(environ);
         try {
             auto fout = File(distsshEnvExport, "w");
@@ -39,12 +55,13 @@ int main(string[] args) nothrow {
                 fout.writefln("%s=%s", kv.key, kv.value);
             }
         }
-        catch(Exception e) {
+        catch (Exception e) {
             logger.error(e.msg).collectException;
         }
     }
 
     import std.string : fromStringz;
+
     static import core.stdc.stdlib;
 
     string hosts_env;
@@ -58,26 +75,26 @@ int main(string[] args) nothrow {
         host = selectLowest(hosts_env, opts.timeout);
 
         if (host.isNull) {
-            logger.errorf("No remote host found (%s='%s')", globalEnvironemntKey, hosts_env).collectException;
+            logger.errorf("No remote host found (%s='%s')",
+                    globalEnvironemntKey, hosts_env).collectException;
             return 1;
         }
     }
 
     import std.process : spawnProcess, wait, Config;
-    import std.path : absolutePath, expandTilde, dirName, baseName, buildPath, buildNormalizedPath;
+    import std.path : absolutePath, expandTilde, dirName, baseName, buildPath,
+        buildNormalizedPath;
     import std.file : symlink;
 
     final switch (opts.mode) with (Options.Mode) {
     case install:
         try {
-            immutable original = opts.selfBinary.expandTilde.absolutePath;
-            immutable base = original.dirName;
-            symlink(original, buildPath(base, distShell));
-            symlink(original, buildPath(base, distCmd));
-            symlink(original, buildPath(base, distsshCmdRecv));
+            symlink(opts.selfBinary, buildPath(opts.selfDir, distShell));
+            symlink(opts.selfBinary, buildPath(opts.selfDir, distCmd));
+            symlink(opts.selfBinary, buildPath(opts.selfDir, distsshCmdRecv));
             return 0;
         }
-        catch(Exception e) {
+        catch (Exception e) {
             logger.error(e.msg).collectException;
             return 1;
         }
@@ -85,7 +102,7 @@ int main(string[] args) nothrow {
         try {
             return spawnProcess(["ssh", "-oStrictHostKeyChecking=no", host]).wait;
         }
-        catch(Exception e) {
+        catch (Exception e) {
             logger.error(e.msg).collectException;
             return 1;
         }
@@ -93,10 +110,12 @@ int main(string[] args) nothrow {
         // #SPC-draft_remote_cmd_spec
         try {
             import std.file : getcwd;
+
             immutable abs_cmd = buildNormalizedPath(opts.selfDir, distsshCmdRecv);
-            return spawnProcess(["ssh", "-oStrictHostKeyChecking=no", host, abs_cmd, getcwd, distsshEnvExport.absolutePath] ~ opts.command).wait;
+            return spawnProcess(["ssh", "-oStrictHostKeyChecking=no", host,
+                    abs_cmd, getcwd, distsshEnvExport.absolutePath] ~ opts.command).wait;
         }
-        catch(Exception e) {
+        catch (Exception e) {
             logger.error(e.msg).collectException;
             return 1;
         }
@@ -119,17 +138,19 @@ int main(string[] args) nothrow {
                     v = kv.front.idup;
                 env[k] = v;
             }
-        } catch(Exception e) {
+        }
+        catch (Exception e) {
         }
 
         try {
             if (exists(opts.command[0])) {
                 return spawnProcess(opts.command, env, Config.none, opts.workDir).wait;
             } else {
-                return spawnShell(opts.command.dup.joiner(" ").toUTF8, env, Config.none, opts.workDir).wait;
+                return spawnShell(opts.command.dup.joiner(" ").toUTF8, env,
+                        Config.none, opts.workDir).wait;
             }
         }
-        catch(Exception e) {
+        catch (Exception e) {
             logger.error(e.msg).collectException;
             return 1;
         }
@@ -139,6 +160,8 @@ int main(string[] args) nothrow {
 private:
 
 struct Options {
+    import core.time : dur;
+
     enum Mode {
         shell,
         cmd,
@@ -152,7 +175,7 @@ struct Options {
     bool exportEnv;
     std.getopt.GetoptResult help_info;
 
-    Duration timeout;
+    Duration timeout = defaultTimeout_s.dur!"seconds";
 
     string selfBinary;
     string selfDir;
@@ -162,17 +185,14 @@ struct Options {
     string[] command;
 }
 
-Options parseUserArgs(string[] args) nothrow {
-    import std.path : dirName, expandTilde, absolutePath, baseName;
+Options parseUserArgs(string[] args) {
+    import std.file : thisExePath;
+    import std.path : dirName, baseName, buildPath;
 
     Options opts;
-    opts.selfBinary = args[0];
-    try {
-        opts.selfDir = opts.selfBinary.expandTilde.absolutePath.dirName;
-    }
-    catch(Exception e) {
-        logger.warning(e.msg).collectException;
-    }
+
+    opts.selfBinary = buildPath(thisExePath.dirName, args[0].baseName);
+    opts.selfDir = opts.selfBinary.dirName;
 
     // #SPC-remote_command_parse
     switch (opts.selfBinary.baseName) {
@@ -194,9 +214,10 @@ Options parseUserArgs(string[] args) nothrow {
 
     bool remote_shell;
     bool install;
-    ulong timeout_s = 2;
 
     try {
+        ulong timeout_s;
+
         // dfmt off
         opts.help_info = std.getopt.getopt(args, std.getopt.config.passThrough,
             std.getopt.config.keepEndOfOptions,
@@ -209,7 +230,9 @@ Options parseUserArgs(string[] args) nothrow {
         opts.help = opts.help_info.helpWanted;
 
         import core.time : dur;
-        opts.timeout = timeout_s.dur!"seconds";
+
+        if (timeout_s > 0)
+            opts.timeout = timeout_s.dur!"seconds";
     }
     catch (std.getopt.GetOptException e) {
         // unknown option
@@ -241,15 +264,66 @@ Options parseUserArgs(string[] args) nothrow {
     return opts;
 }
 
+@("shall determine the absolute path of self")
+unittest {
+    import std.path;
+    import std.file;
+
+    auto opts = parseUserArgs(["distssh", "ls"]);
+    assert(opts.selfBinary[0] == '/');
+    assert(opts.selfBinary.baseName == "distssh");
+
+    opts = parseUserArgs(["distshell"]);
+    assert(opts.selfBinary[0] == '/');
+    assert(opts.selfBinary.baseName == "distshell");
+
+    opts = parseUserArgs(["distcmd"]);
+    assert(opts.selfBinary[0] == '/');
+    assert(opts.selfBinary.baseName == "distcmd");
+
+    opts = parseUserArgs(["distcmd_recv", getcwd, distsshEnvExport]);
+    assert(opts.selfBinary[0] == '/');
+    assert(opts.selfBinary.baseName == "distcmd_recv");
+}
+
+@("shall either return the default timeout or the user specified timeout")
+unittest {
+    import core.time : dur;
+    import std.conv;
+
+    auto opts = parseUserArgs(["distssh", "ls"]);
+    assert(opts.timeout == defaultTimeout_s.dur!"seconds");
+    opts = parseUserArgs(["distssh", "--timeout", "10", "ls"]);
+    assert(opts.timeout == 10.dur!"seconds");
+
+    opts = parseUserArgs(["distshell"]);
+    assert(opts.timeout == defaultTimeout_s.dur!"seconds", opts.timeout.to!string);
+    opts = parseUserArgs(["distshell", "--timeout", "10"]);
+    assert(opts.timeout == defaultTimeout_s.dur!"seconds");
+}
+
+@("shall only be the default timeout because --timeout should be passed on to the command")
+unittest {
+    import core.time : dur;
+    import std.conv;
+
+    auto opts = parseUserArgs(["distcmd", "ls"]);
+    assert(opts.timeout == defaultTimeout_s.dur!"seconds");
+
+    opts = parseUserArgs(["distcmd", "--timeout", "10"]);
+    assert(opts.timeout == defaultTimeout_s.dur!"seconds");
+}
+
 void printHelp(const Options opts) nothrow {
     import std.getopt : defaultGetoptPrinter;
     import std.format : format;
     import std.path : baseName;
 
     try {
-        defaultGetoptPrinter(format("usage: %s [options] [COMMAND]\n", opts.selfBinary.baseName), opts.help_info.options.dup);
+        defaultGetoptPrinter(format("usage: %s [options] [COMMAND]\n",
+                opts.selfBinary.baseName), opts.help_info.options.dup);
     }
-    catch(Exception e) {
+    catch (Exception e) {
         logger.error(e.msg).collectException;
     }
 }
@@ -377,7 +451,7 @@ Env cloneEnv(char** env) nothrow {
 
     Env app;
 
-    for (size_t i; env[i] !is null; ++i) {
+    for (size_t i; env[i]!is null; ++i) {
         const raw = env[i].fromStringz;
         const pos = raw.indexOf('=');
 
