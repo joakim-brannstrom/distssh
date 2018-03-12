@@ -83,6 +83,18 @@ No other reason than that.
 
 This should probably be investigated further.
 
+# SPC-measure_remote_hosts
+partof: SPC-best_remote_host
+###
+
+The program shall print the measurements of all remote hosts on user command.
+
+## Why?
+Because it makes it possible to find bottlenecks among the remote hosts.
+Makes it possible to adjust the default timeout to a sane value.
+
+TODO: consider if the default timeout should be configurable.
+
 # SPC-remote_shell_config
 partof: REQ-uc_user_ctrl_of_remote_login
 ###

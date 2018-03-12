@@ -72,6 +72,15 @@ int appMain(const Options opts) nothrow {
         return cli_cmd(opts);
     case importEnvCmd:
         return cli_cmdWithImportedEnv(opts);
+    case measureHosts:
+        try {
+            cli_measureHosts(opts);
+            return 0;
+        }
+        catch (Exception e) {
+            logger.error(e.msg).collectException;
+            return 1;
+        }
     }
 }
 
@@ -206,6 +215,41 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
     }
 }
 
+int cli_measureHosts(const Options opts) {
+    import core.time : dur;
+    import std.array : array;
+    import std.algorithm : sort;
+    import std.conv : to;
+    import std.parallelism : taskPool;
+    import std.stdio : writefln, writeln;
+    import std.string : fromStringz;
+    import std.typecons : tuple;
+
+    static import core.stdc.stdlib;
+
+    string hosts_env = core.stdc.stdlib.getenv(&globalEnvironemntKey[0]).fromStringz.idup;
+
+    static auto loadHost(T)(T host_to) {
+        return tuple(host_to[0], getLoad(host_to[0], host_to[1]));
+    }
+
+    auto shosts = hosts_env.splitter(";").map!(a => tuple(Host(a), opts.timeout)).array;
+
+    writefln("Configured hosts (%s): %(%s|%)", globalEnvironemntKey, shosts.map!(a => a[0]));
+    writeln("Access Time -> Host");
+
+    // dfmt off
+    foreach(a; taskPool.map!loadHost(shosts, 100, 1)
+        .array
+        .sort!((a,b) { if (a[1].isNull) return false; if (b[1].isNull) return true; return a[1].accessTime < b[1].accessTime; })) {
+
+        writefln("%s -> %s", a[1].isNull ? "timeout" : a[1].get.accessTime.to!string, a[0]);
+    }
+    // dfmt on
+
+    return 0;
+}
+
 struct Options {
     import core.time : dur;
 
@@ -214,6 +258,7 @@ struct Options {
         cmd,
         importEnvCmd,
         install,
+        measureHosts,
     }
 
     Mode mode;
@@ -259,10 +304,10 @@ Options parseUserArgs(string[] args) {
     default:
     }
 
-    bool remote_shell;
-    bool install;
-
     try {
+        bool remote_shell;
+        bool install;
+        bool measure_hosts;
         ulong timeout_s;
 
         // dfmt off
@@ -272,6 +317,7 @@ Options parseUserArgs(string[] args) {
             "shell", "open an interactive shell on the remote host", &remote_shell,
             "export-env", "export the current env to the remote host to be used", &opts.exportEnv,
             "timeout", "timeout to use when checking remote hosts", &timeout_s,
+            "measure", "measure the login time and load of all remote hosts", &measure_hosts,
             );
         // dfmt on
         opts.help = opts.help_info.helpWanted;
@@ -280,6 +326,16 @@ Options parseUserArgs(string[] args) {
 
         if (timeout_s > 0)
             opts.timeout = timeout_s.dur!"seconds";
+
+        if (install)
+            opts.mode = Options.Mode.install;
+        else if (remote_shell)
+            opts.mode = Options.Mode.shell;
+        else if (measure_hosts)
+            opts.mode = Options.Mode.measureHosts;
+        else
+            opts.mode = Options.Mode.cmd;
+
     }
     catch (std.getopt.GetOptException e) {
         // unknown option
@@ -290,13 +346,6 @@ Options parseUserArgs(string[] args) {
         opts.help = true;
         logger.error(e.msg).collectException;
     }
-
-    if (install)
-        opts.mode = Options.Mode.install;
-    else if (remote_shell)
-        opts.mode = Options.Mode.shell;
-    else
-        opts.mode = Options.Mode.cmd;
 
     if (args.length > 1) {
         import std.algorithm : find;
@@ -429,7 +478,7 @@ Nullable!Host selectLowest(string hosts, Duration timeout) nothrow {
             .map!(a => tuple(a[0], a[1].get))
             .array
             .sort!((a,b) => a[1] < b[1])
-            .take(2).array;
+            .take(3).array;
         // dfmt on
 
         if (measured.length > 0) {
@@ -448,6 +497,8 @@ Nullable!Host selectLowest(string hosts, Duration timeout) nothrow {
 struct Load {
     double payload;
     alias payload this;
+
+    Duration accessTime;
 }
 
 /** Login on host and measure its load.
@@ -468,7 +519,8 @@ Nullable!Load getLoad(Host h, Duration timeout) nothrow {
     try {
         auto res = pipeProcess(["ssh", "-oStrictHostKeyChecking=no", h, "cat", "/proc/loadavg"]);
 
-        auto stop_at = MonoTime.currTime + timeout;
+        const start_at = MonoTime.currTime;
+        const stop_at = start_at + timeout;
         while (true) {
             auto st = res.pid.tryWait;
 
@@ -484,7 +536,7 @@ Nullable!Load getLoad(Host h, Duration timeout) nothrow {
         }
 
         foreach (a; res.stdout.byLine.takeOne.map!(a => a.splitter(" ")).joiner.takeOne) {
-            return typeof(return)(a.to!double.Load);
+            return typeof(return)(Load(a.to!double, MonoTime.currTime - start_at));
         }
     }
     catch (Exception e) {
