@@ -3,12 +3,16 @@
 Copyright: Copyright (c) 2018, Joakim Brännström. All rights reserved.
 License: $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost Software License 1.0)
 Author: Joakim Brännström (joakim.brannstrom@gmx.com)
+
+Methods prefixed with `cli_` are strongly related to user commands.
+They more or less fully implement a command line interface command.
 */
 module distssh;
 
 import core.time : Duration;
 import std.algorithm : splitter, map, filter, joiner;
 import std.exception : collectException;
+import std.stdio : File;
 import std.typecons : Nullable;
 import logger = std.experimental.logger;
 
@@ -46,17 +50,14 @@ version (unittest) {
 
 int appMain(const Options opts) nothrow {
     if (opts.exportEnv) {
-        import std.stdio : File;
-
-        auto s = cloneEnv(environ);
         try {
             auto fout = File(distsshEnvExport, "w");
-            foreach (kv; s.byKeyValue) {
-                fout.writefln("%s=%s", kv.key, kv.value);
-            }
+            cli_exportEnv(opts, fout);
+            return 0;
         }
         catch (Exception e) {
             logger.error(e.msg).collectException;
+            return 1;
         }
     }
 
@@ -158,6 +159,31 @@ int appMain(const Options opts) nothrow {
 }
 
 private:
+
+void cli_exportEnv(const Options opts, ref File fout) {
+    auto s = cloneEnv(environ);
+    foreach (kv; s.byKeyValue) {
+        fout.writefln("%s=%s", kv.key, kv.value);
+    }
+}
+
+@("shall export the environment to the file")
+unittest {
+    import std.algorithm : canFind;
+    import std.file;
+
+    immutable remove_me = "remove_me.export";
+    auto fout = File(remove_me, "w");
+    scope (exit)
+        remove(remove_me);
+
+    auto opts = parseUserArgs(["distssh", "--export-env"]);
+
+    cli_exportEnv(opts, fout);
+
+    auto first_line = File(remove_me).byLine.front;
+    assert(first_line.canFind("="), first_line);
+}
 
 struct Options {
     import core.time : dur;
