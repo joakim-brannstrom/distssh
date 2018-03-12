@@ -89,11 +89,9 @@ int appMain(const Options opts) nothrow {
     final switch (opts.mode) with (Options.Mode) {
     case install:
         try {
-            immutable original = opts.selfBinary.expandTilde.absolutePath;
-            immutable base = original.dirName;
-            symlink(original, buildPath(base, distShell));
-            symlink(original, buildPath(base, distCmd));
-            symlink(original, buildPath(base, distsshCmdRecv));
+            symlink(opts.selfBinary, buildPath(opts.selfDir, distShell));
+            symlink(opts.selfBinary, buildPath(opts.selfDir, distCmd));
+            symlink(opts.selfBinary, buildPath(opts.selfDir, distsshCmdRecv));
             return 0;
         }
         catch (Exception e) {
