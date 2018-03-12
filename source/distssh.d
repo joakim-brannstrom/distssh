@@ -61,27 +61,6 @@ int appMain(const Options opts) nothrow {
         }
     }
 
-    import std.string : fromStringz;
-
-    static import core.stdc.stdlib;
-
-    string hosts_env;
-    Nullable!Host host;
-
-    switch (opts.mode) with (Options.Mode) {
-    case importEnvCmd:
-        break;
-    default:
-        hosts_env = core.stdc.stdlib.getenv(&globalEnvironemntKey[0]).fromStringz.idup;
-        host = selectLowest(hosts_env, opts.timeout);
-
-        if (host.isNull) {
-            logger.errorf("No remote host found (%s='%s')",
-                    globalEnvironemntKey, hosts_env).collectException;
-            return 1;
-        }
-    }
-
     import std.process : spawnProcess, wait, Config;
     import std.path : absolutePath, expandTilde, dirName, baseName, buildPath,
         buildNormalizedPath;
@@ -101,6 +80,7 @@ int appMain(const Options opts) nothrow {
         }
     case shell:
         try {
+            auto host = selectLowestFromEnv(opts.timeout);
             return spawnProcess(["ssh", "-oStrictHostKeyChecking=no", host]).wait;
         }
         catch (Exception e) {
@@ -111,6 +91,8 @@ int appMain(const Options opts) nothrow {
         // #SPC-draft_remote_cmd_spec
         try {
             import std.file : getcwd;
+
+            auto host = selectLowestFromEnv(opts.timeout);
 
             immutable abs_cmd = buildNormalizedPath(opts.selfDir, distsshCmdRecv);
             return spawnProcess(["ssh", "-oStrictHostKeyChecking=no", host,
@@ -357,6 +339,21 @@ void printHelp(const Options opts) nothrow {
 struct Host {
     string payload;
     alias payload this;
+}
+
+Host selectLowestFromEnv(Duration timeout) {
+    import std.string : fromStringz;
+
+    static import core.stdc.stdlib;
+
+    string hosts_env = core.stdc.stdlib.getenv(&globalEnvironemntKey[0]).fromStringz.idup;
+    auto host = selectLowest(hosts_env, timeout);
+
+    if (host.isNull) {
+        throw new Exception("No remote host found (" ~ globalEnvironemntKey, "='" ~ hosts_env ~ "')");
+    }
+
+    return host.get;
 }
 
 /**
