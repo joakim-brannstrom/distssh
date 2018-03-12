@@ -21,6 +21,7 @@ immutable distShell = "distshell";
 immutable distCmd = "distcmd";
 immutable distsshCmdRecv = "distcmd_recv";
 immutable distsshEnvExport = "distssh_env.export";
+immutable ulong defaultTimeout_s = 2;
 
 version (unittest) {
 } else {
@@ -213,7 +214,7 @@ Options parseUserArgs(string[] args) {
 
     bool remote_shell;
     bool install;
-    ulong timeout_s = 2;
+    ulong timeout_s = defaultTimeout_s;
 
     try {
         // dfmt off
