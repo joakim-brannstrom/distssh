@@ -64,20 +64,12 @@ int appMain(const Options opts) nothrow {
     import std.process : spawnProcess, wait, Config;
     import std.path : absolutePath, expandTilde, dirName, baseName, buildPath,
         buildNormalizedPath;
-    import std.file : symlink;
 
     final switch (opts.mode) with (Options.Mode) {
     case install:
-        try {
-            symlink(opts.selfBinary, buildPath(opts.selfDir, distShell));
-            symlink(opts.selfBinary, buildPath(opts.selfDir, distCmd));
-            symlink(opts.selfBinary, buildPath(opts.selfDir, distsshCmdRecv));
-            return 0;
-        }
-        catch (Exception e) {
-            logger.error(e.msg).collectException;
-            return 1;
-        }
+        import std.file : symlink;
+
+        return cli_install(opts, (string src, string dst) => symlink(src, dst));
     case shell:
         try {
             auto host = selectLowestFromEnv(opts.timeout);
@@ -165,6 +157,40 @@ unittest {
 
     auto first_line = File(remove_me).byLine.front;
     assert(first_line.canFind("="), first_line);
+}
+
+int cli_install(const Options opts, void delegate(string src, string dst) symlink) nothrow {
+    import std.path : buildPath;
+
+    try {
+        symlink(opts.selfBinary, buildPath(opts.selfDir, distShell));
+        symlink(opts.selfBinary, buildPath(opts.selfDir, distCmd));
+        symlink(opts.selfBinary, buildPath(opts.selfDir, distsshCmdRecv));
+        return 0;
+    }
+    catch (Exception e) {
+        logger.error(e.msg).collectException;
+        return 1;
+    }
+}
+
+@("shall create symlinks to self")
+unittest {
+    string[2][] symlinks;
+    void fakeSymlink(string src, string dst) {
+        string[2] v = [src, dst];
+        symlinks ~= v;
+    }
+
+    Options opts;
+    opts.selfBinary = "/foo/src";
+    opts.selfDir = "/bar";
+
+    cli_install(opts, &fakeSymlink);
+
+    assert(symlinks[0] == ["/foo/src", "/bar/distshell"]);
+    assert(symlinks[1] == ["/foo/src", "/bar/distcmd"]);
+    assert(symlinks[2] == ["/foo/src", "/bar/distcmd_recv"]);
 }
 
 struct Options {
