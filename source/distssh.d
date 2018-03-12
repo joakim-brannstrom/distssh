@@ -14,7 +14,7 @@ import logger = std.experimental.logger;
 
 static import std.getopt;
 
-extern extern(C) __gshared char** environ;
+extern extern (C) __gshared char** environ;
 
 immutable globalEnvironemntKey = "DISTSSH_HOSTS";
 immutable distShell = "distshell";
@@ -22,16 +22,24 @@ immutable distCmd = "distcmd";
 immutable distsshCmdRecv = "distcmd_recv";
 immutable distsshEnvExport = "distssh_env.export";
 
-int main(string[] args) nothrow {
-    const opts = parseUserArgs(args);
+version (unittest) {
+} else {
+    int main(string[] args) nothrow {
+        const opts = parseUserArgs(args);
 
-    if (opts.help) {
-        printHelp(opts);
-        return 0;
+        if (opts.help) {
+            printHelp(opts);
+            return 0;
+        }
+
+        return appMain(opts);
     }
+}
 
+int appMain(const Options opts) nothrow {
     if (opts.exportEnv) {
         import std.stdio : File;
+
         auto s = cloneEnv(environ);
         try {
             auto fout = File(distsshEnvExport, "w");
@@ -39,12 +47,13 @@ int main(string[] args) nothrow {
                 fout.writefln("%s=%s", kv.key, kv.value);
             }
         }
-        catch(Exception e) {
+        catch (Exception e) {
             logger.error(e.msg).collectException;
         }
     }
 
     import std.string : fromStringz;
+
     static import core.stdc.stdlib;
 
     string hosts_env;
@@ -58,13 +67,15 @@ int main(string[] args) nothrow {
         host = selectLowest(hosts_env, opts.timeout);
 
         if (host.isNull) {
-            logger.errorf("No remote host found (%s='%s')", globalEnvironemntKey, hosts_env).collectException;
+            logger.errorf("No remote host found (%s='%s')",
+                    globalEnvironemntKey, hosts_env).collectException;
             return 1;
         }
     }
 
     import std.process : spawnProcess, wait, Config;
-    import std.path : absolutePath, expandTilde, dirName, baseName, buildPath, buildNormalizedPath;
+    import std.path : absolutePath, expandTilde, dirName, baseName, buildPath,
+        buildNormalizedPath;
     import std.file : symlink;
 
     final switch (opts.mode) with (Options.Mode) {
@@ -77,7 +88,7 @@ int main(string[] args) nothrow {
             symlink(original, buildPath(base, distsshCmdRecv));
             return 0;
         }
-        catch(Exception e) {
+        catch (Exception e) {
             logger.error(e.msg).collectException;
             return 1;
         }
@@ -85,7 +96,7 @@ int main(string[] args) nothrow {
         try {
             return spawnProcess(["ssh", "-oStrictHostKeyChecking=no", host]).wait;
         }
-        catch(Exception e) {
+        catch (Exception e) {
             logger.error(e.msg).collectException;
             return 1;
         }
@@ -93,10 +104,12 @@ int main(string[] args) nothrow {
         // #SPC-draft_remote_cmd_spec
         try {
             import std.file : getcwd;
+
             immutable abs_cmd = buildNormalizedPath(opts.selfDir, distsshCmdRecv);
-            return spawnProcess(["ssh", "-oStrictHostKeyChecking=no", host, abs_cmd, getcwd, distsshEnvExport.absolutePath] ~ opts.command).wait;
+            return spawnProcess(["ssh", "-oStrictHostKeyChecking=no", host,
+                    abs_cmd, getcwd, distsshEnvExport.absolutePath] ~ opts.command).wait;
         }
-        catch(Exception e) {
+        catch (Exception e) {
             logger.error(e.msg).collectException;
             return 1;
         }
@@ -119,17 +132,19 @@ int main(string[] args) nothrow {
                     v = kv.front.idup;
                 env[k] = v;
             }
-        } catch(Exception e) {
+        }
+        catch (Exception e) {
         }
 
         try {
             if (exists(opts.command[0])) {
                 return spawnProcess(opts.command, env, Config.none, opts.workDir).wait;
             } else {
-                return spawnShell(opts.command.dup.joiner(" ").toUTF8, env, Config.none, opts.workDir).wait;
+                return spawnShell(opts.command.dup.joiner(" ").toUTF8, env,
+                        Config.none, opts.workDir).wait;
             }
         }
-        catch(Exception e) {
+        catch (Exception e) {
             logger.error(e.msg).collectException;
             return 1;
         }
@@ -170,7 +185,7 @@ Options parseUserArgs(string[] args) nothrow {
     try {
         opts.selfDir = opts.selfBinary.expandTilde.absolutePath.dirName;
     }
-    catch(Exception e) {
+    catch (Exception e) {
         logger.warning(e.msg).collectException;
     }
 
@@ -209,6 +224,7 @@ Options parseUserArgs(string[] args) nothrow {
         opts.help = opts.help_info.helpWanted;
 
         import core.time : dur;
+
         opts.timeout = timeout_s.dur!"seconds";
     }
     catch (std.getopt.GetOptException e) {
@@ -241,15 +257,39 @@ Options parseUserArgs(string[] args) nothrow {
     return opts;
 }
 
+@("shall determine the absolute path of self")
+unittest {
+    import std.path;
+
+    auto opts = parseUserArgs(["distssh", "ls"]);
+    logger.trace(opts.selfBinary);
+
+    assert(opts.selfBinary[0] == '/');
+    assert(opts.selfBinary.baseName == "distssh");
+
+    opts = parseUserArgs(["distshell"]);
+    assert(opts.selfBinary[0] == '/');
+    assert(opts.selfBinary.baseName == "distshell");
+
+    opts = parseUserArgs(["distcmd"]);
+    assert(opts.selfBinary[0] == '/');
+    assert(opts.selfBinary.baseName == "distcmd");
+
+    opts = parseUserArgs(["distcmd_recv"]);
+    assert(opts.selfBinary[0] == '/');
+    assert(opts.selfBinary.baseName == "distcmd_recv");
+}
+
 void printHelp(const Options opts) nothrow {
     import std.getopt : defaultGetoptPrinter;
     import std.format : format;
     import std.path : baseName;
 
     try {
-        defaultGetoptPrinter(format("usage: %s [options] [COMMAND]\n", opts.selfBinary.baseName), opts.help_info.options.dup);
+        defaultGetoptPrinter(format("usage: %s [options] [COMMAND]\n",
+                opts.selfBinary.baseName), opts.help_info.options.dup);
     }
-    catch(Exception e) {
+    catch (Exception e) {
         logger.error(e.msg).collectException;
     }
 }
@@ -377,7 +417,7 @@ Env cloneEnv(char** env) nothrow {
 
     Env app;
 
-    for (size_t i; env[i] !is null; ++i) {
+    for (size_t i; env[i]!is null; ++i) {
         const raw = env[i].fromStringz;
         const pos = raw.indexOf('=');
 
