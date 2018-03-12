@@ -215,6 +215,7 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
     }
 }
 
+// #SPC-measure_remote_hosts
 int cli_measureHosts(const Options opts) {
     import core.time : dur;
     import std.array : array;
