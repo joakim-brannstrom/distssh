@@ -225,6 +225,7 @@ int cli_measureHosts(const Options opts) {
     import std.stdio : writefln, writeln;
     import std.string : fromStringz;
     import std.typecons : tuple;
+    import std.parallelism : TaskPool;
 
     static import core.stdc.stdlib;
 
@@ -240,8 +241,11 @@ int cli_measureHosts(const Options opts) {
     writeln("-1 on Access Time or Load mean it reached the timeout");
     writeln("Host | Access Time | Load");
 
+    auto pool = new TaskPool(shosts.length + 1);
+    scope(exit) pool.stop;
+
     // dfmt off
-    foreach(a; taskPool.map!loadHost(shosts, 100, 1)
+    foreach(a; pool.map!loadHost(shosts)
         .array
         .sort!((a,b) { if (a[1].isNull) return false; if (b[1].isNull) return true; return a[1].accessTime < b[1].accessTime; })) {
 
@@ -459,7 +463,7 @@ Nullable!Host selectLowest(string hosts, Duration timeout) nothrow {
     import std.typecons : tuple;
     import std.algorithm : sort;
     import std.random : uniform;
-    import std.parallelism : taskPool;
+    import std.parallelism : TaskPool;
 
     try {
         if (hosts.length == 0)
@@ -473,9 +477,12 @@ Nullable!Host selectLowest(string hosts, Duration timeout) nothrow {
         if (shosts.length == 1)
             return typeof(return)(Host(shosts[0][0]));
 
+        auto pool = new TaskPool(shosts.length + 1);
+        scope(exit) pool.stop;
+
         // dfmt off
         auto measured =
-            taskPool.map!loadHost(shosts, 100, 1)
+            pool.map!loadHost(shosts)
             .filter!(a => !a[1].isNull)
             .map!(a => tuple(a[0], a[1].get))
             .array
