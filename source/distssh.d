@@ -74,6 +74,11 @@ int appMain(const Options opts) nothrow {
     if (opts.exportEnv) {
         try {
             auto fout = File(opts.importEnv, "w");
+
+            import core.sys.posix.sys.stat : fchmod, S_IRUSR, S_IWUSR;
+
+            fchmod(fout.fileno, S_IRUSR | S_IWUSR);
+
             cli_exportEnv(opts, fout);
             return 0;
         }
