@@ -206,3 +206,13 @@ Thus the process of launching a remote process is a multi stage rocket.
  * This is commands that are ran but not directly by the user.
    This could be for example make calling the shell.
    The program should in this case intercept configured commands and distribute those over servers.
+
+# SPC-early_terminate_no_processes_left
+partof: REQ-uc_remote_command
+###
+
+The program shall terminate all remote processes when the local distssh process is killed with SIGKILL.
+
+## Why?
+
+It is a problem that remote programs that end up in an infinite loop are left behind.

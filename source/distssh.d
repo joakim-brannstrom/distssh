@@ -201,6 +201,7 @@ int cli_cmd(const Options opts) nothrow {
 
         immutable abs_cmd = buildNormalizedPath(opts.selfDir, distsshCmdRecv);
 
+        // #SPC-early_terminate_no_processes_left
         // -t is important in case the remote command end up in an infinite loop
         return spawnProcess(["ssh", "-t", "-oStrictHostKeyChecking=no", host,
                 abs_cmd, getcwd, opts.importEnv.absolutePath] ~ opts.command).wait;
