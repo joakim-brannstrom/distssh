@@ -237,14 +237,15 @@ int cli_measureHosts(const Options opts) {
     auto shosts = hosts_env.splitter(";").map!(a => tuple(Host(a), opts.timeout)).array;
 
     writefln("Configured hosts (%s): %(%s|%)", globalEnvironemntKey, shosts.map!(a => a[0]));
-    writeln("Access Time -> Host");
+    writeln("-1 on Access Time or Load mean it reached the timeout");
+    writeln("Host | Access Time | Load");
 
     // dfmt off
     foreach(a; taskPool.map!loadHost(shosts, 100, 1)
         .array
         .sort!((a,b) { if (a[1].isNull) return false; if (b[1].isNull) return true; return a[1].accessTime < b[1].accessTime; })) {
 
-        writefln("%s -> %s", a[1].isNull ? "timeout" : a[1].get.accessTime.to!string, a[0]);
+        writefln("%s | %s | %s", a[0], a[1].isNull ? "-1" : a[1].get.accessTime.to!string, a[1].isNull ? "-1" : a[1].get.to!string);
     }
     // dfmt on
 
