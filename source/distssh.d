@@ -30,6 +30,17 @@ immutable ulong defaultTimeout_s = 2;
 version (unittest) {
 } else {
     int main(string[] args) nothrow {
+        import app_logger;
+
+        SimpleLogger simple_logger;
+        try {
+            simple_logger = new SimpleLogger();
+            logger.sharedLog(simple_logger);
+        }
+        catch (Exception e) {
+            logger.warning(e.msg).collectException;
+        }
+
         Options opts;
         try {
             opts = parseUserArgs(args);
@@ -37,6 +48,17 @@ version (unittest) {
         catch (Exception e) {
             logger.error(e.msg).collectException;
             return 1;
+        }
+
+        try {
+            if (opts.verbose) {
+                logger.globalLogLevel(logger.LogLevel.trace);
+            } else {
+                logger.globalLogLevel(logger.LogLevel.warning);
+            }
+        }
+        catch (Exception e) {
+            logger.warning(e.msg).collectException;
         }
 
         if (opts.help) {
@@ -313,6 +335,7 @@ struct Options {
 
     bool help;
     bool exportEnv;
+    bool verbose;
     std.getopt.GetoptResult help_info;
 
     Duration timeout = defaultTimeout_s.dur!"seconds";
@@ -368,6 +391,7 @@ Options parseUserArgs(string[] args) {
             "timeout", "timeout to use when checking remote hosts", &timeout_s,
             "measure", "measure the login time and load of all remote hosts", &measure_hosts,
             "local-load", "measure the load on the current host", &local_load,
+            "v|verbose", "verbose logging", &opts.verbose,
             );
         // dfmt on
         opts.help = opts.help_info.helpWanted;
