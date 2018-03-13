@@ -81,6 +81,10 @@ int appMain(const Options opts) nothrow {
             logger.error(e.msg).collectException;
             return 1;
         }
+    case localLoad:
+        import std.stdio : writeln;
+
+        return cli_localLoad((string s) => writeln(s));
     }
 }
 
@@ -242,7 +246,8 @@ int cli_measureHosts(const Options opts) {
     writeln("Host | Access Time | Load");
 
     auto pool = new TaskPool(shosts.length + 1);
-    scope(exit) pool.stop;
+    scope (exit)
+        pool.stop;
 
     // dfmt off
     foreach(a; pool.map!loadHost(shosts)
@@ -256,6 +261,43 @@ int cli_measureHosts(const Options opts) {
     return 0;
 }
 
+/** Print the load of localhost.
+ *
+ * #SPC-measure_local_load
+ */
+int cli_localLoad(WriterT)(scope WriterT writer) nothrow {
+    import std.range : takeOne;
+
+    string raw_txt;
+    try {
+        raw_txt = File("/proc/loadavg").readln;
+    }
+    catch (Exception e) {
+        logger.trace(e.msg).collectException;
+        return -1;
+    }
+
+    try {
+        foreach (a; raw_txt.splitter(" ").takeOne) {
+            writer(a);
+        }
+    }
+    catch (Exception e) {
+        logger.trace(e.msg).collectException;
+        return -1;
+    }
+
+    return 0;
+}
+
+@("shall print the load of the localhost")
+unittest {
+    string load;
+    auto exit_status = cli_localLoad((string s) => load = s);
+    assert(exit_status == 0);
+    assert(load.length > 0, load);
+}
+
 struct Options {
     import core.time : dur;
 
@@ -265,6 +307,7 @@ struct Options {
         importEnvCmd,
         install,
         measureHosts,
+        localLoad,
     }
 
     Mode mode;
@@ -314,6 +357,7 @@ Options parseUserArgs(string[] args) {
         bool remote_shell;
         bool install;
         bool measure_hosts;
+        bool local_load;
         ulong timeout_s;
 
         // dfmt off
@@ -324,6 +368,7 @@ Options parseUserArgs(string[] args) {
             "export-env", "export the current env to the remote host to be used", &opts.exportEnv,
             "timeout", "timeout to use when checking remote hosts", &timeout_s,
             "measure", "measure the login time and load of all remote hosts", &measure_hosts,
+            "local-load", "measure the load on the current host", &local_load,
             );
         // dfmt on
         opts.help = opts.help_info.helpWanted;
@@ -339,6 +384,8 @@ Options parseUserArgs(string[] args) {
             opts.mode = Options.Mode.shell;
         else if (measure_hosts)
             opts.mode = Options.Mode.measureHosts;
+        else if (local_load)
+            opts.mode = Options.Mode.localLoad;
         else
             opts.mode = Options.Mode.cmd;
 
@@ -478,7 +525,8 @@ Nullable!Host selectLowest(string hosts, Duration timeout) nothrow {
             return typeof(return)(Host(shosts[0][0]));
 
         auto pool = new TaskPool(shosts.length + 1);
-        scope(exit) pool.stop;
+        scope (exit)
+            pool.stop;
 
         // dfmt off
         auto measured =
@@ -519,6 +567,7 @@ struct Load {
  */
 Nullable!Load getLoad(Host h, Duration timeout) nothrow {
     import std.conv : to;
+    import std.file : thisExePath;
     import std.process : tryWait, pipeProcess, kill;
     import std.range : takeOne;
     import std.stdio : writeln;
@@ -526,7 +575,9 @@ Nullable!Load getLoad(Host h, Duration timeout) nothrow {
     import core.sys.posix.signal : SIGKILL;
 
     try {
-        auto res = pipeProcess(["ssh", "-oStrictHostKeyChecking=no", h, "cat", "/proc/loadavg"]);
+        immutable abs_distssh = thisExePath;
+        auto res = pipeProcess(["ssh", "-q", "-oStrictHostKeyChecking=no", h,
+                abs_distssh, "--local-load"]);
 
         const start_at = MonoTime.currTime;
         const stop_at = start_at + timeout;
