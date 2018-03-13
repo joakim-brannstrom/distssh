@@ -242,7 +242,6 @@ int cli_measureHosts(const Options opts) {
     auto shosts = hosts_env.splitter(";").map!(a => tuple(Host(a), opts.timeout)).array;
 
     writefln("Configured hosts (%s): %(%s|%)", globalEnvironemntKey, shosts.map!(a => a[0]));
-    writeln("-1 on Access Time or Load mean it reached the timeout");
     writeln("Host | Access Time | Load");
 
     auto pool = new TaskPool(shosts.length + 1);
@@ -252,9 +251,9 @@ int cli_measureHosts(const Options opts) {
     // dfmt off
     foreach(a; pool.map!loadHost(shosts)
         .array
-        .sort!((a,b) { if (a[1].isNull) return false; if (b[1].isNull) return true; return a[1].accessTime < b[1].accessTime; })) {
+        .sort!((a,b) => a[1] < b[1])) {
 
-        writefln("%s | %s | %s", a[0], a[1].isNull ? "-1" : a[1].get.accessTime.to!string, a[1].isNull ? "-1" : a[1].get.to!string);
+        writefln("%s | %s | %s", a[0], a[1].accessTime.to!string, a[1].loadAvg.to!string);
     }
     // dfmt on
 
@@ -531,8 +530,7 @@ Nullable!Host selectLowest(string hosts, Duration timeout) nothrow {
         // dfmt off
         auto measured =
             pool.map!loadHost(shosts)
-            .filter!(a => !a[1].isNull)
-            .map!(a => tuple(a[0], a[1].get))
+            .map!(a => tuple(a[0], a[1]))
             .array
             .sort!((a,b) => a[1] < b[1])
             .take(3).array;
@@ -552,10 +550,26 @@ Nullable!Host selectLowest(string hosts, Duration timeout) nothrow {
 
 /// The load of a host.
 struct Load {
-    double payload;
-    alias payload this;
-
+    double loadAvg;
     Duration accessTime;
+
+    bool opEquals(const this o) nothrow @safe pure @nogc {
+        return loadAvg == o.loadAvg && accessTime == o.accessTime;
+    }
+
+    int opCmp(const this o) pure @safe @nogc nothrow {
+        if (loadAvg < o.loadAvg)
+            return  - 1;
+        else if (loadAvg > o.loadAvg)
+            return 1;
+
+        if (accessTime < o.accessTime)
+            return  - 1;
+        else if (accessTime > o.accessTime)
+            return 1;
+
+        return this == o ? 0 : 1;
+    }
 }
 
 /** Login on host and measure its load.
@@ -565,45 +579,70 @@ struct Load {
  *
  * Returns: the Load of the remote host
  */
-Nullable!Load getLoad(Host h, Duration timeout) nothrow {
+Load getLoad(Host h, Duration timeout) nothrow {
     import std.conv : to;
     import std.file : thisExePath;
     import std.process : tryWait, pipeProcess, kill;
     import std.range : takeOne;
     import std.stdio : writeln;
-    import core.time : MonoTime;
+    import core.time : MonoTime, dur;
     import core.sys.posix.signal : SIGKILL;
+
+    enum ExitCode {
+        error,
+        timeout,
+        ok,
+    }
+
+    ExitCode exit_code;
+    const start_at = MonoTime.currTime;
+    const stop_at = start_at + timeout;
+
+    auto elapsed = 3600.dur!"seconds";
+    double load = int.max;
 
     try {
         immutable abs_distssh = thisExePath;
         auto res = pipeProcess(["ssh", "-q", "-oStrictHostKeyChecking=no", h,
                 abs_distssh, "--local-load"]);
 
-        const start_at = MonoTime.currTime;
-        const stop_at = start_at + timeout;
         while (true) {
             auto st = res.pid.tryWait;
 
-            if (st.terminated && st.status == 0)
+            if (st.terminated && st.status == 0) {
+                exit_code = ExitCode.ok;
                 break;
-            else if (st.terminated && st.status != 0) {
-                writeln(res.stderr.byLine);
-                return typeof(return)();
+            } else if (st.terminated && st.status != 0) {
+                exit_code = ExitCode.error;
+                break;
             } else if (stop_at < MonoTime.currTime) {
+                exit_code = ExitCode.timeout;
                 res.pid.kill(SIGKILL);
-                return typeof(return)();
+                break;
             }
         }
 
-        foreach (a; res.stdout.byLine.takeOne.map!(a => a.splitter(" ")).joiner.takeOne) {
-            return typeof(return)(Load(a.to!double, MonoTime.currTime - start_at));
+        elapsed = MonoTime.currTime - start_at;
+
+        if (exit_code != ExitCode.ok)
+            return Load(load, elapsed);
+
+        try {
+            foreach (a; res.stdout.byLine.takeOne) {
+                load = a.to!double;
+            }
+        }
+        catch (Exception e) {
+            logger.trace(res.stdout).collectException;
+            logger.trace(res.stderr).collectException;
+            logger.trace(e.msg).collectException;
         }
     }
     catch (Exception e) {
         logger.trace(e.msg).collectException;
     }
 
-    return typeof(return)();
+    return Load(load, elapsed);
 }
 
 /// Mirror of an environment.
