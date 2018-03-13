@@ -73,7 +73,7 @@ version (unittest) {
 int appMain(const Options opts) nothrow {
     if (opts.exportEnv) {
         try {
-            auto fout = File(distsshEnvExport, "w");
+            auto fout = File(opts.importEnv, "w");
             cli_exportEnv(opts, fout);
             return 0;
         }
@@ -196,7 +196,7 @@ int cli_cmd(const Options opts) nothrow {
 
         immutable abs_cmd = buildNormalizedPath(opts.selfDir, distsshCmdRecv);
         return spawnProcess(["ssh", "-oStrictHostKeyChecking=no", host,
-                abs_cmd, getcwd, distsshEnvExport.absolutePath] ~ opts.command).wait;
+                abs_cmd, getcwd, opts.importEnv.absolutePath] ~ opts.command).wait;
     }
     catch (Exception e) {
         logger.error(e.msg).collectException;
@@ -343,7 +343,7 @@ struct Options {
     string selfBinary;
     string selfDir;
 
-    string importEnv;
+    string importEnv = distsshEnvExport;
     string workDir;
     string[] command;
 }
@@ -392,6 +392,7 @@ Options parseUserArgs(string[] args) {
             "measure", "measure the login time and load of all remote hosts", &measure_hosts,
             "local-load", "measure the load on the current host", &local_load,
             "v|verbose", "verbose logging", &opts.verbose,
+            "i|import-env", "import the env from the file", &opts.importEnv,
             );
         // dfmt on
         opts.help = opts.help_info.helpWanted;
