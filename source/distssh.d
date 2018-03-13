@@ -200,7 +200,9 @@ int cli_cmd(const Options opts) nothrow {
         auto host = selectLowestFromEnv(opts.timeout);
 
         immutable abs_cmd = buildNormalizedPath(opts.selfDir, distsshCmdRecv);
-        return spawnProcess(["ssh", "-oStrictHostKeyChecking=no", host,
+
+        // -t is important in case the remote command end up in an infinite loop
+        return spawnProcess(["ssh", "-t", "-oStrictHostKeyChecking=no", host,
                 abs_cmd, getcwd, opts.importEnv.absolutePath] ~ opts.command).wait;
     }
     catch (Exception e) {
