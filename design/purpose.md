@@ -95,6 +95,18 @@ Makes it possible to adjust the default timeout to a sane value.
 
 TODO: consider if the default timeout should be configurable.
 
+# SPC-measure_local_load
+partof: SPC-best_remote_host
+###
+
+The program shall print the load of the local host when commanded.
+
+## Why?
+
+To avoid a dependency on e.g. *cat* and enable future improvements to load calculation the absolute path to *distssh* is used.
+
+The negative thing is that it assumes/requires *distssh* to be installed at the same path on the remote as on the local machine.
+
 # SPC-remote_shell_config
 partof: REQ-uc_user_ctrl_of_remote_login
 ###

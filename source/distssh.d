@@ -30,6 +30,17 @@ immutable ulong defaultTimeout_s = 2;
 version (unittest) {
 } else {
     int main(string[] args) nothrow {
+        import app_logger;
+
+        SimpleLogger simple_logger;
+        try {
+            simple_logger = new SimpleLogger();
+            logger.sharedLog(simple_logger);
+        }
+        catch (Exception e) {
+            logger.warning(e.msg).collectException;
+        }
+
         Options opts;
         try {
             opts = parseUserArgs(args);
@@ -37,6 +48,17 @@ version (unittest) {
         catch (Exception e) {
             logger.error(e.msg).collectException;
             return 1;
+        }
+
+        try {
+            if (opts.verbose) {
+                logger.globalLogLevel(logger.LogLevel.trace);
+            } else {
+                logger.globalLogLevel(logger.LogLevel.warning);
+            }
+        }
+        catch (Exception e) {
+            logger.warning(e.msg).collectException;
         }
 
         if (opts.help) {
@@ -51,7 +73,12 @@ version (unittest) {
 int appMain(const Options opts) nothrow {
     if (opts.exportEnv) {
         try {
-            auto fout = File(distsshEnvExport, "w");
+            auto fout = File(opts.importEnv, "w");
+
+            import core.sys.posix.sys.stat : fchmod, S_IRUSR, S_IWUSR;
+
+            fchmod(fout.fileno, S_IRUSR | S_IWUSR);
+
             cli_exportEnv(opts, fout);
             return 0;
         }
@@ -81,6 +108,10 @@ int appMain(const Options opts) nothrow {
             logger.error(e.msg).collectException;
             return 1;
         }
+    case localLoad:
+        import std.stdio : writeln;
+
+        return cli_localLoad((string s) => writeln(s));
     }
 }
 
@@ -170,7 +201,7 @@ int cli_cmd(const Options opts) nothrow {
 
         immutable abs_cmd = buildNormalizedPath(opts.selfDir, distsshCmdRecv);
         return spawnProcess(["ssh", "-oStrictHostKeyChecking=no", host,
-                abs_cmd, getcwd, distsshEnvExport.absolutePath] ~ opts.command).wait;
+                abs_cmd, getcwd, opts.importEnv.absolutePath] ~ opts.command).wait;
     }
     catch (Exception e) {
         logger.error(e.msg).collectException;
@@ -238,22 +269,59 @@ int cli_measureHosts(const Options opts) {
     auto shosts = hosts_env.splitter(";").map!(a => tuple(Host(a), opts.timeout)).array;
 
     writefln("Configured hosts (%s): %(%s|%)", globalEnvironemntKey, shosts.map!(a => a[0]));
-    writeln("-1 on Access Time or Load mean it reached the timeout");
     writeln("Host | Access Time | Load");
 
     auto pool = new TaskPool(shosts.length + 1);
-    scope(exit) pool.stop;
+    scope (exit)
+        pool.stop;
 
     // dfmt off
     foreach(a; pool.map!loadHost(shosts)
         .array
-        .sort!((a,b) { if (a[1].isNull) return false; if (b[1].isNull) return true; return a[1].accessTime < b[1].accessTime; })) {
+        .sort!((a,b) => a[1] < b[1])) {
 
-        writefln("%s | %s | %s", a[0], a[1].isNull ? "-1" : a[1].get.accessTime.to!string, a[1].isNull ? "-1" : a[1].get.to!string);
+        writefln("%s | %s | %s", a[0], a[1].accessTime.to!string, a[1].loadAvg.to!string);
     }
     // dfmt on
 
     return 0;
+}
+
+/** Print the load of localhost.
+ *
+ * #SPC-measure_local_load
+ */
+int cli_localLoad(WriterT)(scope WriterT writer) nothrow {
+    import std.range : takeOne;
+
+    string raw_txt;
+    try {
+        raw_txt = File("/proc/loadavg").readln;
+    }
+    catch (Exception e) {
+        logger.trace(e.msg).collectException;
+        return -1;
+    }
+
+    try {
+        foreach (a; raw_txt.splitter(" ").takeOne) {
+            writer(a);
+        }
+    }
+    catch (Exception e) {
+        logger.trace(e.msg).collectException;
+        return -1;
+    }
+
+    return 0;
+}
+
+@("shall print the load of the localhost")
+unittest {
+    string load;
+    auto exit_status = cli_localLoad((string s) => load = s);
+    assert(exit_status == 0);
+    assert(load.length > 0, load);
 }
 
 struct Options {
@@ -265,12 +333,14 @@ struct Options {
         importEnvCmd,
         install,
         measureHosts,
+        localLoad,
     }
 
     Mode mode;
 
     bool help;
     bool exportEnv;
+    bool verbose;
     std.getopt.GetoptResult help_info;
 
     Duration timeout = defaultTimeout_s.dur!"seconds";
@@ -278,7 +348,7 @@ struct Options {
     string selfBinary;
     string selfDir;
 
-    string importEnv;
+    string importEnv = distsshEnvExport;
     string workDir;
     string[] command;
 }
@@ -314,6 +384,7 @@ Options parseUserArgs(string[] args) {
         bool remote_shell;
         bool install;
         bool measure_hosts;
+        bool local_load;
         ulong timeout_s;
 
         // dfmt off
@@ -324,6 +395,9 @@ Options parseUserArgs(string[] args) {
             "export-env", "export the current env to the remote host to be used", &opts.exportEnv,
             "timeout", "timeout to use when checking remote hosts", &timeout_s,
             "measure", "measure the login time and load of all remote hosts", &measure_hosts,
+            "local-load", "measure the load on the current host", &local_load,
+            "v|verbose", "verbose logging", &opts.verbose,
+            "i|import-env", "import the env from the file", &opts.importEnv,
             );
         // dfmt on
         opts.help = opts.help_info.helpWanted;
@@ -339,6 +413,8 @@ Options parseUserArgs(string[] args) {
             opts.mode = Options.Mode.shell;
         else if (measure_hosts)
             opts.mode = Options.Mode.measureHosts;
+        else if (local_load)
+            opts.mode = Options.Mode.localLoad;
         else
             opts.mode = Options.Mode.cmd;
 
@@ -478,13 +554,13 @@ Nullable!Host selectLowest(string hosts, Duration timeout) nothrow {
             return typeof(return)(Host(shosts[0][0]));
 
         auto pool = new TaskPool(shosts.length + 1);
-        scope(exit) pool.stop;
+        scope (exit)
+            pool.stop;
 
         // dfmt off
         auto measured =
             pool.map!loadHost(shosts)
-            .filter!(a => !a[1].isNull)
-            .map!(a => tuple(a[0], a[1].get))
+            .map!(a => tuple(a[0], a[1]))
             .array
             .sort!((a,b) => a[1] < b[1])
             .take(3).array;
@@ -504,10 +580,26 @@ Nullable!Host selectLowest(string hosts, Duration timeout) nothrow {
 
 /// The load of a host.
 struct Load {
-    double payload;
-    alias payload this;
-
+    double loadAvg;
     Duration accessTime;
+
+    bool opEquals(const this o) nothrow @safe pure @nogc {
+        return loadAvg == o.loadAvg && accessTime == o.accessTime;
+    }
+
+    int opCmp(const this o) pure @safe @nogc nothrow {
+        if (loadAvg < o.loadAvg)
+            return  - 1;
+        else if (loadAvg > o.loadAvg)
+            return 1;
+
+        if (accessTime < o.accessTime)
+            return  - 1;
+        else if (accessTime > o.accessTime)
+            return 1;
+
+        return this == o ? 0 : 1;
+    }
 }
 
 /** Login on host and measure its load.
@@ -517,42 +609,73 @@ struct Load {
  *
  * Returns: the Load of the remote host
  */
-Nullable!Load getLoad(Host h, Duration timeout) nothrow {
+Load getLoad(Host h, Duration timeout) nothrow {
     import std.conv : to;
+    import std.file : thisExePath;
     import std.process : tryWait, pipeProcess, kill;
-    import std.range : takeOne;
+    import std.range : takeOne, retro;
     import std.stdio : writeln;
-    import core.time : MonoTime;
+    import core.time : MonoTime, dur;
     import core.sys.posix.signal : SIGKILL;
 
-    try {
-        auto res = pipeProcess(["ssh", "-oStrictHostKeyChecking=no", h, "cat", "/proc/loadavg"]);
+    enum ExitCode {
+        error,
+        timeout,
+        ok,
+    }
 
-        const start_at = MonoTime.currTime;
-        const stop_at = start_at + timeout;
+    ExitCode exit_code;
+    const start_at = MonoTime.currTime;
+    const stop_at = start_at + timeout;
+
+    auto elapsed = 3600.dur!"seconds";
+    double load = int.max;
+
+    try {
+        immutable abs_distssh = thisExePath;
+        auto res = pipeProcess(["ssh", "-q", "-oStrictHostKeyChecking=no", h,
+                abs_distssh, "--local-load"]);
+
         while (true) {
             auto st = res.pid.tryWait;
 
-            if (st.terminated && st.status == 0)
+            if (st.terminated && st.status == 0) {
+                exit_code = ExitCode.ok;
                 break;
-            else if (st.terminated && st.status != 0) {
-                writeln(res.stderr.byLine);
-                return typeof(return)();
+            } else if (st.terminated && st.status != 0) {
+                exit_code = ExitCode.error;
+                break;
             } else if (stop_at < MonoTime.currTime) {
+                exit_code = ExitCode.timeout;
                 res.pid.kill(SIGKILL);
-                return typeof(return)();
+                break;
             }
         }
 
-        foreach (a; res.stdout.byLine.takeOne.map!(a => a.splitter(" ")).joiner.takeOne) {
-            return typeof(return)(Load(a.to!double, MonoTime.currTime - start_at));
+        elapsed = MonoTime.currTime - start_at;
+
+        if (exit_code != ExitCode.ok)
+            return Load(load, elapsed);
+
+        try {
+            string last_line;
+            foreach (a; res.stdout.byLineCopy) {
+                last_line = a;
+            }
+
+            load = last_line.to!double;
+        }
+        catch (Exception e) {
+            logger.trace(res.stdout).collectException;
+            logger.trace(res.stderr).collectException;
+            logger.trace(e.msg).collectException;
         }
     }
     catch (Exception e) {
         logger.trace(e.msg).collectException;
     }
 
-    return typeof(return)();
+    return Load(load, elapsed);
 }
 
 /// Mirror of an environment.
