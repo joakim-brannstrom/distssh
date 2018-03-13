@@ -613,7 +613,7 @@ Load getLoad(Host h, Duration timeout) nothrow {
     import std.conv : to;
     import std.file : thisExePath;
     import std.process : tryWait, pipeProcess, kill;
-    import std.range : takeOne;
+    import std.range : takeOne, retro;
     import std.stdio : writeln;
     import core.time : MonoTime, dur;
     import core.sys.posix.signal : SIGKILL;
@@ -658,9 +658,12 @@ Load getLoad(Host h, Duration timeout) nothrow {
             return Load(load, elapsed);
 
         try {
-            foreach (a; res.stdout.byLine.takeOne) {
-                load = a.to!double;
+            string last_line;
+            foreach (a; res.stdout.byLineCopy) {
+                last_line = a;
             }
+
+            load = last_line.to!double;
         }
         catch (Exception e) {
             logger.trace(res.stdout).collectException;
