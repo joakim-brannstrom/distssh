@@ -23,7 +23,6 @@ extern extern (C) __gshared char** environ;
 immutable globalEnvironemntKey = "DISTSSH_HOSTS";
 immutable distShell = "distshell";
 immutable distCmd = "distcmd";
-immutable distsshCmdRecv = "distcmd_recv";
 immutable distsshEnvExport = "distssh_env.export";
 immutable ulong defaultTimeout_s = 2;
 
@@ -148,7 +147,6 @@ int cli_install(const Options opts, void delegate(string src, string dst) symlin
     try {
         symlink(opts.selfBinary, buildPath(opts.selfDir, distShell));
         symlink(opts.selfBinary, buildPath(opts.selfDir, distCmd));
-        symlink(opts.selfBinary, buildPath(opts.selfDir, distsshCmdRecv));
         return 0;
     }
     catch (Exception e) {
@@ -173,7 +171,6 @@ unittest {
 
     assert(symlinks[0] == ["/foo/src", "/bar/distshell"]);
     assert(symlinks[1] == ["/foo/src", "/bar/distcmd"]);
-    assert(symlinks[2] == ["/foo/src", "/bar/distcmd_recv"]);
 }
 
 int cli_shell(const Options opts) nothrow {
@@ -190,8 +187,11 @@ int cli_shell(const Options opts) nothrow {
 }
 
 int cli_cmd(const Options opts) nothrow {
-    import std.process : spawnProcess, wait;
-    import std.path : absolutePath, buildNormalizedPath;
+    import core.thread : Thread;
+    import core.time : dur;
+    import std.file : thisExePath;
+    import std.path : absolutePath;
+    import std.process : tryWait, Redirect, pipeProcess;
 
     // #SPC-draft_remote_cmd_spec
     try {
@@ -199,10 +199,23 @@ int cli_cmd(const Options opts) nothrow {
 
         auto host = selectLowestFromEnv(opts.timeout);
 
-        immutable abs_cmd = buildNormalizedPath(opts.selfDir, distsshCmdRecv);
+        auto p = pipeProcess(["ssh", "-oStrictHostKeyChecking=no", host,
+                thisExePath, "--local-run", "--workdir", getcwd,
+                "--import-env", opts.importEnv.absolutePath, "--"] ~ opts.command, Redirect.stdin);
 
-        return spawnProcess(["ssh", "-oStrictHostKeyChecking=no", host,
-                abs_cmd, getcwd, opts.importEnv.absolutePath] ~ opts.command).wait;
+        while (true) {
+            try {
+                auto st = p.pid.tryWait;
+                if (st.terminated)
+                    return st.status;
+
+                Watchdog.ping(p.stdin);
+            }
+            catch (Exception e) {
+            }
+
+            Thread.sleep(50.dur!"msecs");
+        }
     }
     catch (Exception e) {
         logger.error(e.msg).collectException;
@@ -211,35 +224,67 @@ int cli_cmd(const Options opts) nothrow {
 }
 
 int cli_cmdWithImportedEnv(const Options opts) nothrow {
-    import std.stdio : File;
+    import core.thread : Thread;
+    import core.time : dur;
+    import std.stdio : File, stdin;
     import std.file : exists;
-    import std.process : spawnProcess, wait, Config, spawnShell;
+    import std.process : spawnProcess, Config, spawnShell, Pid, tryWait,
+        thisProcessID;
     import std.utf : toUTF8;
 
     if (opts.command.length == 0)
         return 0;
 
     string[string] env;
-    try {
-        foreach (kv; File(opts.importEnv).byLine.map!(a => a.splitter("="))) {
-            string k = kv.front.idup;
-            string v;
-            kv.popFront;
-            if (!kv.empty)
-                v = kv.front.idup;
-            env[k] = v;
+    if (exists(opts.importEnv)) {
+        try {
+            foreach (kv; File(opts.importEnv).byLine.map!(a => a.splitter("="))) {
+                string k = kv.front.idup;
+                string v;
+                kv.popFront;
+                if (!kv.empty)
+                    v = kv.front.idup;
+                env[k] = v;
+            }
         }
-    }
-    catch (Exception e) {
+        catch (Exception e) {
+        }
     }
 
     try {
+        Pid res;
+
         if (exists(opts.command[0])) {
-            return spawnProcess(opts.command, env, Config.none, opts.workDir).wait;
+            res = spawnProcess(opts.command, env, Config.none, opts.workDir);
         } else {
-            return spawnShell(opts.command.dup.joiner(" ").toUTF8, env, Config.none, opts.workDir)
-                .wait;
+            res = spawnShell(opts.command.dup.joiner(" ").toUTF8, env, Config.none, opts.workDir);
         }
+
+        const timeout = opts.timeout * 2;
+        auto wd = Watchdog(stdin.fileno, timeout);
+
+        while (!wd.isTimeout) {
+            try {
+                auto status = tryWait(res);
+                if (status.terminated)
+                    return status.status;
+                wd.update;
+            }
+            catch (Exception e) {
+            }
+
+            Thread.sleep(50.dur!"msecs");
+        }
+
+        // #SPC-early_terminate_no_processes_left
+        if (wd.isTimeout) {
+            import core.sys.posix.signal : killpg, SIGKILL;
+
+            killpg(res.processID, SIGKILL);
+            killpg(thisProcessID, SIGKILL);
+        }
+
+        return 1;
     }
     catch (Exception e) {
         logger.error(e.msg).collectException;
@@ -317,6 +362,82 @@ int cli_localLoad(WriterT)(scope WriterT writer) nothrow {
     return 0;
 }
 
+struct NonblockingFd {
+    int fileno;
+
+    private const int old_fcntl;
+
+    this(int fd) {
+        this.fileno = fd;
+
+        import core.sys.posix.fcntl : fcntl, F_SETFL, F_GETFL, O_NONBLOCK;
+
+        old_fcntl = fcntl(fileno, F_GETFL);
+        fcntl(fileno, F_SETFL, old_fcntl | O_NONBLOCK);
+    }
+
+    ~this() {
+        import core.sys.posix.fcntl : fcntl, F_SETFL;
+
+        fcntl(fileno, F_SETFL, old_fcntl);
+    }
+
+    void read(ref ubyte[] buf) {
+        static import core.sys.posix.unistd;
+
+        auto len = core.sys.posix.unistd.read(fileno, buf.ptr, buf.length);
+        if (len > 0)
+            buf = buf[0 .. len];
+    }
+}
+
+struct Watchdog {
+    import std.datetime.stopwatch : StopWatch;
+
+    enum State {
+        ok,
+        timeout
+    }
+
+    private {
+        State st;
+        Duration timeout;
+        NonblockingFd nfd;
+        StopWatch sw;
+    }
+
+    static const pingWord = "x";
+
+    this(int fd, Duration timeout) {
+        this.nfd = NonblockingFd(fd);
+        this.timeout = timeout;
+        sw.start;
+    }
+
+    void update() {
+        char[pingWord.length * 2] raw_buf;
+        ubyte[] s = cast(ubyte[]) raw_buf;
+
+        nfd.read(s);
+
+        if (s.length >= pingWord.length + 1 && s[0 .. pingWord.length] == cast(ubyte[]) pingWord) {
+            sw.reset;
+            sw.start;
+        } else if (sw.peek > timeout) {
+            st = State.timeout;
+        }
+    }
+
+    bool isTimeout() {
+        return State.timeout == st;
+    }
+
+    static void ping(File f) {
+        f.writeln(pingWord);
+        f.flush;
+    }
+}
+
 @("shall print the load of the localhost")
 unittest {
     string load;
@@ -372,12 +493,6 @@ Options parseUserArgs(string[] args) {
         opts.mode = Options.Mode.cmd;
         opts.command = args.length > 1 ? args[1 .. $] : null;
         return opts;
-    case distsshCmdRecv:
-        opts.mode = Options.Mode.importEnvCmd;
-        opts.workDir = args[1];
-        opts.importEnv = args[2];
-        opts.command = args.length > 3 ? args[3 .. $] : null;
-        return opts;
     default:
     }
 
@@ -386,6 +501,7 @@ Options parseUserArgs(string[] args) {
         bool install;
         bool measure_hosts;
         bool local_load;
+        bool local_run;
         ulong timeout_s;
 
         // dfmt off
@@ -397,8 +513,10 @@ Options parseUserArgs(string[] args) {
             "timeout", "timeout to use when checking remote hosts", &timeout_s,
             "measure", "measure the login time and load of all remote hosts", &measure_hosts,
             "local-load", "measure the load on the current host", &local_load,
+            "local-run", "import env and run the command locally", &local_run,
             "v|verbose", "verbose logging", &opts.verbose,
             "i|import-env", "import the env from the file", &opts.importEnv,
+            "workdir", "working directory to run the command in", &opts.workDir,
             );
         // dfmt on
         opts.help = opts.help_info.helpWanted;
@@ -416,9 +534,10 @@ Options parseUserArgs(string[] args) {
             opts.mode = Options.Mode.measureHosts;
         else if (local_load)
             opts.mode = Options.Mode.localLoad;
+        else if (local_run)
+            opts.mode = Options.Mode.importEnvCmd;
         else
             opts.mode = Options.Mode.cmd;
-
     }
     catch (std.getopt.GetOptException e) {
         // unknown option
