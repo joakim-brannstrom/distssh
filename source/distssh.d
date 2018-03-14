@@ -615,7 +615,7 @@ struct Load {
 Load getLoad(Host h, Duration timeout) nothrow {
     import std.conv : to;
     import std.file : thisExePath;
-    import std.process : tryWait, pipeProcess, kill;
+    import std.process : tryWait, pipeProcess, kill, wait;
     import std.range : takeOne, retro;
     import std.stdio : writeln;
     import core.time : MonoTime, dur;
@@ -651,6 +651,8 @@ Load getLoad(Host h, Duration timeout) nothrow {
             } else if (stop_at < MonoTime.currTime) {
                 exit_code = ExitCode.timeout;
                 res.pid.kill(SIGKILL);
+                // must read the exit or a zombie process is left behind
+                res.pid.wait;
                 break;
             }
         }
