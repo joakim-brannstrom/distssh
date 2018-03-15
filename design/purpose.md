@@ -81,17 +81,9 @@ partof: REQ-uc_shell
 The *best remote host* shall be calculated from the available servers.
 
 Pseudo code for calculating the *best remote host*:
- * Check the 5min load on all available server.
+ * Check load on all available server. See [[SPC-measure_local_load]] for details of load calculation
    Use a 2s timeout by default to make sure it doesn't affect the user too much if one server is slow.
  * Choose at random one of the three servers with the lowest loadavg.
-
-## Info
-A simple way of choosing the best server is to check the load average.
-
-I chose the 5min average just because it is the first value when reading from `/proc/loadavg`.
-No other reason than that.
-
-This should probably be investigated further.
 
 # SPC-measure_remote_hosts
 partof: SPC-best_remote_host
@@ -111,7 +103,18 @@ partof: SPC-best_remote_host
 
 The program shall print the load of the local host when commanded.
 
-## Why?
+The program shall calculate the load as the *5min loadavg* / *available cores*.
+
+**Rationale**: The guidline is that a loadavg that is greater than the available cores on the server mean the server is overloaded. By normalizing the value the load can be used to compare the *load* of servers where the number of cores are different.
+
+## Info
+
+I chose the 5min average just because it is the first value when reading from `/proc/loadavg`.
+No other reason than that.
+
+This should probably be investigated further.
+
+## Why use distssh for this?
 
 To avoid a dependency on e.g. *cat* and enable future improvements to load calculation the absolute path to *distssh* is used.
 
