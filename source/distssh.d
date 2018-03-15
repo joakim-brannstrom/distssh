@@ -111,6 +111,8 @@ int appMain(const Options opts) nothrow {
         import std.stdio : writeln;
 
         return cli_localLoad((string s) => writeln(s));
+    case runOnAll:
+        return cli_runOnAll(opts);
     }
 }
 
@@ -187,6 +189,17 @@ int cli_shell(const Options opts) nothrow {
 }
 
 int cli_cmd(const Options opts) nothrow {
+    try {
+        auto host = selectLowestFromEnv(opts.timeout);
+        return executeOnHost(opts, host);
+    }
+    catch (Exception e) {
+        logger.error(e.msg).collectException;
+        return 1;
+    }
+}
+
+int executeOnHost(const Options opts, Host host) nothrow {
     import core.thread : Thread;
     import core.time : dur;
     import std.file : thisExePath;
@@ -196,8 +209,6 @@ int cli_cmd(const Options opts) nothrow {
     // #SPC-draft_remote_cmd_spec
     try {
         import std.file : getcwd;
-
-        auto host = selectLowestFromEnv(opts.timeout);
 
         auto p = pipeProcess(["ssh", "-oStrictHostKeyChecking=no", host,
                 thisExePath, "--local-run", "--workdir", getcwd,
@@ -298,7 +309,6 @@ int cli_measureHosts(const Options opts) {
     import std.array : array;
     import std.algorithm : sort;
     import std.conv : to;
-    import std.parallelism : taskPool;
     import std.stdio : writefln, writeln;
     import std.string : fromStringz;
     import std.typecons : tuple;
@@ -360,6 +370,37 @@ int cli_localLoad(WriterT)(scope WriterT writer) nothrow {
     }
 
     return 0;
+}
+
+int cli_runOnAll(const Options opts) nothrow {
+    import std.array : array;
+    import std.algorithm : sort;
+    import std.stdio : writefln, writeln;
+    import std.string : fromStringz;
+
+    static import core.stdc.stdlib;
+
+    string hosts_env = core.stdc.stdlib.getenv(&globalEnvironemntKey[0]).fromStringz.idup;
+
+    auto shosts = hosts_env.splitter(";").map!(a => Host(a)).array;
+
+    writefln("Configured hosts (%s): %(%s|%)", globalEnvironemntKey, shosts).collectException;
+
+    bool exit_status = true;
+    foreach (a; shosts.sort) {
+        writefln("Connecting to %s.", a).collectException;
+
+        auto status = executeOnHost(opts, a);
+
+        if (status != 0) {
+            writeln("Failed, error code: ", status).collectException;
+            exit_status = false;
+        }
+
+        writefln("Connection to %s closed.", a).collectException;
+    }
+
+    return exit_status ? 0 : 1;
 }
 
 struct NonblockingFd {
@@ -456,6 +497,7 @@ struct Options {
         install,
         measureHosts,
         localLoad,
+        runOnAll,
     }
 
     Mode mode;
@@ -502,6 +544,7 @@ Options parseUserArgs(string[] args) {
         bool measure_hosts;
         bool local_load;
         bool local_run;
+        bool run_on_all;
         ulong timeout_s;
 
         // dfmt off
@@ -517,6 +560,7 @@ Options parseUserArgs(string[] args) {
             "v|verbose", "verbose logging", &opts.verbose,
             "i|import-env", "import the env from the file", &opts.importEnv,
             "workdir", "working directory to run the command in", &opts.workDir,
+            "run-on-all", "run the command on all remote hosts", &run_on_all,
             );
         // dfmt on
         opts.help = opts.help_info.helpWanted;
@@ -536,6 +580,8 @@ Options parseUserArgs(string[] args) {
             opts.mode = Options.Mode.localLoad;
         else if (local_run)
             opts.mode = Options.Mode.importEnvCmd;
+        else if (run_on_all)
+            opts.mode = Options.Mode.runOnAll;
         else
             opts.mode = Options.Mode.cmd;
     }
