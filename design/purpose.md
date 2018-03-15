@@ -19,6 +19,16 @@ The user wants to execute *command* on the *best remote host*.
 The user experience should be as if the user ran it locally which probably affect how stdin/stdout/stderr is handled.
 For now stdin is ignored.
 
+# REQ-uc_check_all_hosts
+partof: REQ-purpose
+###
+
+The user wants to execute *command* on all remote hosts.
+
+## Why?
+
+The user may want to inspect the remote hosts. This is an easy way and interface to do that. It makes it possible to reuse such features as loading of the environment.
+
 # REQ-uc_user_ctrl_of_remote_login
 partof: REQ-purpose
 ###
