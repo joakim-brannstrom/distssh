@@ -522,6 +522,7 @@ struct Options {
 }
 
 Options parseUserArgs(string[] args) {
+    import std.algorithm : among;
     import std.file : thisExePath;
     import std.path : dirName, baseName, buildPath;
 
@@ -538,6 +539,7 @@ Options parseUserArgs(string[] args) {
     case distCmd:
         opts.mode = Options.Mode.cmd;
         opts.command = args.length > 1 ? args[1 .. $] : null;
+        opts.help = args.length > 1 && args[1].among("-h", "--help");
         return opts;
     default:
     }
