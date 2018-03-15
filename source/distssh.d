@@ -209,6 +209,9 @@ int executeOnHost(const Options opts, Host host) nothrow {
     try {
         import std.file : getcwd;
 
+        logger.info("Connecting to: ", host);
+        logger.info("run: ", opts.command.dup.joiner(" "));
+
         auto p = pipeProcess(["ssh", "-oStrictHostKeyChecking=no", host,
                 thisExePath, "--local-run", "--workdir", getcwd,
                 "--import-env", opts.importEnv.absolutePath, "--"] ~ opts.command, Redirect.stdin);
