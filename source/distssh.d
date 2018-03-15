@@ -276,11 +276,15 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
         const timeout = opts.timeout * 2;
         auto wd = Watchdog(stdin.fileno, timeout);
 
+        int exit_status = 1;
+
         while (!wd.isTimeout) {
             try {
                 auto status = tryWait(res);
-                if (status.terminated)
-                    return status.status;
+                if (status.terminated) {
+                    exit_status = status.status;
+                    break;
+                }
                 wd.update;
             }
             catch (Exception e) {
@@ -292,12 +296,18 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
         // #SPC-early_terminate_no_processes_left
         if (wd.isTimeout) {
             import core.sys.posix.signal : killpg, SIGKILL;
+            import core.sys.posix.unistd : getsid;
 
-            killpg(res.processID, SIGKILL);
-            killpg(thisProcessID, SIGKILL);
+            auto sid = getsid(0);
+            if (sid != -1) {
+                killpg(sid, SIGKILL);
+            } else {
+                killpg(res.processID, SIGKILL);
+                killpg(thisProcessID, SIGKILL);
+            }
         }
 
-        return 1;
+        return exit_status;
     }
     catch (Exception e) {
         logger.error(e.msg).collectException;
