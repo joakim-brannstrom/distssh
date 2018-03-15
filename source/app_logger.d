@@ -20,7 +20,7 @@ class SimpleLogger : logger.Logger {
     string msg = null;
     logger.LogLevel lvl;
 
-    this(const logger.LogLevel lv = logger.LogLevel.info) {
+    this(const logger.LogLevel lv = logger.LogLevel.trace) {
         super(lv);
     }
 
