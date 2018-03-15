@@ -29,11 +29,10 @@ immutable ulong defaultTimeout_s = 2;
 version (unittest) {
 } else {
     int main(string[] args) nothrow {
-        import app_logger;
-
-        SimpleLogger simple_logger;
         try {
-            simple_logger = new SimpleLogger();
+            import app_logger;
+
+            auto simple_logger = new SimpleLogger();
             logger.sharedLog(simple_logger);
         }
         catch (Exception e) {
@@ -51,7 +50,7 @@ version (unittest) {
 
         try {
             if (opts.verbose) {
-                logger.globalLogLevel(logger.LogLevel.trace);
+                logger.globalLogLevel(logger.LogLevel.all);
             } else {
                 logger.globalLogLevel(logger.LogLevel.warning);
             }
@@ -348,21 +347,23 @@ int cli_measureHosts(const Options opts) {
  * #SPC-measure_local_load
  */
 int cli_localLoad(WriterT)(scope WriterT writer) nothrow {
+    import std.algorithm : count;
+    import std.string : startsWith;
+    import std.conv : to;
     import std.range : takeOne;
 
-    string raw_txt;
     try {
-        raw_txt = File("/proc/loadavg").readln;
-    }
-    catch (Exception e) {
-        logger.trace(e.msg).collectException;
-        return -1;
-    }
-
-    try {
-        foreach (a; raw_txt.splitter(" ").takeOne) {
-            writer(a);
+        double loadavg;
+        foreach (a; File("/proc/loadavg").readln.splitter(" ").takeOne) {
+            loadavg = a.to!double;
         }
+
+        double cores = File("/proc/cpuinfo").byLine.filter!(a => a.startsWith("processor")).count;
+
+        if (cores > 0)
+            writer((loadavg / cores).to!string);
+        else
+            writer(loadavg.to!string);
     }
     catch (Exception e) {
         logger.trace(e.msg).collectException;
