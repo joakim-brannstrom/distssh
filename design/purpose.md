@@ -234,9 +234,36 @@ It is a problem that remote programs that end up in an infinite loop are left be
 partof: SPC-early_terminate_no_processes_left
 ###
 
-*input*:
- * a makefile with at least two targets that *sleep*
- * the bash command `time sleep 60& make -j`
-   use the previous makefile.
+*Note*: This test procedure has to be executed manually.
 
-Expected result when executing the *input* on the remote host.
+*Precondition*:
+ * the tool is built.
+ * the tester is in the directory `test/test_surviving_processes`
+ * the remote host variable is `export DISTSSH_HOSTS=localhost`
+ * a makefile with at least two targets that *sleep*
+
+*input*:
+ * same process group, command `make -j`
+ * run two process groups, command `'make -j & time sleep 60'`
+   TODO distssh is not fully working as expected for this input. It should *wait* 60s but it terminates almost immediatly
+ * new process group `immediatly_new_process_group.sh`
+ * new session `new_session.sh`
+
+*Verification command*:
+ * `pstree -u joker -pcg|grep -A 10 -B 10 -i ssh`
+
+Expected result when executing *input* on the remote host.
+
+Procedure:
+ * Run the command `../../build/distssh -- ` *input*
+ * Run the *Verification command* (two sleeping processes)
+ * Kill the client side of distssh with SIGKILL
+ * Expected result when running the *Verification command*
+
+## Example output
+
+Before killing distssh.
+```sh
+sshd(11064,11011)---distssh(11065,11065)---sh(11066,11065)---make(11067,11065)-+-sleep(11068,11065)
+                                                                               `-sleep(11069,11065)
+```
