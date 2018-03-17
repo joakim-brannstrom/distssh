@@ -228,4 +228,15 @@ The program shall terminate all remote processes when the local distssh process 
 
 ## Why?
 
-It is a problem that remote programs that end up in an infinite loop are left behind.
+It is a problem that remote programs that end up in an infinite loop are left behind, fork or such a simple thing as `sleep 20&`.
+
+# TST-early_terminate_no_processes_left
+partof: SPC-early_terminate_no_processes_left
+###
+
+*input*:
+ * a makefile with at least two targets that *sleep*
+ * the bash command `time sleep 60& make -j`
+   use the previous makefile.
+
+Expected result when executing the *input* on the remote host.

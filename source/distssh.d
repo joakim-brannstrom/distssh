@@ -296,14 +296,15 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
         // #SPC-early_terminate_no_processes_left
         if (wd.isTimeout) {
             import core.sys.posix.signal : killpg, SIGKILL;
-            import core.sys.posix.unistd : getsid;
+            import core.sys.posix.unistd : getsid, getpgrp, getpgid;
+            import std.range : chain, only;
 
-            auto sid = getsid(0);
-            if (sid != -1) {
-                killpg(sid, SIGKILL);
-            } else {
-                killpg(res.processID, SIGKILL);
-                killpg(thisProcessID, SIGKILL);
+            // Primarily try and kill the whole session.
+            // But this may not work on all platforms so as fallback the process groups are killed.
+            // Note that the fallback may possibly leave behind junk processes.
+            foreach (const p; chain(only(getsid(0)), only(getpgid(res.processID), only(getpgrp()))).filter!(
+                    a => a != -1)) {
+                killpg(p, SIGKILL);
             }
         }
 
