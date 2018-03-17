@@ -230,6 +230,12 @@ The program shall terminate all remote processes when the local distssh process 
 
 It is a problem that remote programs that end up in an infinite loop are left behind, fork or such a simple thing as `sleep 20&`.
 
+## Notes
+
+The implementation do not have to be perfect but it should try and cover most cases.
+
+The implementation can ignore the case of a process that try to daemonize. It is practically impossible to solve without root privileges which contain the processes because the parent process is changed to init.
+
 # TST-early_terminate_no_processes_left
 partof: SPC-early_terminate_no_processes_left
 ###
@@ -245,7 +251,7 @@ partof: SPC-early_terminate_no_processes_left
 *input*:
  * same process group, command `make -j`
  * run two process groups, command `'make -j & time sleep 60'`
-   TODO distssh is not fully working as expected for this input. It should *wait* 60s but it terminates almost immediatly
+   TODO distssh is not fully working as expected for this input. It should *wait* 60s but it terminates almost immediately
  * new process group `immediatly_new_process_group.sh`
  * new session `new_session.sh`
 
