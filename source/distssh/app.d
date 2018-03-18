@@ -1126,7 +1126,8 @@ struct PipeReader {
 
         try {
             nfd.read(s);
-            deser.put(s);
+            if (s.length > 0)
+                deser.put(s);
         }
         catch (Exception e) {
         }
