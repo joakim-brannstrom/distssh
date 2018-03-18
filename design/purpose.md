@@ -238,6 +238,7 @@ The implementation can ignore the case of a process that try to daemonize. It is
 
 # TST-early_terminate_no_processes_left
 partof: SPC-early_terminate_no_processes_left
+done: manual procedure
 ###
 
 *Note*: This test procedure has to be executed manually.
