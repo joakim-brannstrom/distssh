@@ -273,3 +273,15 @@ Before killing distssh.
 sshd(11064,11011)---distssh(11065,11065)---sh(11066,11065)---make(11067,11065)-+-sleep(11068,11065)
                                                                                `-sleep(11069,11065)
 ```
+
+# SPC-shell_current_dir
+partof: REQ-uc_shell
+###
+
+The program shall set the current working directory to the same as on the host side if it exists when logging in on the *best remote host*.
+
+## Why?
+
+It is on the assumption that the user want to do operations with tools that only exist on the remote host.
+By setting the working directory to the same as on the host it mean that the user do not have to `cd` to the directory.
+The user can start working right away.
