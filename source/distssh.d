@@ -312,7 +312,7 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
         const timeout = opts.timeout * 2;
 
         int exit_status = 1;
-        bool cleanup = true;
+        bool sigint_cleanup;
         auto check_parent = MonoTime.currTime + check_parent_interval;
         auto wd = Watchdog(stdin.fileno, timeout);
 
@@ -332,7 +332,7 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
             if (MonoTime.currTime > check_parent) {
                 check_parent = MonoTime.currTime + check_parent_interval;
                 if (getppid != parent_pid) {
-                    cleanup = true;
+                    sigint_cleanup = true;
                     break;
                 }
             }
@@ -340,14 +340,20 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
             Thread.sleep(50.dur!"msecs");
         }
 
-        cleanup = cleanup || wd.isTimeout;
+        import core.sys.posix.signal : kill, killpg, SIGKILL;
+        import core.sys.posix.unistd : getpid;
 
         // #SPC-early_terminate_no_processes_left
-        if (cleanup) {
-            import core.sys.posix.signal : kill, killpg, SIGKILL;
+        if (wd.isTimeout) {
+            // cleanup all subprocesses of sshd. Should catch those that fork and create another process group.
+            cleanupProcess(distssh.Pid(parent_pid), (int a) => kill(a, SIGKILL),
+                    (int a) => killpg(a, SIGKILL));
+        }
 
-            cleanupProcess((int a) => kill(a, SIGKILL), (int a) => killpg(a, SIGKILL)).killpg(
-                    SIGKILL);
+        if (sigint_cleanup || wd.isTimeout) {
+            // sshd has already died on a SIGINT on the host side thus it is only possible to reliabley cleanup *this* process tree if anything is left.
+            cleanupProcess(distssh.Pid(getpid), (int a) => kill(a, SIGKILL),
+                    (int a) => killpg(a, SIGKILL)).killpg(SIGKILL);
         }
 
         return exit_status;
@@ -1052,19 +1058,20 @@ PidGroup[] getPidGroups(const Pid[] pids) {
  * Kill the groups from top to bottom.
  *
  * Params:
+ *  parent_pid = pid of the parent to analyze and kill the children of
  *  kill = a function that kill a process
  *  killpg = a function that kill a process group
  *
  * Returns: the process group of "this".
  */
-pid_t cleanupProcess(KillT, KillPgT)(KillT kill, KillPgT killpg) {
+pid_t cleanupProcess(KillT, KillPgT)(Pid parent_pid, KillT kill, KillPgT killpg) {
     import core.sys.posix.unistd : getpgrp, getpid, getppid;
 
     const this_pid = getpid();
     const this_gid = getpgrp();
 
-    auto children_groups = getDeepChildren(this_pid).getPidGroups;
-    auto direct_children = getShallowChildren(this_pid);
+    auto children_groups = getDeepChildren(parent_pid).getPidGroups;
+    auto direct_children = getShallowChildren(parent_pid);
 
     foreach (const p; direct_children.filter!(a => a != this_pid)) {
         kill(p);
