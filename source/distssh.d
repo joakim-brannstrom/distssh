@@ -177,6 +177,7 @@ unittest {
     assert(symlinks[1] == ["/foo/src", "/bar/distcmd"]);
 }
 
+// #SPC-remote_shell
 int cli_shell(const Options opts) nothrow {
     import std.file : thisExePath, getcwd;
     import std.process : spawnProcess, wait;
@@ -199,6 +200,7 @@ int cli_shell(const Options opts) nothrow {
     }
 }
 
+// #SPC-shell_current_dir
 int cli_localShell(const Options opts) nothrow {
     import std.file : exists;
     import std.process : spawnProcess, wait, userShell, Config;
@@ -264,6 +266,7 @@ int executeOnHost(const Options opts, Host host) nothrow {
     }
 }
 
+// #SPC-fast_env_startup
 int cli_cmdWithImportedEnv(const Options opts) nothrow {
     import core.thread : Thread;
     import core.time : dur;
