@@ -139,6 +139,7 @@ unittest {
     cli_exportEnv(opts, fout);
 
     auto first_line = File(remove_me).byLine.front;
+    logger.trace(first_line);
     assert(first_line.canFind("="), first_line);
 }
 
@@ -295,16 +296,10 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
 
         // #SPC-early_terminate_no_processes_left
         if (wd.isTimeout) {
-            import core.sys.posix.signal : killpg, SIGKILL;
-            import core.sys.posix.unistd : getsid;
+            import core.sys.posix.signal : kill, killpg, SIGKILL;
 
-            auto sid = getsid(0);
-            if (sid != -1) {
-                killpg(sid, SIGKILL);
-            } else {
-                killpg(res.processID, SIGKILL);
-                killpg(thisProcessID, SIGKILL);
-            }
+            cleanupProcess((int a) => kill(a, SIGKILL), (int a) => killpg(a, SIGKILL)).killpg(
+                    SIGKILL);
         }
 
         return exit_status;
@@ -896,4 +891,150 @@ Env cloneEnv(char** env) nothrow {
     }
 
     return app;
+}
+
+import core.sys.posix.unistd : pid_t;
+
+struct Pid {
+    pid_t value;
+    alias value this;
+}
+
+Pid[] getShallowChildren(int parent_pid) {
+    import core.sys.posix.unistd : pid_t;
+    import std.conv : to;
+    import std.array : appender;
+    import std.file : dirEntries, SpanMode, exists;
+    import std.path : buildPath, baseName;
+
+    auto children = appender!(Pid[])();
+
+    foreach (const p; File(buildPath("/proc", parent_pid.to!string, "task",
+            parent_pid.to!string, "children")).readln.splitter(" ").filter!(a => a.length > 0)) {
+        try {
+            children.put(p.to!pid_t.Pid);
+        }
+        catch (Exception e) {
+            logger.trace(e.msg).collectException;
+        }
+    }
+
+    return children.data;
+}
+
+@("shall return the immediate children of the init process")
+unittest {
+    import std.conv;
+
+    auto res = getShallowChildren(1);
+    //logger.trace(res);
+    assert(res.length > 0);
+}
+
+/** Returns: a list of all processes with the top being at the back
+ */
+Pid[] getDeepChildren(int parent_pid) {
+    import std.array : appender;
+    import std.container : DList;
+
+    auto children = DList!Pid();
+
+    children.insert(getShallowChildren(parent_pid));
+    auto res = appender!(Pid[])();
+
+    while (!children.empty) {
+        const p = children.front;
+        res.put(p);
+        children.insertBack(getShallowChildren(p));
+        children.removeFront;
+    }
+
+    return res.data;
+}
+
+@("shall return a list of all children of the init process")
+unittest {
+    import std.conv;
+
+    auto direct = getShallowChildren(1);
+    auto deep = getDeepChildren(1);
+
+    //logger.trace(direct);
+    //logger.trace(deep);
+
+    assert(deep.length > direct.length);
+}
+
+struct PidGroup {
+    pid_t value;
+    alias value this;
+}
+
+/** Returns: a list of the process groups in the same order as the input.
+ */
+PidGroup[] getPidGroups(const Pid[] pids) {
+    import core.sys.posix.unistd : getpgid;
+    import std.array : array;
+    import std.array : appender;
+
+    auto res = appender!(PidGroup[])();
+    bool[pid_t] pgroups;
+
+    foreach (const p; pids.map!(a => getpgid(a)).filter!(a => a != -1)) {
+        if (p !in pgroups) {
+            pgroups[p] = true;
+            res.put(PidGroup(p));
+        }
+    }
+
+    return res.data;
+}
+
+/** Cleanup the children processes.
+ *
+ * Create an array of children process groups.
+ * Create an array of children pids.
+ * Kill the children pids to prohibit them from spawning more processes.
+ * Kill the groups from top to bottom.
+ *
+ * Params:
+ *  kill = a function that kill a process
+ *  killpg = a function that kill a process group
+ *
+ * Returns: the process group of "this".
+ */
+pid_t cleanupProcess(KillT, KillPgT)(KillT kill, KillPgT killpg) {
+    import core.sys.posix.unistd : getpgrp, getpid, getppid;
+
+    const this_pid = getpid();
+    const this_gid = getpgrp();
+
+    auto children_groups = getDeepChildren(this_pid).getPidGroups;
+    auto direct_children = getShallowChildren(this_pid);
+
+    foreach (const p; direct_children.filter!(a => a != this_pid)) {
+        kill(p);
+    }
+
+    foreach (const p; children_groups.filter!(a => a != this_gid)) {
+        killpg(p);
+    }
+
+    return this_gid;
+}
+
+@("shall return a list of all children pid groups of the init process")
+unittest {
+    import std.conv;
+    import core.sys.posix.unistd : getpgrp, getpid, getppid;
+
+    auto direct = getShallowChildren(1);
+    auto deep = getDeepChildren(1);
+    auto groups = getPidGroups(deep);
+
+    //logger.trace(direct.length, direct);
+    //logger.trace(deep.length, deep);
+    //logger.trace(groups.length, groups);
+
+    assert(groups.length < deep.length);
 }
