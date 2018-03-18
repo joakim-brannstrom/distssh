@@ -1,4 +1,3 @@
-#!/usr/bin/env rdmd
 /**
 Copyright: Copyright (c) 2018, Joakim Brännström. All rights reserved.
 License: $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost Software License 1.0)
@@ -7,7 +6,7 @@ Author: Joakim Brännström (joakim.brannstrom@gmx.com)
 Methods prefixed with `cli_` are strongly related to user commands.
 They more or less fully implement a command line interface command.
 */
-module distssh;
+module distssh.app;
 
 import core.time : Duration;
 import std.algorithm : splitter, map, filter, joiner;
@@ -30,7 +29,7 @@ version (unittest) {
 } else {
     int main(string[] args) nothrow {
         try {
-            import app_logger;
+            import distssh.app_logger;
 
             auto simple_logger = new SimpleLogger();
             logger.sharedLog(simple_logger);
@@ -351,13 +350,13 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
         // #SPC-early_terminate_no_processes_left
         if (wd.isTimeout) {
             // cleanup all subprocesses of sshd. Should catch those that fork and create another process group.
-            cleanupProcess(distssh.Pid(parent_pid), (int a) => kill(a, SIGKILL),
+            cleanupProcess(distssh.app.Pid(parent_pid), (int a) => kill(a, SIGKILL),
                     (int a) => killpg(a, SIGKILL));
         }
 
         if (sigint_cleanup || wd.isTimeout) {
             // sshd has already died on a SIGINT on the host side thus it is only possible to reliabley cleanup *this* process tree if anything is left.
-            cleanupProcess(distssh.Pid(getpid), (int a) => kill(a, SIGKILL),
+            cleanupProcess(distssh.app.Pid(getpid), (int a) => kill(a, SIGKILL),
                     (int a) => killpg(a, SIGKILL)).killpg(SIGKILL);
         }
 
