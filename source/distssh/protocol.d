@@ -29,7 +29,7 @@ struct Serialize(WriterT) {
         put(w, pkgtype[]);
     }
 
-    void pack(HeartBeat hb) {
+    void pack(T)() if (is(T == HeartBeat)) {
         pack(Kind.heartBeat);
     }
 }
@@ -55,6 +55,7 @@ struct Deserialize {
                 auto raw = peek!(MsgpackType.uint8, ubyte)();
                 if (raw <= Kind.max && raw != Kind.none)
                     break;
+                debug logger.trace("dropped ", raw);
             }
             catch (Exception e) {
             }
@@ -129,7 +130,7 @@ unittest {
     auto app = appender!(ubyte[])();
     auto ser = Serialize!(typeof(app))(app);
 
-    ser.pack(HeartBeat());
+    ser.pack!HeartBeat;
     assert(app.data.length > 0);
 
     auto deser = Deserialize(app.data);
@@ -143,7 +144,7 @@ unittest {
     auto app = appender!(ubyte[])();
     app.put(cast(ubyte) 42);
     auto ser = Serialize!(typeof(app))(app);
-    ser.pack(HeartBeat());
+    ser.pack!HeartBeat;
 
     auto deser = Deserialize(app.data);
     assert(deser.buf.length == 3);

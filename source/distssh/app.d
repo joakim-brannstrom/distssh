@@ -12,7 +12,7 @@ import core.time : Duration;
 import std.algorithm : splitter, map, filter, joiner;
 import std.exception : collectException;
 import std.stdio : File;
-import std.typecons : Nullable;
+import std.typecons : Nullable, NullableRef;
 import logger = std.experimental.logger;
 
 static import std.getopt;
@@ -250,13 +250,15 @@ int executeOnHost(const Options opts, Host host) nothrow {
                 thisExePath, "--local-run", "--workdir", getcwd,
                 "--import-env", opts.importEnv.absolutePath, "--"] ~ opts.command, Redirect.stdin);
 
+        auto pwriter = PipeWriter(p.stdin);
+
         while (true) {
             try {
                 auto st = p.pid.tryWait;
                 if (st.terminated)
                     return st.status;
 
-                Watchdog.ping(p.stdin);
+                Watchdog.ping(pwriter);
             }
             catch (Exception e) {
             }
@@ -317,10 +319,15 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
 
         int exit_status = 1;
         bool sigint_cleanup;
+
         auto check_parent = MonoTime.currTime + check_parent_interval;
-        auto wd = Watchdog(stdin.fileno, timeout);
+
+        auto pread = PipeReader(stdin.fileno);
+        auto wd = Watchdog(pread, timeout);
 
         while (!wd.isTimeout) {
+            pread.update;
+
             try {
                 auto status = tryWait(res);
                 if (status.terminated) {
@@ -350,8 +357,8 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
         // #SPC-early_terminate_no_processes_left
         if (wd.isTimeout) {
             // cleanup all subprocesses of sshd. Should catch those that fork and create another process group.
-            cleanupProcess(distssh.app.Pid(parent_pid), (int a) => kill(a, SIGKILL),
-                    (int a) => killpg(a, SIGKILL));
+            cleanupProcess(distssh.app.Pid(parent_pid), (int a) => kill(a,
+                    SIGKILL), (int a) => killpg(a, SIGKILL));
         }
 
         if (sigint_cleanup || wd.isTimeout) {
@@ -510,25 +517,20 @@ struct Watchdog {
     private {
         State st;
         Duration timeout;
-        NonblockingFd nfd;
+        NullableRef!PipeReader pread;
         StopWatch sw;
     }
 
-    static const pingWord = "x";
-
-    this(int fd, Duration timeout) {
-        this.nfd = NonblockingFd(fd);
+    this(ref PipeReader pread, Duration timeout) {
+        this.pread = &pread;
         this.timeout = timeout;
         sw.start;
     }
 
     void update() {
-        char[pingWord.length * 2] raw_buf;
-        ubyte[] s = cast(ubyte[]) raw_buf;
+        import distssh.protocol : HeartBeat;
 
-        nfd.read(s);
-
-        if (s.length >= pingWord.length + 1 && s[0 .. pingWord.length] == cast(ubyte[]) pingWord) {
+        if (!pread.unpack!HeartBeat.isNull) {
             sw.reset;
             sw.start;
         } else if (sw.peek > timeout) {
@@ -540,9 +542,10 @@ struct Watchdog {
         return State.timeout == st;
     }
 
-    static void ping(File f) {
-        f.writeln(pingWord);
-        f.flush;
+    static void ping(ref PipeWriter f) {
+        import distssh.protocol : HeartBeat;
+
+        f.pack!HeartBeat;
     }
 }
 
@@ -1102,4 +1105,52 @@ unittest {
     //logger.trace(groups.length, groups);
 
     assert(groups.length < deep.length);
+}
+
+struct PipeReader {
+    import distssh.protocol : Deserialize;
+
+    NonblockingFd nfd;
+    Deserialize deser;
+
+    alias deser this;
+
+    this(int fd) {
+        this.nfd = NonblockingFd(fd);
+    }
+
+    // Update the buffer with data from the pipe.
+    void update() nothrow {
+        ubyte[128] buf;
+        ubyte[] s = buf[];
+
+        try {
+            nfd.read(s);
+            deser.put(s);
+        }
+        catch (Exception e) {
+        }
+
+        deser.cleanupUntilKind;
+    }
+}
+
+struct PipeWriter {
+    import distssh.protocol : Serialize;
+
+    File fout;
+    Serialize!(void delegate(const(ubyte)[])) ser;
+
+    alias ser this;
+
+    this(File f) {
+        this.fout = f;
+        this.ser = typeof(ser)(&this.put);
+    }
+
+    void put(const(ubyte)[] v) {
+        fout.rawWrite(v);
+        fout.writeln;
+        fout.flush;
+    }
 }
