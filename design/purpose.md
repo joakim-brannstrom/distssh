@@ -292,3 +292,43 @@ partof: REQ-uc_shell
 ###
 
 The program shall give the user an interactive shell on the *best remote host* when commanded via CLI
+
+# SPC-sigint_detection
+partof: SPC-uc_remote_command
+###
+
+The program shall shutdown the remote end *fast* when a SIGINT is received.
+
+# Notes
+
+A SIGINT on the remote end is propagated over the connection to the remote host by the sshd instance terminating.
+This mean that the parent process of distssh changes from X to init (1) on such an event.
+
+By continuous checking the parent pid it is thus possible to reliable detect when the SIGINT is received.
+
+# TST-sigint_detection
+partof: SPC-sigint_detection
+done: manual procedure
+###
+
+*Note*: This test procedure has to be executed manually.
+
+*Precondition*:
+ * the tool is built.
+ * the tester is in the directory `test/test_surviving_processes`
+ * the remote host variable is `export DISTSSH_HOSTS=localhost`
+ * a makefile with at least two targets that *sleep*
+
+*input*:
+ * same process group, command `make -j`
+
+*Verification command*:
+ * `pstree -u joker -pcg|grep -A 10 -B 10 -i ssh`
+
+Expected result when executing *input* on the remote host.
+
+Procedure:
+ * Run the command `../../build/distssh -- ` *input*
+ * Run the *Verification command* (two sleeping processes)
+ * Kill the client side of distssh with ctrl+C (SIGINT)
+ * Expected result when running the *Verification command*
