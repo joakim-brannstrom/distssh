@@ -46,7 +46,7 @@ Maybe an environment variable should be used too? I think ssh do that. It wouldn
 It would make it possible to centrally change/control the defaul but still allow the user to override.
 
 # REQ-uc_fast_experience
-partof: REQ-uc_shell
+partof: REQ-purpose
 ###
 
 The overall goal that must be fulfilled is that the program shall always be fast and succeed. The user **must** feel that the program can be used for any use case.
@@ -75,7 +75,7 @@ It is important that the edit-compile-execute cycle is kept fast and efficient.
    That the program have "warm up" time
 
 # SPC-best_remote_host
-partof: REQ-uc_shell
+partof: REQ-purpose
 ###
 
 The *best remote host* shall be calculated from the available servers.
@@ -129,7 +129,7 @@ The program shall use the argument from the CLI option `-e` when logging in on t
 The program shall use `ssh -oStrictHostKeyChecking=no` as the default for `-e`.
 
 # SPC-load_balance_heavy_commands
-partof: REQ-uc_shell
+partof: REQ-uc_remote_command
 ###
 
 The program shall distribute the command from the user to a *best remote host* when the command is in the environ variable DISTSSH_CMD.
