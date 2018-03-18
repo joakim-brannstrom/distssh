@@ -4,5 +4,9 @@ authors "Joakim Brännström"
 copyright "Copyright © 2018, Joakim Brännström"
 license "BSL-1.0"
 
+dependency "distssh:msgpack-ll" version="*"
+
+subPackage "./vendor/msgpack-ll"
+
 targetPath "build"
 targetType "executable"
