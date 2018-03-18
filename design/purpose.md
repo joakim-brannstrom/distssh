@@ -285,3 +285,9 @@ The program shall set the current working directory to the same as on the host s
 It is on the assumption that the user want to do operations with tools that only exist on the remote host.
 By setting the working directory to the same as on the host it mean that the user do not have to `cd` to the directory.
 The user can start working right away.
+
+# SPC-remote_shell
+partof: REQ-uc_shell
+###
+
+The program shall give the user an interactive shell on the *best remote host* when commanded via CLI
