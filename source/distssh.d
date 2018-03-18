@@ -304,10 +304,17 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
             res = spawnShell(opts.command.dup.joiner(" ").toUTF8, env, Config.none, opts.workDir);
         }
 
+        import core.time : MonoTime, dur;
+        import core.sys.posix.unistd : getppid;
+
+        const parent_pid = getppid;
+        const check_parent_interval = 500.dur!"msecs";
         const timeout = opts.timeout * 2;
-        auto wd = Watchdog(stdin.fileno, timeout);
 
         int exit_status = 1;
+        bool cleanup = true;
+        auto check_parent = MonoTime.currTime + check_parent_interval;
+        auto wd = Watchdog(stdin.fileno, timeout);
 
         while (!wd.isTimeout) {
             try {
@@ -321,11 +328,22 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
             catch (Exception e) {
             }
 
+            // #SPC-sigint_detection
+            if (MonoTime.currTime > check_parent) {
+                check_parent = MonoTime.currTime + check_parent_interval;
+                if (getppid != parent_pid) {
+                    cleanup = true;
+                    break;
+                }
+            }
+
             Thread.sleep(50.dur!"msecs");
         }
 
+        cleanup = cleanup || wd.isTimeout;
+
         // #SPC-early_terminate_no_processes_left
-        if (wd.isTimeout) {
+        if (cleanup) {
             import core.sys.posix.signal : kill, killpg, SIGKILL;
 
             cleanupProcess((int a) => kill(a, SIGKILL), (int a) => killpg(a, SIGKILL)).killpg(
