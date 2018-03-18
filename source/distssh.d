@@ -138,10 +138,15 @@ unittest {
 
     auto opts = parseUserArgs(["distssh", "--export-env"]);
 
+    // make sure there are at least one environment variable
+    import core.sys.posix.stdlib : putenv;
+
+    const env_var = "DISTSSH_ENV_TEST=foo";
+    putenv(cast(char*) env_var.ptr);
+
     cli_exportEnv(opts, fout);
 
     auto first_line = File(remove_me).byLine.front;
-    logger.trace(first_line);
     assert(first_line.canFind("="), first_line);
 }
 
