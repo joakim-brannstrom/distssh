@@ -93,6 +93,8 @@ int appMain(const Options opts) nothrow {
         return cli_install(opts, (string src, string dst) => symlink(src, dst));
     case shell:
         return cli_shell(opts);
+    case localShell:
+        return cli_localShell(opts);
     case cmd:
         return cli_cmd(opts);
     case importEnvCmd:
@@ -175,12 +177,39 @@ unittest {
     assert(symlinks[1] == ["/foo/src", "/bar/distcmd"]);
 }
 
+// #SPC-remote_shell
 int cli_shell(const Options opts) nothrow {
+    import std.file : thisExePath, getcwd;
     import std.process : spawnProcess, wait;
+    import std.stdio : writeln, writefln;
 
     try {
         auto host = selectLowestFromEnv(opts.timeout);
-        return spawnProcess(["ssh", "-oStrictHostKeyChecking=no", host]).wait;
+        writeln("Connecting to ", host);
+
+        // two -t forces a tty to be created and used which mean that the remote shell will *think* it is an interactive shell
+        auto exit_status = spawnProcess(["ssh", "-q", "-t", "-t", "-oStrictHostKeyChecking=no",
+                host, thisExePath, "--local-shell", "--workdir", getcwd]).wait;
+        writefln("Connection to %s closed.", host);
+
+        return exit_status;
+    }
+    catch (Exception e) {
+        logger.error(e.msg).collectException;
+        return 1;
+    }
+}
+
+// #SPC-shell_current_dir
+int cli_localShell(const Options opts) nothrow {
+    import std.file : exists;
+    import std.process : spawnProcess, wait, userShell, Config;
+
+    try {
+        if (exists(opts.workDir))
+            return spawnProcess([userShell], null, Config.none, opts.workDir).wait;
+        else
+            return spawnProcess([userShell]).wait;
     }
     catch (Exception e) {
         logger.error(e.msg).collectException;
@@ -237,6 +266,7 @@ int executeOnHost(const Options opts, Host host) nothrow {
     }
 }
 
+// #SPC-fast_env_startup
 int cli_cmdWithImportedEnv(const Options opts) nothrow {
     import core.thread : Thread;
     import core.time : dur;
@@ -507,6 +537,7 @@ struct Options {
         measureHosts,
         localLoad,
         runOnAll,
+        localShell,
     }
 
     Mode mode;
@@ -555,23 +586,26 @@ Options parseUserArgs(string[] args) {
         bool measure_hosts;
         bool local_load;
         bool local_run;
+        bool local_shell;
         bool run_on_all;
         ulong timeout_s;
 
+        // alphabetical order
         // dfmt off
         opts.help_info = std.getopt.getopt(args, std.getopt.config.passThrough,
             std.getopt.config.keepEndOfOptions,
-            "install", "install distssh by setting up the correct symlinks", &install,
-            "shell", "open an interactive shell on the remote host", &remote_shell,
             "export-env", "export the current env to the remote host to be used", &opts.exportEnv,
-            "timeout", "timeout to use when checking remote hosts", &timeout_s,
+            "install", "install distssh by setting up the correct symlinks", &install,
+            "i|import-env", "import the env from the file", &opts.importEnv,
             "measure", "measure the login time and load of all remote hosts", &measure_hosts,
             "local-load", "measure the load on the current host", &local_load,
             "local-run", "import env and run the command locally", &local_run,
-            "v|verbose", "verbose logging", &opts.verbose,
-            "i|import-env", "import the env from the file", &opts.importEnv,
-            "workdir", "working directory to run the command in", &opts.workDir,
+            "local-shell", "run the shell locally", &local_shell,
             "run-on-all", "run the command on all remote hosts", &run_on_all,
+            "shell", "open an interactive shell on the remote host", &remote_shell,
+            "timeout", "timeout to use when checking remote hosts", &timeout_s,
+            "v|verbose", "verbose logging", &opts.verbose,
+            "workdir", "working directory to run the command in", &opts.workDir,
             );
         // dfmt on
         opts.help = opts.help_info.helpWanted;
@@ -593,6 +627,8 @@ Options parseUserArgs(string[] args) {
             opts.mode = Options.Mode.importEnvCmd;
         else if (run_on_all)
             opts.mode = Options.Mode.runOnAll;
+        else if (local_shell)
+            opts.mode = Options.Mode.localShell;
         else
             opts.mode = Options.Mode.cmd;
     }
