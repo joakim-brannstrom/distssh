@@ -806,6 +806,23 @@ struct Load {
     }
 }
 
+@("shall sort the loads")
+unittest {
+    import std.algorithm : sort;
+    import std.array : array;
+    import core.time : dur;
+
+    {
+        auto raw = [Load(0.6, 500.dur!"msecs"), Load(0.5, 500.dur!"msecs")].sort.array;
+        assert(raw[0].loadAvg == 0.5);
+    }
+
+    {
+        auto raw = [Load(0.5, 600.dur!"msecs"), Load(0.5, 500.dur!"msecs")].sort.array;
+        assert(raw[0].accessTime == 500.dur!"msecs");
+    }
+}
+
 /** Login on host and measure its load.
  *
  * Params:
