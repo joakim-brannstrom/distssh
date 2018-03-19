@@ -99,14 +99,7 @@ int appMain(const Options opts) nothrow {
     case importEnvCmd:
         return cli_cmdWithImportedEnv(opts);
     case measureHosts:
-        try {
-            cli_measureHosts(opts);
-            return 0;
-        }
-        catch (Exception e) {
-            logger.error(e.msg).collectException;
-            return 1;
-        }
+        return cli_measureHosts(opts);
     case localLoad:
         import std.stdio : writeln;
 
@@ -181,27 +174,46 @@ unittest {
     assert(symlinks[1] == ["/foo/src", "/bar/distcmd"]);
 }
 
-// #SPC-remote_shell
+// #SPC-fallback_remote_host
 int cli_shell(const Options opts) nothrow {
     import std.file : thisExePath, getcwd;
     import std.process : spawnProcess, wait;
     import std.stdio : writeln, writefln;
 
-    try {
-        auto host = selectLowestFromEnv(opts.timeout);
-        writeln("Connecting to ", host);
+    auto hosts = RemoteHostCache.make(opts.timeout);
+    hosts.sortByLoad;
 
-        // two -t forces a tty to be created and used which mean that the remote shell will *think* it is an interactive shell
-        auto exit_status = spawnProcess(["ssh", "-q", "-t", "-t", "-oStrictHostKeyChecking=no",
-                host, thisExePath, "--local-shell", "--workdir", getcwd]).wait;
-        writefln("Connection to %s closed.", host);
+    if (hosts.empty) {
+        logger.errorf("No remote host online").collectException;
+    }
 
-        return exit_status;
+    // #SPC-fallback
+    while (!hosts.empty) {
+        auto host = hosts.randomAndPop;
+
+        try {
+            if (host.isNull) {
+                logger.error("No remote host online");
+                return 1;
+            }
+
+            writeln("Connecting to ", host);
+
+            // two -t forces a tty to be created and used which mean that the remote shell will *think* it is an interactive shell
+            auto exit_status = spawnProcess(["ssh", "-q", "-t", "-t", "-oStrictHostKeyChecking=no",
+                    host, thisExePath, "--local-shell", "--workdir", getcwd]).wait;
+            writefln("Connection to %s closed.", host);
+
+            if (exit_status == 0)
+                return exit_status;
+            logger.warning("Unable to connect");
+        }
+        catch (Exception e) {
+            logger.error(e.msg).collectException;
+        }
     }
-    catch (Exception e) {
-        logger.error(e.msg).collectException;
-        return 1;
-    }
+
+    return 1;
 }
 
 // #SPC-shell_current_dir
@@ -222,14 +234,19 @@ int cli_localShell(const Options opts) nothrow {
 }
 
 int cli_cmd(const Options opts) nothrow {
-    try {
-        auto host = selectLowestFromEnv(opts.timeout);
-        return executeOnHost(opts, host);
-    }
-    catch (Exception e) {
-        logger.error(e.msg).collectException;
+    auto hosts = RemoteHostCache.make(opts.timeout);
+    hosts.sortByLoad;
+
+    if (hosts.empty) {
+        logger.errorf("No remote host online").collectException;
         return 1;
     }
+
+    auto host = hosts.randomAndPop;
+    if (host.isNull)
+        return 1;
+
+    return executeOnHost(opts, host);
 }
 
 int executeOnHost(const Options opts, Host host) nothrow {
@@ -401,41 +418,25 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
 }
 
 // #SPC-measure_remote_hosts
-int cli_measureHosts(const Options opts) {
-    import core.time : dur;
-    import std.array : array;
-    import std.algorithm : sort;
+int cli_measureHosts(const Options opts) nothrow {
     import std.conv : to;
     import std.stdio : writefln, writeln;
-    import std.string : fromStringz;
-    import std.typecons : tuple;
-    import std.parallelism : TaskPool;
 
-    static import core.stdc.stdlib;
+    auto hosts = RemoteHostCache.make(opts.timeout);
+    hosts.sortByLoad;
 
-    string hosts_env = core.stdc.stdlib.getenv(&globalEnvironemntKey[0]).fromStringz.idup;
+    writefln("Configured hosts (%s='%s')", globalEnvironemntKey, hosts.remoteHosts.joiner(";"))
+        .collectException;
+    writeln("Host | Access Time | Load").collectException;
 
-    static auto loadHost(T)(T host_to) {
-        return tuple(host_to[0], getLoad(host_to[0], host_to[1]));
+    foreach (a; hosts.remoteByLoad) {
+        try {
+            writefln("%s | %s | %s", a[0], a[1].accessTime.to!string, a[1].loadAvg.to!string);
+        }
+        catch (Exception e) {
+            logger.trace(e.msg).collectException;
+        }
     }
-
-    auto shosts = hosts_env.splitter(";").map!(a => tuple(Host(a), opts.timeout)).array;
-
-    writefln("Configured hosts (%s): %(%s|%)", globalEnvironemntKey, shosts.map!(a => a[0]));
-    writeln("Host | Access Time | Load");
-
-    auto pool = new TaskPool(shosts.length + 1);
-    scope (exit)
-        pool.stop;
-
-    // dfmt off
-    foreach(a; pool.map!loadHost(shosts)
-        .array
-        .sort!((a,b) => a[1] < b[1])) {
-
-        writefln("%s | %s | %s", a[0], a[1].accessTime.to!string, a[1].loadAvg.to!string);
-    }
-    // dfmt on
 
     return 0;
 }
@@ -472,22 +473,22 @@ int cli_localLoad(WriterT)(scope WriterT writer) nothrow {
 }
 
 int cli_runOnAll(const Options opts) nothrow {
-    import std.array : array;
     import std.algorithm : sort;
-    import std.stdio : writefln, writeln;
-    import std.string : fromStringz;
+    import std.stdio : writefln, writeln, stdout;
 
-    static import core.stdc.stdlib;
-
-    string hosts_env = core.stdc.stdlib.getenv(&globalEnvironemntKey[0]).fromStringz.idup;
-
-    auto shosts = hosts_env.splitter(";").map!(a => Host(a)).array;
+    auto shosts = hostsFromEnv;
 
     writefln("Configured hosts (%s): %(%s|%)", globalEnvironemntKey, shosts).collectException;
 
     bool exit_status = true;
     foreach (a; shosts.sort) {
-        writefln("Connecting to %s.", a).collectException;
+        stdout.writefln("Connecting to %s.", a).collectException;
+        try {
+            // #SPC-flush_buffers
+            stdout.flush;
+        }
+        catch (Exception e) {
+        }
 
         auto status = executeOnHost(opts, a);
 
@@ -496,7 +497,7 @@ int cli_runOnAll(const Options opts) nothrow {
             exit_status = false;
         }
 
-        writefln("Connection to %s closed.", a).collectException;
+        stdout.writefln("Connection to %s closed.", a).collectException;
     }
 
     return exit_status ? 0 : 1;
@@ -782,73 +783,6 @@ struct Host {
     alias payload this;
 }
 
-Host selectLowestFromEnv(Duration timeout) {
-    import std.string : fromStringz;
-
-    static import core.stdc.stdlib;
-
-    string hosts_env = core.stdc.stdlib.getenv(&globalEnvironemntKey[0]).fromStringz.idup;
-    auto host = selectLowest(hosts_env, timeout);
-
-    if (host.isNull) {
-        throw new Exception("No remote host found (" ~ globalEnvironemntKey ~ "='" ~ hosts_env
-                ~ "')");
-    }
-
-    return host.get;
-}
-
-/**
- * #SPC-load_balance
- * #SPC-best_remote_host
- *
- * Returns: the lowest loaded server.
- */
-Nullable!Host selectLowest(string hosts, Duration timeout) nothrow {
-    import std.array : array;
-    import std.range : take;
-    import std.typecons : tuple;
-    import std.algorithm : sort;
-    import std.random : uniform;
-    import std.parallelism : TaskPool;
-
-    try {
-        if (hosts.length == 0)
-            return typeof(return)();
-
-        static auto loadHost(T)(T host_to) {
-            return tuple(host_to[0], getLoad(host_to[0], host_to[1]));
-        }
-
-        auto shosts = hosts.splitter(";").map!(a => tuple(Host(a), timeout)).array;
-        if (shosts.length == 1)
-            return typeof(return)(Host(shosts[0][0]));
-
-        auto pool = new TaskPool(shosts.length + 1);
-        scope (exit)
-            pool.stop;
-
-        // dfmt off
-        auto measured =
-            pool.map!loadHost(shosts)
-            .map!(a => tuple(a[0], a[1]))
-            .array
-            .sort!((a,b) => a[1] < b[1])
-            .take(3).array;
-        // dfmt on
-
-        if (measured.length > 0) {
-            auto ridx = uniform(0, measured.length);
-            return typeof(return)(measured[ridx][0]);
-        }
-    }
-    catch (Exception e) {
-        logger.trace(e.msg).collectException;
-    }
-
-    return typeof(return)();
-}
-
 /// The load of a host.
 struct Load {
     double loadAvg;
@@ -870,6 +804,23 @@ struct Load {
             return 1;
 
         return this == o ? 0 : 1;
+    }
+}
+
+@("shall sort the loads")
+unittest {
+    import std.algorithm : sort;
+    import std.array : array;
+    import core.time : dur;
+
+    {
+        auto raw = [Load(0.6, 500.dur!"msecs"), Load(0.5, 500.dur!"msecs")].sort.array;
+        assert(raw[0].loadAvg == 0.5);
+    }
+
+    {
+        auto raw = [Load(0.5, 600.dur!"msecs"), Load(0.5, 500.dur!"msecs")].sort.array;
+        assert(raw[0].accessTime == 500.dur!"msecs");
     }
 }
 
@@ -919,11 +870,12 @@ Load getLoad(Host h, Duration timeout) nothrow {
             } else if (stop_at < MonoTime.currTime) {
                 exit_code = ExitCode.timeout;
                 res.pid.kill(SIGKILL);
-                // must read the exit or a zombie process is left behind
-                res.pid.wait;
                 break;
             }
         }
+
+        // must read the exit or a zombie process is left behind
+        res.pid.wait;
 
         elapsed = MonoTime.currTime - start_at;
 
@@ -1207,4 +1159,119 @@ auto readEnv(string filename) nothrow {
     }
 
     return rval;
+}
+
+Host[] hostsFromEnv() nothrow {
+    import std.array : array;
+    import std.string : fromStringz, strip;
+
+    static import core.stdc.stdlib;
+
+    typeof(return) rval;
+
+    try {
+        string hosts_env = core.stdc.stdlib.getenv(&globalEnvironemntKey[0]).fromStringz.idup;
+        rval = hosts_env.splitter(";").map!(a => a.strip)
+            .filter!(a => a.length > 0).map!(a => Host(a)).array;
+
+        if (rval.length == 0) {
+            logger.errorf("No remote host configured (%s='%s')", globalEnvironemntKey, hosts_env);
+        }
+    }
+    catch (Exception e) {
+        logger.error(e.msg).collectException;
+    }
+
+    return rval;
+}
+
+/**
+ * #SPC-load_balance
+ * #SPC-best_remote_host
+ */
+struct RemoteHostCache {
+    import std.array : array;
+    import std.typecons : Tuple, tuple;
+
+    alias HostLoad = Tuple!(Host, Load);
+
+    Duration timeout;
+    Host[] remoteHosts;
+    HostLoad[] remoteByLoad;
+
+    static auto make(Duration timeout) nothrow {
+        return RemoteHostCache(timeout, hostsFromEnv);
+    }
+
+    /// Measure and sort the remote hosts.
+    void sortByLoad() nothrow {
+        import std.algorithm : sort;
+        import std.parallelism : TaskPool;
+
+        static auto loadHost(T)(T host_timeout) nothrow {
+            return HostLoad(host_timeout[0], getLoad(host_timeout[0], host_timeout[1]));
+        }
+
+        auto shosts = remoteHosts.map!(a => tuple(a, timeout)).array;
+
+        try {
+            auto pool = new TaskPool(shosts.length + 1);
+            scope (exit)
+                pool.stop;
+
+            // dfmt off
+            remoteByLoad =
+                pool.map!loadHost(shosts)
+                .array
+                .sort!((a,b) => a[1] < b[1])
+                .array;
+            // dfmt on
+
+            if (remoteByLoad.length == 0) {
+                // this should be very uncommon but may happen.
+                remoteByLoad = remoteHosts.map!(a => HostLoad(a, Load.init)).array;
+            }
+        }
+        catch (Exception e) {
+            logger.trace(e.msg).collectException;
+        }
+    }
+
+    /// Returns: the lowest loaded server.
+    Nullable!Host randomAndPop() @safe nothrow {
+        import std.range : take;
+        import std.random : uniform;
+
+        typeof(return) rval;
+
+        if (empty)
+            return rval;
+
+        try {
+            auto top3 = remoteByLoad.take(3).array;
+            auto ridx = uniform(0, top3.length);
+            rval = top3[ridx][0];
+        }
+        catch (Exception e) {
+            rval = remoteByLoad[0][0];
+        }
+
+        remoteByLoad = remoteByLoad.filter!(a => a[0] != rval).array;
+
+        return rval;
+    }
+
+    Host front() @safe pure nothrow {
+        assert(!empty);
+        return remoteByLoad[0][0];
+    }
+
+    void popFront() @safe pure nothrow {
+        assert(!empty);
+        remoteByLoad = remoteByLoad[1 .. $];
+    }
+
+    bool empty() @safe pure nothrow {
+        return remoteByLoad.length == 0;
+    }
 }
