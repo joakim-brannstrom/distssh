@@ -794,57 +794,6 @@ struct Host {
     alias payload this;
 }
 
-/**
- * #SPC-load_balance
- * #SPC-best_remote_host
- *
- * Returns: the lowest loaded server.
- */
-Nullable!Host selectLowest(Host[] hosts, Duration timeout) nothrow {
-    import std.array : array;
-    import std.range : take;
-    import std.typecons : tuple;
-    import std.algorithm : sort;
-    import std.random : uniform;
-    import std.parallelism : TaskPool;
-
-    static auto loadHost(T)(T host_to) nothrow {
-        return tuple(host_to[0], getLoad(host_to[0], host_to[1]));
-    }
-
-    if (hosts.length == 0)
-        return typeof(return)();
-
-    auto shosts = hosts.map!(a => tuple(a, timeout)).array;
-    if (shosts.length == 1)
-        return typeof(return)(Host(shosts[0][0]));
-
-    try {
-        auto pool = new TaskPool(shosts.length + 1);
-        scope (exit)
-            pool.stop;
-
-        // dfmt off
-        auto measured =
-            pool.map!loadHost(shosts)
-            .map!(a => tuple(a[0], a[1]))
-            .array
-            .sort!((a,b) => a[1] < b[1])
-            .take(3).array;
-        // dfmt on
-
-        if (measured.length > 0) {
-            auto ridx = uniform(0, measured.length);
-            return typeof(return)(measured[ridx][0]);
-        }
-    }
-    catch (Exception e) {
-        logger.trace(e.msg).collectException;
-    }
-
-    return typeof(return)();
-}
-
 /// The load of a host.
 struct Load {
     double loadAvg;
@@ -1230,6 +1179,10 @@ Host[] hostsFromEnv() nothrow {
     return rval;
 }
 
+/**
+ * #SPC-load_balance
+ * #SPC-best_remote_host
+ */
 struct RemoteHostCache {
     import std.array : array;
     import std.typecons : Tuple, tuple;
@@ -1281,6 +1234,7 @@ struct RemoteHostCache {
         }
     }
 
+    /// Returns: the lowest loaded server.
     Nullable!Host randomAndPop() @safe nothrow {
         import std.range : take;
         import std.random : uniform;
