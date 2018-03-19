@@ -402,24 +402,18 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
 
 // #SPC-measure_remote_hosts
 int cli_measureHosts(const Options opts) {
-    import core.time : dur;
     import std.array : array;
     import std.algorithm : sort;
     import std.conv : to;
     import std.stdio : writefln, writeln;
-    import std.string : fromStringz;
     import std.typecons : tuple;
     import std.parallelism : TaskPool;
-
-    static import core.stdc.stdlib;
-
-    string hosts_env = core.stdc.stdlib.getenv(&globalEnvironemntKey[0]).fromStringz.idup;
 
     static auto loadHost(T)(T host_to) {
         return tuple(host_to[0], getLoad(host_to[0], host_to[1]));
     }
 
-    auto shosts = hosts_env.splitter(";").map!(a => tuple(Host(a), opts.timeout)).array;
+    auto shosts = hostsFromEnv.map!(a => tuple(a, opts.timeout)).array;
 
     writefln("Configured hosts (%s): %(%s|%)", globalEnvironemntKey, shosts.map!(a => a[0]));
     writeln("Host | Access Time | Load");
@@ -783,16 +777,14 @@ struct Host {
 }
 
 Host selectLowestFromEnv(Duration timeout) {
-    import std.string : fromStringz;
+    import std.conv : to;
 
-    static import core.stdc.stdlib;
-
-    string hosts_env = core.stdc.stdlib.getenv(&globalEnvironemntKey[0]).fromStringz.idup;
-    auto host = selectLowest(hosts_env, timeout);
+    auto remote_hosts = hostsFromEnv;
+    auto host = selectLowest(remote_hosts, timeout);
 
     if (host.isNull) {
-        throw new Exception("No remote host found (" ~ globalEnvironemntKey ~ "='" ~ hosts_env
-                ~ "')");
+        throw new Exception("No remote host found (" ~ globalEnvironemntKey ~ "='" ~ remote_hosts.joiner(";")
+                .to!string ~ "')");
     }
 
     return host.get;
@@ -804,7 +796,7 @@ Host selectLowestFromEnv(Duration timeout) {
  *
  * Returns: the lowest loaded server.
  */
-Nullable!Host selectLowest(string hosts, Duration timeout) nothrow {
+Nullable!Host selectLowest(Host[] hosts, Duration timeout) nothrow {
     import std.array : array;
     import std.range : take;
     import std.typecons : tuple;
@@ -820,7 +812,7 @@ Nullable!Host selectLowest(string hosts, Duration timeout) nothrow {
             return tuple(host_to[0], getLoad(host_to[0], host_to[1]));
         }
 
-        auto shosts = hosts.splitter(";").map!(a => tuple(Host(a), timeout)).array;
+        auto shosts = hosts.map!(a => tuple(a, timeout)).array;
         if (shosts.length == 1)
             return typeof(return)(Host(shosts[0][0]));
 
