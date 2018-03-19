@@ -419,34 +419,22 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
 
 // #SPC-measure_remote_hosts
 int cli_measureHosts(const Options opts) nothrow {
-    import std.array : array;
-    import std.algorithm : sort;
     import std.conv : to;
     import std.stdio : writefln, writeln;
-    import std.typecons : tuple;
-    import std.parallelism : TaskPool;
 
-    static auto loadHost(T)(T host_to) nothrow {
-        return tuple(host_to[0], getLoad(host_to[0], host_to[1]));
-    }
+    auto hosts = RemoteHostCache.make(opts.timeout);
+    hosts.sortByLoad;
 
-    auto shosts = hostsFromEnv.map!(a => tuple(a, opts.timeout)).array;
-
-    writefln("Configured hosts (%s): %(%s|%)", globalEnvironemntKey, shosts.map!(a => a[0]))
+    writefln("Configured hosts (%s): %(%s|%)", globalEnvironemntKey, hosts.remoteHosts)
         .collectException;
     writeln("Host | Access Time | Load").collectException;
 
-    try {
-        auto pool = new TaskPool(shosts.length + 1);
-        scope (exit)
-            pool.stop;
-
-        foreach (a; pool.map!loadHost(shosts).array.sort!((a, b) => a[1] < b[1])) {
+    foreach (a; hosts.remoteByLoad) {
+        try {
             writefln("%s | %s | %s", a[0], a[1].accessTime.to!string, a[1].loadAvg.to!string);
         }
-    }
-    catch (Exception e) {
-        logger.error(e.msg).collectException;
+        catch (Exception e) {
+        }
     }
 
     return 0;
@@ -1191,7 +1179,7 @@ struct RemoteHostCache {
 
     Duration timeout;
     Host[] remoteHosts;
-    HostLoad[] remote_by_load;
+    HostLoad[] remoteByLoad;
 
     static auto make(Duration timeout) nothrow {
         return RemoteHostCache(timeout, hostsFromEnv);
@@ -1217,16 +1205,16 @@ struct RemoteHostCache {
                 pool.stop;
 
             // dfmt off
-            remote_by_load =
+            remoteByLoad =
                 pool.map!loadHost(shosts)
                 .array
                 .sort!((a,b) => a[1] < b[1])
                 .array;
             // dfmt on
 
-            if (remote_by_load.length == 0) {
+            if (remoteByLoad.length == 0) {
                 // this should be very uncommon but may happen.
-                remote_by_load = remoteHosts.map!(a => HostLoad(a, Load.init)).array;
+                remoteByLoad = remoteHosts.map!(a => HostLoad(a, Load.init)).array;
             }
         }
         catch (Exception e) {
@@ -1245,30 +1233,30 @@ struct RemoteHostCache {
             return rval;
 
         try {
-            auto top3 = remote_by_load.take(3).array;
+            auto top3 = remoteByLoad.take(3).array;
             auto ridx = uniform(0, top3.length);
             rval = top3[ridx][0];
         }
         catch (Exception e) {
-            rval = remote_by_load[0][0];
+            rval = remoteByLoad[0][0];
         }
 
-        remote_by_load = remote_by_load.filter!(a => a[0] != rval).array;
+        remoteByLoad = remoteByLoad.filter!(a => a[0] != rval).array;
 
         return rval;
     }
 
     Host front() @safe pure nothrow {
         assert(!empty);
-        return remote_by_load[0][0];
+        return remoteByLoad[0][0];
     }
 
     void popFront() @safe pure nothrow {
         assert(!empty);
-        remote_by_load = remote_by_load[1 .. $];
+        remoteByLoad = remoteByLoad[1 .. $];
     }
 
     bool empty() @safe pure nothrow {
-        return remote_by_load.length == 0;
+        return remoteByLoad.length == 0;
     }
 }
