@@ -235,14 +235,20 @@ int cli_localShell(const Options opts) nothrow {
 }
 
 int cli_cmd(const Options opts) nothrow {
-    try {
-        auto host = selectLowestFromEnv(opts.timeout);
-        return executeOnHost(opts, host);
-    }
-    catch (Exception e) {
-        logger.error(e.msg).collectException;
+    auto hosts = RemoteHostCache.make(opts.timeout);
+    hosts.sortByLoad;
+
+    if (hosts.empty) {
+        logger.errorf("No remote host online or configured. DISTSSH_HOSTS='%s'",
+                hosts.remoteHosts.joiner(";")).collectException;
         return 1;
     }
+
+    auto host = hosts.randomAndPop;
+    if (host.isNull)
+        return 1;
+
+    return executeOnHost(opts, host);
 }
 
 int executeOnHost(const Options opts, Host host) nothrow {
