@@ -425,7 +425,7 @@ int cli_measureHosts(const Options opts) nothrow {
     auto hosts = RemoteHostCache.make(opts.timeout);
     hosts.sortByLoad;
 
-    writefln("Configured hosts (%s): %(%s|%)", globalEnvironemntKey, hosts.remoteHosts)
+    writefln("Configured hosts (%s='%s')", globalEnvironemntKey, hosts.remoteHosts.joiner(";"))
         .collectException;
     writeln("Host | Access Time | Load").collectException;
 
@@ -434,6 +434,7 @@ int cli_measureHosts(const Options opts) nothrow {
             writefln("%s | %s | %s", a[0], a[1].accessTime.to!string, a[1].loadAvg.to!string);
         }
         catch (Exception e) {
+            logger.trace(e.msg).collectException;
         }
     }
 
@@ -1210,9 +1211,6 @@ struct RemoteHostCache {
         static auto loadHost(T)(T host_timeout) nothrow {
             return HostLoad(host_timeout[0], getLoad(host_timeout[0], host_timeout[1]));
         }
-
-        if (remoteHosts.length <= 1)
-            return;
 
         auto shosts = remoteHosts.map!(a => tuple(a, timeout)).array;
 
