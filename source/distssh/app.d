@@ -472,22 +472,22 @@ int cli_localLoad(WriterT)(scope WriterT writer) nothrow {
 }
 
 int cli_runOnAll(const Options opts) nothrow {
-    import std.array : array;
     import std.algorithm : sort;
-    import std.stdio : writefln, writeln;
-    import std.string : fromStringz;
+    import std.stdio : writefln, writeln, stdout;
 
-    static import core.stdc.stdlib;
-
-    string hosts_env = core.stdc.stdlib.getenv(&globalEnvironemntKey[0]).fromStringz.idup;
-
-    auto shosts = hosts_env.splitter(";").map!(a => Host(a)).array;
+    auto shosts = hostsFromEnv;
 
     writefln("Configured hosts (%s): %(%s|%)", globalEnvironemntKey, shosts).collectException;
 
     bool exit_status = true;
     foreach (a; shosts.sort) {
-        writefln("Connecting to %s.", a).collectException;
+        stdout.writefln("Connecting to %s.", a).collectException;
+        try {
+            // #SPC-flush_buffers
+            stdout.flush;
+        }
+        catch (Exception e) {
+        }
 
         auto status = executeOnHost(opts, a);
 
@@ -496,7 +496,7 @@ int cli_runOnAll(const Options opts) nothrow {
             exit_status = false;
         }
 
-        writefln("Connection to %s closed.", a).collectException;
+        stdout.writefln("Connection to %s closed.", a).collectException;
     }
 
     return exit_status ? 0 : 1;
@@ -1207,4 +1207,23 @@ auto readEnv(string filename) nothrow {
     }
 
     return rval;
+}
+
+Host[] hostsFromEnv() nothrow {
+    import std.array : array;
+    import std.string : fromStringz, strip;
+
+    static import core.stdc.stdlib;
+
+    string hosts_env = core.stdc.stdlib.getenv(&globalEnvironemntKey[0]).fromStringz.idup;
+
+    try {
+        return hosts_env.splitter(";").map!(a => a.strip)
+            .filter!(a => a.length > 0).map!(a => Host(a)).array;
+    }
+    catch (Exception e) {
+        logger.error(e.msg).collectException;
+    }
+
+    return null;
 }
