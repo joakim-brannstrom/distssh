@@ -29,8 +29,47 @@ struct Serialize(WriterT) {
         put(w, pkgtype[]);
     }
 
+    void pack(const string s) {
+        import msgpack_ll;
+
+        ubyte[5] hdr;
+        // TODO a uint is potentially too big. standard says 2^32-1
+        formatType!(MsgpackType.str32)(cast(uint) s.length, hdr);
+        put(w, hdr[]);
+        put(w, cast(ubyte[]) s);
+    }
+
+    void pack(MsgpackType Type, T)(T v) {
+        import msgpack_ll;
+
+        ubyte[DataSize!Type] buf;
+        formatType!Type(v, buf);
+        put(w, buf[]);
+    }
+
     void pack(T)() if (is(T == HeartBeat)) {
         pack(Kind.heartBeat);
+    }
+
+    void pack(const Env env) {
+        import std.algorithm : map, sum;
+
+        // dfmt off
+        const tot_size =
+            KindSize +
+            DataSize!(MsgpackType.uint32) +
+            DataSize!(MsgpackType.uint32) +
+            env.value.map!(a => 2*DataSize!(MsgpackType.str32) + a.key.length + a.value.length).sum;
+        // dfmt on
+
+        pack(Kind.environment);
+        pack!(MsgpackType.uint32)(cast(uint) tot_size);
+        pack!(MsgpackType.uint32)(cast(uint) env.length);
+
+        foreach (const kv; env) {
+            pack(kv.key);
+            pack(kv.value);
+        }
     }
 }
 
@@ -83,6 +122,53 @@ struct Deserialize {
         return typeof(return)();
     }
 
+    Nullable!Env unpack(T)() if (is(T == Env)) {
+        if (nextKind != Kind.environment)
+            return typeof(return)();
+
+        const kind_totsize = KindSize + DataSize!(MsgpackType.uint32);
+        if (buf.length < kind_totsize)
+            return typeof(return)();
+
+        const tot_size = () {
+            auto s = buf[KindSize .. $];
+            return peek!(MsgpackType.uint32, uint)(s);
+        }();
+
+        logger.trace(tot_size);
+
+        if (buf.length < tot_size)
+            return typeof(return)();
+
+        // all data is received, start unpacking
+        Env env;
+        demux!(MsgpackType.uint8, ubyte);
+        demux!(MsgpackType.uint32, uint);
+
+        const kv_pairs = demux!(MsgpackType.uint32, uint);
+        for (uint i; i < kv_pairs; ++i) {
+            string key;
+            string value;
+
+            // may contain invalid utf8 chars but still have to consume everything
+            try {
+                key = demux!string();
+            }
+            catch (Exception e) {
+            }
+
+            try {
+                value = demux!string();
+            }
+            catch (Exception e) {
+            }
+
+            env ~= EnvVariable(key, value);
+        }
+
+        return typeof(return)(env);
+    }
+
 private:
     void consume(MsgpackType type)() {
         buf = buf[DataSize!type .. $];
@@ -92,24 +178,47 @@ private:
         buf = buf[len .. $];
     }
 
-    T peek(MsgpackType type, T)() {
+    T peek(MsgpackType Type, T)() {
+        return peek!(Type, T)(buf);
+    }
+
+    static T peek(MsgpackType Type, T)(ref ubyte[] buf) {
         import std.exception : enforce;
 
-        enforce(getType(buf[0]) == type);
-        T v = parseType!type(buf[0 .. DataSize!type]);
+        enforce(getType(buf[0]) == Type);
+        T v = parseType!Type(buf[0 .. DataSize!Type]);
 
         return v;
     }
 
-    T demux(MsgpackType type, T)() {
+    T demux(MsgpackType Type, T)() {
         import std.exception : enforce;
         import msgpack_ll;
 
-        enforce(getType(buf[0]) == type);
-        T v = parseType!type(buf[0 .. DataSize!type]);
-        consume!type();
+        enforce(getType(buf[0]) == Type);
+        T v = parseType!Type(buf[0 .. DataSize!Type]);
+        consume!Type();
 
         return v;
+    }
+
+    string demux(T)() if (is(T == string)) {
+        import std.exception : enforce;
+        import std.utf : validate;
+        import msgpack_ll;
+
+        enforce(getType(buf[0]) == MsgpackType.str32);
+        auto len = parseType!(MsgpackType.str32)(buf[0 .. DataSize!(MsgpackType.str32)]);
+        consume!(MsgpackType.str32);
+
+        // 2^32-1 according to the standard
+        enforce(len < int.max);
+
+        char[] raw = cast(char[]) buf[0 .. len];
+        consume(len);
+        validate(raw);
+
+        return raw.idup;
     }
 }
 
@@ -123,6 +232,7 @@ struct EnvVariable {
 
 struct Env {
     EnvVariable[] value;
+    alias value this;
 }
 
 @("shall pack and unpack a HeartBeat")
@@ -150,4 +260,18 @@ unittest {
     assert(deser.buf.length == 3);
     deser.cleanupUntilKind;
     assert(deser.buf.length == 2);
+}
+
+@("shall pack and unpack an environment")
+unittest {
+    auto app = appender!(ubyte[])();
+    auto ser = Serialize!(typeof(app))(app);
+
+    ser.pack(Env([EnvVariable("foo", "bar")]));
+    logger.trace(app.data);
+    logger.trace(app.data.length);
+    assert(app.data.length > 0);
+
+    auto deser = Deserialize(app.data);
+    logger.trace(deser.unpack!Env);
 }
