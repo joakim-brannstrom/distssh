@@ -243,14 +243,18 @@ int executeOnHost(const Options opts, Host host) nothrow {
     try {
         import std.file : getcwd;
 
-        logger.info("Connecting to: ", host);
-        logger.info("run: ", opts.command.dup.joiner(" "));
+        auto args = ["ssh", "-oStrictHostKeyChecking=no", host, thisExePath,
+            "--local-run", "--workdir", getcwd, "--stdin-msgpack-env", "--"] ~ opts.command;
 
-        auto p = pipeProcess(["ssh", "-oStrictHostKeyChecking=no", host,
-                thisExePath, "--local-run", "--workdir", getcwd,
-                "--import-env", opts.importEnv.absolutePath, "--"] ~ opts.command, Redirect.stdin);
+        logger.info("Connecting to: ", host);
+        logger.info("run: ", args.joiner(" "));
+
+        auto p = pipeProcess(args, Redirect.stdin);
 
         auto pwriter = PipeWriter(p.stdin);
+
+        auto env = readEnv(opts.importEnv.absolutePath);
+        pwriter.pack(env);
 
         while (true) {
             try {
@@ -285,23 +289,45 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
     if (opts.command.length == 0)
         return 0;
 
-    string[string] env;
-    if (exists(opts.importEnv)) {
-        try {
-            foreach (kv; File(opts.importEnv).byLine.map!(a => a.splitter("="))) {
-                string k = kv.front.idup;
-                string v;
-                kv.popFront;
-                if (!kv.empty)
-                    v = kv.front.idup;
-                env[k] = v;
+    static auto updateEnv(const Options opts, ref PipeReader pread, ref string[string] out_env) {
+        distssh.protocol.Env env;
+
+        if (opts.stdinMsgPackEnv) {
+            while (true) {
+                pread.update;
+
+                try {
+                    auto tmp = pread.unpack!(distssh.protocol.Env);
+                    if (!tmp.isNull) {
+                        env = tmp;
+                        break;
+                    }
+                }
+                catch (Exception e) {
+                }
+
+                Thread.sleep(10.dur!"msecs");
             }
+        } else {
+            readEnv(opts.importEnv);
         }
-        catch (Exception e) {
+
+        foreach (kv; env) {
+            out_env[kv.key] = kv.value;
         }
     }
 
     try {
+        string[string] env;
+        auto pread = PipeReader(stdin.fileno);
+
+        try {
+            updateEnv(opts, pread, env);
+        }
+        catch (Exception e) {
+            logger.trace(e.msg).collectException;
+        }
+
         Pid res;
 
         if (exists(opts.command[0])) {
@@ -322,7 +348,6 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
 
         auto check_parent = MonoTime.currTime + check_parent_interval;
 
-        auto pread = PipeReader(stdin.fileno);
         auto wd = Watchdog(pread, timeout);
 
         while (!wd.isTimeout) {
@@ -576,6 +601,7 @@ struct Options {
     bool help;
     bool exportEnv;
     bool verbose;
+    bool stdinMsgPackEnv;
     std.getopt.GetoptResult help_info;
 
     Duration timeout = defaultTimeout_s.dur!"seconds";
@@ -634,6 +660,7 @@ Options parseUserArgs(string[] args) {
             "local-shell", "run the shell locally", &local_shell,
             "run-on-all", "run the command on all remote hosts", &run_on_all,
             "shell", "open an interactive shell on the remote host", &remote_shell,
+            "stdin-msgpack-env", "import env from stdin as a msgpacked stream", &opts.stdinMsgPackEnv,
             "timeout", "timeout to use when checking remote hosts", &timeout_s,
             "v|verbose", "verbose logging", &opts.verbose,
             "workdir", "working directory to run the command in", &opts.workDir,
@@ -1151,7 +1178,33 @@ struct PipeWriter {
 
     void put(const(ubyte)[] v) {
         fout.rawWrite(v);
-        fout.writeln;
         fout.flush;
     }
+}
+
+auto readEnv(string filename) nothrow {
+    import distssh.protocol : Env, EnvVariable;
+    import std.file : exists;
+    import std.stdio : File;
+
+    Env rval;
+
+    if (!exists(filename))
+        return rval;
+
+    try {
+        foreach (kv; File(filename).byLine.map!(a => a.splitter("="))) {
+            string k = kv.front.idup;
+            string v;
+            kv.popFront;
+            if (!kv.empty)
+                v = kv.front.idup;
+            rval ~= EnvVariable(k, v);
+        }
+    }
+    catch (Exception e) {
+        logger.trace(e.msg).collectException;
+    }
+
+    return rval;
 }
