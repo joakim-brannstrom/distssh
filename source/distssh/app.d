@@ -184,8 +184,7 @@ int cli_shell(const Options opts) nothrow {
     hosts.sortByLoad;
 
     if (hosts.empty) {
-        logger.errorf("No remote host online or configured. DISTSSH_HOSTS='%s'",
-                hosts.remoteHosts.joiner(";")).collectException;
+        logger.errorf("No remote host online").collectException;
     }
 
     // #SPC-fallback
@@ -194,7 +193,7 @@ int cli_shell(const Options opts) nothrow {
 
         try {
             if (host.isNull) {
-                logger.error("No remote host found");
+                logger.error("No remote host online");
                 return 1;
             }
 
@@ -239,8 +238,7 @@ int cli_cmd(const Options opts) nothrow {
     hosts.sortByLoad;
 
     if (hosts.empty) {
-        logger.errorf("No remote host online or configured. DISTSSH_HOSTS='%s'",
-                hosts.remoteHosts.joiner(";")).collectException;
+        logger.errorf("No remote host online").collectException;
         return 1;
     }
 
@@ -1214,17 +1212,22 @@ Host[] hostsFromEnv() nothrow {
 
     static import core.stdc.stdlib;
 
-    string hosts_env = core.stdc.stdlib.getenv(&globalEnvironemntKey[0]).fromStringz.idup;
+    typeof(return) rval;
 
     try {
-        return hosts_env.splitter(";").map!(a => a.strip)
+        string hosts_env = core.stdc.stdlib.getenv(&globalEnvironemntKey[0]).fromStringz.idup;
+        rval = hosts_env.splitter(";").map!(a => a.strip)
             .filter!(a => a.length > 0).map!(a => Host(a)).array;
+
+        if (rval.length == 0) {
+            logger.errorf("No remote host configured (%s='%s')", globalEnvironemntKey, hosts_env);
+        }
     }
     catch (Exception e) {
         logger.error(e.msg).collectException;
     }
 
-    return null;
+    return rval;
 }
 
 struct RemoteHostCache {
@@ -1236,7 +1239,6 @@ struct RemoteHostCache {
     Duration timeout;
     Host[] remoteHosts;
     HostLoad[] remote_by_load;
-    ;
 
     static auto make(Duration timeout) nothrow {
         return RemoteHostCache(timeout, hostsFromEnv);
