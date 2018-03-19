@@ -99,14 +99,7 @@ int appMain(const Options opts) nothrow {
     case importEnvCmd:
         return cli_cmdWithImportedEnv(opts);
     case measureHosts:
-        try {
-            cli_measureHosts(opts);
-            return 0;
-        }
-        catch (Exception e) {
-            logger.error(e.msg).collectException;
-            return 1;
-        }
+        return cli_measureHosts(opts);
     case localLoad:
         import std.stdio : writeln;
 
@@ -401,7 +394,7 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
 }
 
 // #SPC-measure_remote_hosts
-int cli_measureHosts(const Options opts) {
+int cli_measureHosts(const Options opts) nothrow {
     import std.array : array;
     import std.algorithm : sort;
     import std.conv : to;
@@ -409,27 +402,28 @@ int cli_measureHosts(const Options opts) {
     import std.typecons : tuple;
     import std.parallelism : TaskPool;
 
-    static auto loadHost(T)(T host_to) {
+    static auto loadHost(T)(T host_to) nothrow {
         return tuple(host_to[0], getLoad(host_to[0], host_to[1]));
     }
 
     auto shosts = hostsFromEnv.map!(a => tuple(a, opts.timeout)).array;
 
-    writefln("Configured hosts (%s): %(%s|%)", globalEnvironemntKey, shosts.map!(a => a[0]));
-    writeln("Host | Access Time | Load");
+    writefln("Configured hosts (%s): %(%s|%)", globalEnvironemntKey, shosts.map!(a => a[0]))
+        .collectException;
+    writeln("Host | Access Time | Load").collectException;
 
-    auto pool = new TaskPool(shosts.length + 1);
-    scope (exit)
-        pool.stop;
+    try {
+        auto pool = new TaskPool(shosts.length + 1);
+        scope (exit)
+            pool.stop;
 
-    // dfmt off
-    foreach(a; pool.map!loadHost(shosts)
-        .array
-        .sort!((a,b) => a[1] < b[1])) {
-
-        writefln("%s | %s | %s", a[0], a[1].accessTime.to!string, a[1].loadAvg.to!string);
+        foreach (a; pool.map!loadHost(shosts).array.sort!((a, b) => a[1] < b[1])) {
+            writefln("%s | %s | %s", a[0], a[1].accessTime.to!string, a[1].loadAvg.to!string);
+        }
     }
-    // dfmt on
+    catch (Exception e) {
+        logger.error(e.msg).collectException;
+    }
 
     return 0;
 }
@@ -804,18 +798,18 @@ Nullable!Host selectLowest(Host[] hosts, Duration timeout) nothrow {
     import std.random : uniform;
     import std.parallelism : TaskPool;
 
+    static auto loadHost(T)(T host_to) nothrow {
+        return tuple(host_to[0], getLoad(host_to[0], host_to[1]));
+    }
+
+    if (hosts.length == 0)
+        return typeof(return)();
+
+    auto shosts = hosts.map!(a => tuple(a, timeout)).array;
+    if (shosts.length == 1)
+        return typeof(return)(Host(shosts[0][0]));
+
     try {
-        if (hosts.length == 0)
-            return typeof(return)();
-
-        static auto loadHost(T)(T host_to) {
-            return tuple(host_to[0], getLoad(host_to[0], host_to[1]));
-        }
-
-        auto shosts = hosts.map!(a => tuple(a, timeout)).array;
-        if (shosts.length == 1)
-            return typeof(return)(Host(shosts[0][0]));
-
         auto pool = new TaskPool(shosts.length + 1);
         scope (exit)
             pool.stop;
@@ -911,11 +905,12 @@ Load getLoad(Host h, Duration timeout) nothrow {
             } else if (stop_at < MonoTime.currTime) {
                 exit_code = ExitCode.timeout;
                 res.pid.kill(SIGKILL);
-                // must read the exit or a zombie process is left behind
-                res.pid.wait;
                 break;
             }
         }
+
+        // must read the exit or a zombie process is left behind
+        res.pid.wait;
 
         elapsed = MonoTime.currTime - start_at;
 
