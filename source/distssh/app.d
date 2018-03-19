@@ -796,20 +796,6 @@ struct Host {
     alias payload this;
 }
 
-Host selectLowestFromEnv(Duration timeout) {
-    import std.conv : to;
-
-    auto remote_hosts = hostsFromEnv;
-    auto host = selectLowest(remote_hosts, timeout);
-
-    if (host.isNull) {
-        throw new Exception("No remote host found (" ~ globalEnvironemntKey ~ "='" ~ remote_hosts.joiner(";")
-                .to!string ~ "')");
-    }
-
-    return host.get;
-}
-
 /**
  * #SPC-load_balance
  * #SPC-best_remote_host
