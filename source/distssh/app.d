@@ -1061,21 +1061,26 @@ PidGroup[] getPidGroups(const Pid[] pids) {
  *
  * Returns: the process group of "this".
  */
-pid_t cleanupProcess(KillT, KillPgT)(Pid parent_pid, KillT kill, KillPgT killpg) {
+pid_t cleanupProcess(KillT, KillPgT)(Pid parent_pid, KillT kill, KillPgT killpg) nothrow {
     import core.sys.posix.unistd : getpgrp, getpid, getppid;
 
     const this_pid = getpid();
     const this_gid = getpgrp();
 
-    auto children_groups = getDeepChildren(parent_pid).getPidGroups;
-    auto direct_children = getShallowChildren(parent_pid);
+    try {
+        auto children_groups = getDeepChildren(parent_pid).getPidGroups;
+        auto direct_children = getShallowChildren(parent_pid);
 
-    foreach (const p; direct_children.filter!(a => a != this_pid)) {
-        kill(p);
+        foreach (const p; direct_children.filter!(a => a != this_pid)) {
+            kill(p);
+        }
+
+        foreach (const p; children_groups.filter!(a => a != this_gid)) {
+            killpg(p);
+        }
     }
-
-    foreach (const p; children_groups.filter!(a => a != this_gid)) {
-        killpg(p);
+    catch (Exception e) {
+        logger.trace(e.msg).collectException;
     }
 
     return this_gid;
