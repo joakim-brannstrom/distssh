@@ -51,7 +51,7 @@ struct Serialize(WriterT) {
         pack(Kind.heartBeat);
     }
 
-    void pack(const Env env) {
+    void pack(const ProtocolEnv env) {
         import std.algorithm : map, sum;
 
         // dfmt off
@@ -122,7 +122,7 @@ struct Deserialize {
         return typeof(return)();
     }
 
-    Nullable!Env unpack(T)() if (is(T == Env)) {
+    Nullable!ProtocolEnv unpack(T)() if (is(T == ProtocolEnv)) {
         if (nextKind != Kind.environment)
             return typeof(return)();
 
@@ -141,7 +141,7 @@ struct Deserialize {
             return typeof(return)();
 
         // all data is received, start unpacking
-        Env env;
+        ProtocolEnv env;
         demux!(MsgpackType.uint8, ubyte);
         demux!(MsgpackType.uint32, uint);
 
@@ -230,7 +230,7 @@ struct EnvVariable {
     string value;
 }
 
-struct Env {
+struct ProtocolEnv {
     EnvVariable[] value;
     alias value this;
 }
@@ -267,11 +267,11 @@ unittest {
     auto app = appender!(ubyte[])();
     auto ser = Serialize!(typeof(app))(app);
 
-    ser.pack(Env([EnvVariable("foo", "bar")]));
+    ser.pack(ProtocolEnv([EnvVariable("foo", "bar")]));
     logger.trace(app.data);
     logger.trace(app.data.length);
     assert(app.data.length > 0);
 
     auto deser = Deserialize(app.data);
-    logger.trace(deser.unpack!Env);
+    logger.trace(deser.unpack!ProtocolEnv);
 }

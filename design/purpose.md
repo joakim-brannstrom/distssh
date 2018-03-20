@@ -150,7 +150,11 @@ partof: REQ-uc_fast_experience
 
 The program shall store the current environment to *env file* when the user CLI is `--export-env`.
 
-The program shall setup the env from *env file* if it exists when running a user command.
+The program shall send over the environment in *env file* for use on the remote host when the *env file* exists.
+
+The program shall send over the environment current environment for use on the remote host when the user CLI is `--clone-env`.
+
+The program shall on the remote host setup the environment when it is transfered and before it executes the user specified *command*.
 
 ## Why?
 The environment can be slow to startup if e.g. .bashrc has to run.
@@ -366,6 +370,25 @@ partof: REQ-uc_shell
 
 The program shall on a failure to login on the remote host continue with the next one in the list of *least loaded hosts*.
 
+# Info
+
+I don't know how to reliably detect that the ssh connection failed because of a remote host that didn't answer without capturing stdout and textually analyze it.
+This would in turn have other bad side effects such an increased computation or possibility for erronious *detection* because the user *printed* something that gets mixed up with ssh's output.
+
+As a workaround the timeout * 2 is used.
+If the connection isn't interrupted in that timeframe it is assumed it worked OK.
+This is also based on the fact that a load check has already been done.
+
 ## Why?
 
 The user really, really want a shell. A remote host may be down or otherwise in a bad shape so try and login until there are none left.
+
+# SPC-remote_command_pretty_colors
+partof: REQ-uc_remote_command
+###
+
+The program shall force the remote host to emulate a tty when the user run the command via a tty.
+
+**Rationale**: This gives the user pretty coloers when the command is ran in a console.
+
+**Rationale**: It improves the feeling of running a remote command is *as if* it ran locally.

@@ -68,7 +68,8 @@ version (unittest) {
 }
 
 int appMain(const Options opts) nothrow {
-    if (opts.exportEnv) {
+    final switch (opts.mode) with (Options.Mode) {
+    case exportEnv:
         try {
             auto fout = File(opts.importEnv, "w");
 
@@ -77,15 +78,16 @@ int appMain(const Options opts) nothrow {
             fchmod(fout.fileno, S_IRUSR | S_IWUSR);
 
             cli_exportEnv(opts, fout);
+
+            import std.stdio : writeln;
+
+            writeln("Exported environment to ", opts.importEnv);
             return 0;
         }
         catch (Exception e) {
             logger.error(e.msg).collectException;
-            return 1;
         }
-    }
-
-    final switch (opts.mode) with (Options.Mode) {
+        return 1;
     case install:
         import std.file : symlink;
 
@@ -112,8 +114,7 @@ int appMain(const Options opts) nothrow {
 private:
 
 void cli_exportEnv(const Options opts, ref File fout) {
-    auto s = cloneEnv(environ);
-    foreach (kv; s.byKeyValue) {
+    foreach (kv; cloneEnv(environ)) {
         fout.writefln("%s=%s", kv.key, kv.value);
     }
 }
@@ -174,8 +175,8 @@ unittest {
     assert(symlinks[1] == ["/foo/src", "/bar/distcmd"]);
 }
 
-// #SPC-fallback_remote_host
 int cli_shell(const Options opts) nothrow {
+    import std.datetime.stopwatch : StopWatch, AutoStart;
     import std.file : thisExePath, getcwd;
     import std.process : spawnProcess, wait;
     import std.stdio : writeln, writefln;
@@ -187,7 +188,8 @@ int cli_shell(const Options opts) nothrow {
         logger.errorf("No remote host online").collectException;
     }
 
-    // #SPC-fallback
+    const timout_until_considered_successfull_connection = opts.timeout * 2;
+
     while (!hosts.empty) {
         auto host = hosts.randomAndPop;
 
@@ -199,14 +201,20 @@ int cli_shell(const Options opts) nothrow {
 
             writeln("Connecting to ", host);
 
+            auto sw = StopWatch(AutoStart.yes);
+
             // two -t forces a tty to be created and used which mean that the remote shell will *think* it is an interactive shell
             auto exit_status = spawnProcess(["ssh", "-q", "-t", "-t", "-oStrictHostKeyChecking=no",
                     host, thisExePath, "--local-shell", "--workdir", getcwd]).wait;
-            writefln("Connection to %s closed.", host);
 
-            if (exit_status == 0)
+            // #SPC-fallback_remote_host
+            if (exit_status == 0 || sw.peek > timout_until_considered_successfull_connection) {
+                writefln("Connection to %s closed.", host);
                 return exit_status;
-            logger.warning("Unable to connect");
+            } else {
+                logger.warningf("Connection failed to %s. Falling back on next available host",
+                        host);
+            }
         }
         catch (Exception e) {
             logger.error(e.msg).collectException;
@@ -219,13 +227,16 @@ int cli_shell(const Options opts) nothrow {
 // #SPC-shell_current_dir
 int cli_localShell(const Options opts) nothrow {
     import std.file : exists;
-    import std.process : spawnProcess, wait, userShell, Config;
+    import std.process : spawnProcess, wait, userShell, Config, Pid;
 
     try {
+        Pid pid;
         if (exists(opts.workDir))
-            return spawnProcess([userShell], null, Config.none, opts.workDir).wait;
+            pid = spawnProcess([userShell], null, Config.none, opts.workDir);
         else
-            return spawnProcess([userShell]).wait;
+            pid = spawnProcess([userShell]);
+
+        return pid.wait;
     }
     catch (Exception e) {
         logger.error(e.msg).collectException;
@@ -250,6 +261,7 @@ int cli_cmd(const Options opts) nothrow {
 }
 
 int executeOnHost(const Options opts, Host host) nothrow {
+    import distssh.protocol : ProtocolEnv;
     import core.thread : Thread;
     import core.time : dur;
     import std.file : thisExePath;
@@ -270,7 +282,11 @@ int executeOnHost(const Options opts, Host host) nothrow {
 
         auto pwriter = PipeWriter(p.stdin);
 
-        auto env = readEnv(opts.importEnv.absolutePath);
+        ProtocolEnv env;
+        if (opts.cloneEnv)
+            env = cloneEnv(environ);
+        else
+            env = readEnv(opts.importEnv.absolutePath);
         pwriter.pack(env);
 
         while (true) {
@@ -307,14 +323,16 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
         return 0;
 
     static auto updateEnv(const Options opts, ref PipeReader pread, ref string[string] out_env) {
-        distssh.protocol.Env env;
+        import distssh.protocol : ProtocolEnv;
+
+        ProtocolEnv env;
 
         if (opts.stdinMsgPackEnv) {
             while (true) {
                 pread.update;
 
                 try {
-                    auto tmp = pread.unpack!(distssh.protocol.Env);
+                    auto tmp = pread.unpack!(ProtocolEnv);
                     if (!tmp.isNull) {
                         env = tmp;
                         break;
@@ -595,12 +613,13 @@ struct Options {
         localLoad,
         runOnAll,
         localShell,
+        exportEnv,
     }
 
     Mode mode;
 
     bool help;
-    bool exportEnv;
+    bool cloneEnv;
     bool verbose;
     bool stdinMsgPackEnv;
     std.getopt.GetoptResult help_info;
@@ -639,6 +658,7 @@ Options parseUserArgs(string[] args) {
     }
 
     try {
+        bool export_env;
         bool remote_shell;
         bool install;
         bool measure_hosts;
@@ -652,7 +672,8 @@ Options parseUserArgs(string[] args) {
         // dfmt off
         opts.help_info = std.getopt.getopt(args, std.getopt.config.passThrough,
             std.getopt.config.keepEndOfOptions,
-            "export-env", "export the current env to the remote host to be used", &opts.exportEnv,
+            "clone-env", "clone the current environment to the remote host", &opts.cloneEnv,
+            "export-env", "export the current environment to a file that is used on the remote host", &export_env,
             "install", "install distssh by setting up the correct symlinks", &install,
             "i|import-env", "import the env from the file", &opts.importEnv,
             "measure", "measure the login time and load of all remote hosts", &measure_hosts,
@@ -676,6 +697,8 @@ Options parseUserArgs(string[] args) {
 
         if (install)
             opts.mode = Options.Mode.install;
+        else if (export_env)
+            opts.mode = Options.Mode.exportEnv;
         else if (remote_shell)
             opts.mode = Options.Mode.shell;
         else if (measure_hosts)
@@ -707,9 +730,10 @@ Options parseUserArgs(string[] args) {
         import std.array : array;
 
         opts.command = args.find("--").drop(1).array();
-        if (opts.command.length == 0)
-            opts.command = args[1 .. $];
     }
+
+    if (opts.mode == Options.Mode.cmd && opts.command.length == 0)
+        opts.help = true;
 
     return opts;
 }
@@ -769,9 +793,13 @@ void printHelp(const Options opts) nothrow {
     import std.format : format;
     import std.path : baseName;
 
+    auto help_txt = "usage: %s [options] -- [COMMAND]\n";
+    if (opts.selfBinary.baseName == distCmd) {
+        help_txt = "usage: %s [COMMAND]\n";
+    }
+
     try {
-        defaultGetoptPrinter(format("usage: %s [options] [COMMAND]\n",
-                opts.selfBinary.baseName), opts.help_info.options.dup);
+        defaultGetoptPrinter(format(help_txt, opts.selfBinary.baseName), opts.help_info.options.dup);
     }
     catch (Exception e) {
         logger.error(e.msg).collectException;
@@ -915,13 +943,14 @@ struct Env {
  *
  * Returns: a clone of the environment.
  */
-Env cloneEnv(char** env) nothrow {
+auto cloneEnv(char** env) nothrow {
+    import distssh.protocol : ProtocolEnv, EnvVariable;
     import std.array : appender;
     import std.string : fromStringz, indexOf;
 
     static import core.stdc.stdlib;
 
-    Env app;
+    ProtocolEnv app;
 
     for (size_t i; env[i]!is null; ++i) {
         const raw = env[i].fromStringz;
@@ -932,7 +961,7 @@ Env cloneEnv(char** env) nothrow {
             string value;
             if (pos < raw.length)
                 value = raw[pos + 1 .. $].idup;
-            app[key] = value;
+            app ~= EnvVariable(key, value);
         }
     }
 
@@ -1050,21 +1079,26 @@ PidGroup[] getPidGroups(const Pid[] pids) {
  *
  * Returns: the process group of "this".
  */
-pid_t cleanupProcess(KillT, KillPgT)(Pid parent_pid, KillT kill, KillPgT killpg) {
+pid_t cleanupProcess(KillT, KillPgT)(Pid parent_pid, KillT kill, KillPgT killpg) nothrow {
     import core.sys.posix.unistd : getpgrp, getpid, getppid;
 
     const this_pid = getpid();
     const this_gid = getpgrp();
 
-    auto children_groups = getDeepChildren(parent_pid).getPidGroups;
-    auto direct_children = getShallowChildren(parent_pid);
+    try {
+        auto children_groups = getDeepChildren(parent_pid).getPidGroups;
+        auto direct_children = getShallowChildren(parent_pid);
 
-    foreach (const p; direct_children.filter!(a => a != this_pid)) {
-        kill(p);
+        foreach (const p; direct_children.filter!(a => a != this_pid)) {
+            kill(p);
+        }
+
+        foreach (const p; children_groups.filter!(a => a != this_gid)) {
+            killpg(p);
+        }
     }
-
-    foreach (const p; children_groups.filter!(a => a != this_gid)) {
-        killpg(p);
+    catch (Exception e) {
+        logger.trace(e.msg).collectException;
     }
 
     return this_gid;
@@ -1135,11 +1169,11 @@ struct PipeWriter {
 }
 
 auto readEnv(string filename) nothrow {
-    import distssh.protocol : Env, EnvVariable;
+    import distssh.protocol : ProtocolEnv, EnvVariable;
     import std.file : exists;
     import std.stdio : File;
 
-    Env rval;
+    ProtocolEnv rval;
 
     if (!exists(filename))
         return rval;
