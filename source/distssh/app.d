@@ -80,6 +80,7 @@ int appMain(const Options opts) nothrow {
             cli_exportEnv(opts, fout);
 
             import std.stdio : writeln;
+
             writeln("Exported environment to ", opts.importEnv);
             return 0;
         }
@@ -113,8 +114,7 @@ int appMain(const Options opts) nothrow {
 private:
 
 void cli_exportEnv(const Options opts, ref File fout) {
-    auto s = cloneEnv(environ);
-    foreach (kv; s.byKeyValue) {
+    foreach (kv; cloneEnv(environ)) {
         fout.writefln("%s=%s", kv.key, kv.value);
     }
 }
@@ -261,6 +261,7 @@ int cli_cmd(const Options opts) nothrow {
 }
 
 int executeOnHost(const Options opts, Host host) nothrow {
+    import distssh.protocol : ProtocolEnv;
     import core.thread : Thread;
     import core.time : dur;
     import std.file : thisExePath;
@@ -281,7 +282,11 @@ int executeOnHost(const Options opts, Host host) nothrow {
 
         auto pwriter = PipeWriter(p.stdin);
 
-        auto env = readEnv(opts.importEnv.absolutePath);
+        ProtocolEnv env;
+        if (opts.cloneEnv)
+            env = cloneEnv(environ);
+        else
+            env = readEnv(opts.importEnv.absolutePath);
         pwriter.pack(env);
 
         while (true) {
@@ -318,14 +323,16 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
         return 0;
 
     static auto updateEnv(const Options opts, ref PipeReader pread, ref string[string] out_env) {
-        distssh.protocol.Env env;
+        import distssh.protocol : ProtocolEnv;
+
+        ProtocolEnv env;
 
         if (opts.stdinMsgPackEnv) {
             while (true) {
                 pread.update;
 
                 try {
-                    auto tmp = pread.unpack!(distssh.protocol.Env);
+                    auto tmp = pread.unpack!(ProtocolEnv);
                     if (!tmp.isNull) {
                         env = tmp;
                         break;
@@ -936,13 +943,14 @@ struct Env {
  *
  * Returns: a clone of the environment.
  */
-Env cloneEnv(char** env) nothrow {
+auto cloneEnv(char** env) nothrow {
+    import distssh.protocol : ProtocolEnv, EnvVariable;
     import std.array : appender;
     import std.string : fromStringz, indexOf;
 
     static import core.stdc.stdlib;
 
-    Env app;
+    ProtocolEnv app;
 
     for (size_t i; env[i]!is null; ++i) {
         const raw = env[i].fromStringz;
@@ -953,7 +961,7 @@ Env cloneEnv(char** env) nothrow {
             string value;
             if (pos < raw.length)
                 value = raw[pos + 1 .. $].idup;
-            app[key] = value;
+            app ~= EnvVariable(key, value);
         }
     }
 
@@ -1161,11 +1169,11 @@ struct PipeWriter {
 }
 
 auto readEnv(string filename) nothrow {
-    import distssh.protocol : Env, EnvVariable;
+    import distssh.protocol : ProtocolEnv, EnvVariable;
     import std.file : exists;
     import std.stdio : File;
 
-    Env rval;
+    ProtocolEnv rval;
 
     if (!exists(filename))
         return rval;
