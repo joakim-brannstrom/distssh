@@ -71,17 +71,7 @@ int appMain(const Options opts) nothrow {
     final switch (opts.mode) with (Options.Mode) {
     case exportEnv:
         try {
-            auto fout = File(opts.importEnv, "w");
-
-            import core.sys.posix.sys.stat : fchmod, S_IRUSR, S_IWUSR;
-
-            fchmod(fout.fileno, S_IRUSR | S_IWUSR);
-
-            cli_exportEnv(opts, fout);
-
-            import std.stdio : writeln;
-
-            writeln("Exported environment to ", opts.importEnv);
+            cli_exportEnv(opts);
             return 0;
         }
         catch (Exception e) {
@@ -113,10 +103,18 @@ int appMain(const Options opts) nothrow {
 
 private:
 
-void cli_exportEnv(const Options opts, ref File fout) {
+void cli_exportEnv(const Options opts) {
+    import std.stdio : writeln;
+    import core.sys.posix.sys.stat : fchmod, S_IRUSR, S_IWUSR;
+
+    auto fout = File(opts.importEnv, "w");
+    fchmod(fout.fileno, S_IRUSR | S_IWUSR);
+
     foreach (kv; cloneEnv(environ)) {
         fout.writefln("%s=%s", kv.key, kv.value);
     }
+
+    writeln("Exported environment to ", opts.importEnv);
 }
 
 @("shall export the environment to the file")
