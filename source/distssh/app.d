@@ -717,9 +717,10 @@ Options parseUserArgs(string[] args) {
         import std.array : array;
 
         opts.command = args.find("--").drop(1).array();
-        if (opts.command.length == 0)
-            opts.command = args[1 .. $];
     }
+
+    if (opts.mode == Options.Mode.cmd && opts.command.length == 0)
+        opts.help = true;
 
     return opts;
 }
@@ -779,9 +780,13 @@ void printHelp(const Options opts) nothrow {
     import std.format : format;
     import std.path : baseName;
 
+    auto help_txt = "usage: %s [options] -- [COMMAND]\n";
+    if (opts.selfBinary.baseName == distCmd) {
+        help_txt = "usage: %s [COMMAND]\n";
+    }
+
     try {
-        defaultGetoptPrinter(format("usage: %s [options] [COMMAND]\n",
-                opts.selfBinary.baseName), opts.help_info.options.dup);
+        defaultGetoptPrinter(format(help_txt, opts.selfBinary.baseName), opts.help_info.options.dup);
     }
     catch (Exception e) {
         logger.error(e.msg).collectException;
