@@ -227,13 +227,16 @@ int cli_shell(const Options opts) nothrow {
 // #SPC-shell_current_dir
 int cli_localShell(const Options opts) nothrow {
     import std.file : exists;
-    import std.process : spawnProcess, wait, userShell, Config;
+    import std.process : spawnProcess, wait, userShell, Config, Pid;
 
     try {
+        Pid pid;
         if (exists(opts.workDir))
-            return spawnProcess([userShell], null, Config.none, opts.workDir).wait;
+            pid = spawnProcess([userShell], null, Config.none, opts.workDir);
         else
-            return spawnProcess([userShell]).wait;
+            pid = spawnProcess([userShell]);
+
+        return pid.wait;
     }
     catch (Exception e) {
         logger.error(e.msg).collectException;
