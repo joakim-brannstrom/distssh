@@ -176,6 +176,7 @@ unittest {
 
 // #SPC-fallback_remote_host
 int cli_shell(const Options opts) nothrow {
+    import std.datetime.stopwatch : StopWatch, AutoStart;
     import std.file : thisExePath, getcwd;
     import std.process : spawnProcess, wait;
     import std.stdio : writeln, writefln;
@@ -187,7 +188,8 @@ int cli_shell(const Options opts) nothrow {
         logger.errorf("No remote host online").collectException;
     }
 
-    // #SPC-fallback
+    const timout_until_considered_successfull_connection = opts.timeout * 2;
+
     while (!hosts.empty) {
         auto host = hosts.randomAndPop;
 
@@ -199,14 +201,20 @@ int cli_shell(const Options opts) nothrow {
 
             writeln("Connecting to ", host);
 
+            auto sw = StopWatch(AutoStart.yes);
+
             // two -t forces a tty to be created and used which mean that the remote shell will *think* it is an interactive shell
             auto exit_status = spawnProcess(["ssh", "-q", "-t", "-t", "-oStrictHostKeyChecking=no",
                     host, thisExePath, "--local-shell", "--workdir", getcwd]).wait;
-            writefln("Connection to %s closed.", host);
 
-            if (exit_status == 0)
+            // #SPC-fallback
+            if (exit_status == 0 || sw.peek > timout_until_considered_successfull_connection) {
+                writefln("Connection to %s closed.", host);
                 return exit_status;
-            logger.warning("Unable to connect");
+            } else {
+                logger.warningf("Connection failed to %s. Falling back on next available host",
+                        host);
+            }
         }
         catch (Exception e) {
             logger.error(e.msg).collectException;

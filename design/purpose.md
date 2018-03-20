@@ -366,6 +366,15 @@ partof: REQ-uc_shell
 
 The program shall on a failure to login on the remote host continue with the next one in the list of *least loaded hosts*.
 
+# Info
+
+I don't know how to reliably detect that the ssh connection failed because of a remote host that didn't answer without capturing stdout and textually analyze it.
+This would in turn have other bad side effects such an increased computation or possibility for erronious *detection* because the user *printed* something that gets mixed up with ssh's output.
+
+As a workaround the timeout * 2 is used.
+If the connection isn't interrupted in that timeframe it is assumed it worked OK.
+This is also based on the fact that a load check has already been done.
+
 ## Why?
 
 The user really, really want a shell. A remote host may be down or otherwise in a bad shape so try and login until there are none left.
