@@ -378,3 +378,13 @@ This is also based on the fact that a load check has already been done.
 ## Why?
 
 The user really, really want a shell. A remote host may be down or otherwise in a bad shape so try and login until there are none left.
+
+# SPC-remote_command_pretty_colors
+partof: REQ-uc_remote_command
+###
+
+The program shall force the remote host to emulate a tty when the user run the command via a tty.
+
+**Rationale**: This gives the user pretty coloers when the command is ran in a console.
+
+**Rationale**: It improves the feeling of running a remote command is *as if* it ran locally.
