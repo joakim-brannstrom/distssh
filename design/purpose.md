@@ -150,7 +150,11 @@ partof: REQ-uc_fast_experience
 
 The program shall store the current environment to *env file* when the user CLI is `--export-env`.
 
-The program shall setup the env from *env file* if it exists when running a user command.
+The program shall send over the environment in *env file* for use on the remote host when the *env file* exists.
+
+The program shall send over the environment current environment for use on the remote host when the user CLI is `--clone-env`.
+
+The program shall on the remote host setup the environment when it is transfered and before it executes the user specified *command*.
 
 ## Why?
 The environment can be slow to startup if e.g. .bashrc has to run.
