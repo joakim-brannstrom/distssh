@@ -68,7 +68,8 @@ version (unittest) {
 }
 
 int appMain(const Options opts) nothrow {
-    if (opts.exportEnv) {
+    final switch (opts.mode) with (Options.Mode) {
+    case exportEnv:
         try {
             auto fout = File(opts.importEnv, "w");
 
@@ -77,15 +78,15 @@ int appMain(const Options opts) nothrow {
             fchmod(fout.fileno, S_IRUSR | S_IWUSR);
 
             cli_exportEnv(opts, fout);
+
+            import std.stdio : writeln;
+            writeln("Exported environment to ", opts.importEnv);
             return 0;
         }
         catch (Exception e) {
             logger.error(e.msg).collectException;
-            return 1;
         }
-    }
-
-    final switch (opts.mode) with (Options.Mode) {
+        return 1;
     case install:
         import std.file : symlink;
 
@@ -605,12 +606,13 @@ struct Options {
         localLoad,
         runOnAll,
         localShell,
+        exportEnv,
     }
 
     Mode mode;
 
     bool help;
-    bool exportEnv;
+    bool cloneEnv;
     bool verbose;
     bool stdinMsgPackEnv;
     std.getopt.GetoptResult help_info;
@@ -649,6 +651,7 @@ Options parseUserArgs(string[] args) {
     }
 
     try {
+        bool export_env;
         bool remote_shell;
         bool install;
         bool measure_hosts;
@@ -662,7 +665,8 @@ Options parseUserArgs(string[] args) {
         // dfmt off
         opts.help_info = std.getopt.getopt(args, std.getopt.config.passThrough,
             std.getopt.config.keepEndOfOptions,
-            "export-env", "export the current env to the remote host to be used", &opts.exportEnv,
+            "clone-env", "clone the current environment to the remote host", &opts.cloneEnv,
+            "export-env", "export the current environment to a file that is used on the remote host", &export_env,
             "install", "install distssh by setting up the correct symlinks", &install,
             "i|import-env", "import the env from the file", &opts.importEnv,
             "measure", "measure the login time and load of all remote hosts", &measure_hosts,
@@ -686,6 +690,8 @@ Options parseUserArgs(string[] args) {
 
         if (install)
             opts.mode = Options.Mode.install;
+        else if (export_env)
+            opts.mode = Options.Mode.exportEnv;
         else if (remote_shell)
             opts.mode = Options.Mode.shell;
         else if (measure_hosts)
