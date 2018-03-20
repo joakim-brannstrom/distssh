@@ -1,7 +1,8 @@
 # distssh
 
-**distssh** is a frontend to ssh that check which server is the least loaded and login on that one.
-It gives the user a shell to work in.
+**distssh** is a frontend to ssh that find the least loaded host in a cluster and execute commands on it.
+
+It can alternatively be used to find and run an interactive shell on the least loaded host.
 
 # Getting Started
 
@@ -55,8 +56,6 @@ distssh --shell
 ## Remote Command
 
 ```sh
-distcmd ls
-# or
 distssh -- ls
 ```
 
@@ -70,8 +69,12 @@ Note that this basically requires them to be equivalent.
 ```sh
 # store an export of the env
 distssh --export-env
-# or export and run command
-distssh --export-env ls
 # now the env is reused on the remote hosts
 distcmd ls
+```
+
+It is also possible to clone the current environment without first exporting it to a file.
+
+```sh
+distssh --clone-env -- ls
 ```
