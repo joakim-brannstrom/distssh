@@ -174,7 +174,6 @@ unittest {
     assert(symlinks[1] == ["/foo/src", "/bar/distcmd"]);
 }
 
-// #SPC-fallback_remote_host
 int cli_shell(const Options opts) nothrow {
     import std.datetime.stopwatch : StopWatch, AutoStart;
     import std.file : thisExePath, getcwd;
@@ -207,7 +206,7 @@ int cli_shell(const Options opts) nothrow {
             auto exit_status = spawnProcess(["ssh", "-q", "-t", "-t", "-oStrictHostKeyChecking=no",
                     host, thisExePath, "--local-shell", "--workdir", getcwd]).wait;
 
-            // #SPC-fallback
+            // #SPC-fallback_remote_host
             if (exit_status == 0 || sw.peek > timout_until_considered_successfull_connection) {
                 writefln("Connection to %s closed.", host);
                 return exit_status;
