@@ -53,7 +53,8 @@ It would make it possible to centrally change/control the default but still allo
 partof: REQ-purpose
 ###
 
-The overhead of running a *command* via `distssh` shall be at most 2 seconds.
+The maximum overhead of running a *command* via `distssh` shall be at most 2 seconds.
+The median overhead of running a *command* via `distssh`shall be at most *ssh connection time + 100ms*
 
 The overall goal that must be fulfilled is that the program shall always be fast and succeed. The user **must** feel that the program can be used for any use case.
 The user should never have to really think of different use cases such as:
