@@ -1,0 +1,5 @@
+.dub
+eventcore-test-*
+libeventcore.a
+dub.selections.json
+tests/test

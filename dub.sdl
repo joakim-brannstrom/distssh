@@ -6,7 +6,12 @@ license "BSL-1.0"
 
 dependency "distssh:msgpack-ll" version="*"
 
+dependency "distssh:eventcore" version="*"
+subConfiguration "distssh:eventcore" "epoll"
+
 subPackage "./vendor/msgpack-ll"
+subPackage "./vendor/eventcore"
+subPackage "./vendor/taggedalgebraic"
 
 targetPath "build"
 targetType "executable"

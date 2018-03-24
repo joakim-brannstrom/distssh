@@ -1,0 +1,52 @@
+name "eventcore"
+description "Pro-actor based abstraction layer over operating system asynchronous I/O facilities."
+license "MIT"
+copyright "Copyright © 2012-2016 rejectedsoftware e.K."
+
+targetType "library"
+
+libs "anl" platform="linux"
+libs "ws2_32" "user32" platform="windows-dmd"
+
+dependency "distssh:taggedalgebraic" version="*"
+
+configuration "epoll" {
+	platforms "linux"
+	versions "EventcoreEpollDriver"
+}
+
+configuration "kqueue" {
+	platforms "osx" "freebsd"
+	versions "EventcoreKqueueDriver"
+}
+
+configuration "winapi" {
+	platforms "windows-x86_64" "windows-x86_mscoff" "windows-ldc" "windows-gdc"
+	versions "EventcoreWinAPIDriver"
+}
+
+configuration "select" {
+	platforms "posix" "windows-x86_64" "windows-x86_mscoff"
+	versions "EventcoreSelectDriver"
+}
+
+configuration "winapi-optlink" {
+	platforms "windows-x86-dmd"
+	versions "EventcoreWinAPIDriver"
+	sourceFiles "lib/ws2_32.lib" "lib/kernel32.lib"
+}
+
+configuration "select-optlink" {
+	platforms "windows-x86-dmd"
+	versions "EventcoreSelectDriver"
+	sourceFiles "lib/ws2_32.lib" "lib/kernel32.lib"
+}
+
+configuration "libasync" {
+	dependency "libasync" version="~>0.8.2"
+	versions "EventcoreLibasyncDriver"
+}
+
+configuration "generic" {
+	// Defines eventDriver as the generic EventDriver interface. Setup must be done manually.
+}

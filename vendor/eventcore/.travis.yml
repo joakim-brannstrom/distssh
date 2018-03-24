@@ -1,0 +1,61 @@
+language: d
+
+os:
+    - linux
+    - osx
+
+d:
+  # order: latest DMD, oldest DMD, LDC/GDC, remaining DMD versions
+  # this way the overall test time gets cut down (GDC/LDC are a lot
+  # slower tham DMD, so they should be started early), while still
+  # catching most DMD version related build failures early
+  - dmd-2.079.0
+  - dmd-2.072.2
+  - ldc-1.7.0
+  - ldc-1.6.0
+  - ldc-1.5.0
+  - ldc-1.4.0
+  - ldc-1.3.0
+  - ldc-1.2.0
+  - dmd-beta
+  - dmd-2.078.3
+  - dmd-2.077.1
+  - dmd-2.076.1
+  - dmd-2.075.1
+  - dmd-2.074.1
+  - dmd-2.073.2
+
+env:
+    - CONFIG=select
+    - CONFIG=epoll
+    - CONFIG=kqueue
+    - CONFIG=libasync
+
+matrix:
+  allow_failures:
+    - d: dmd-beta
+    - d: dmd-2.072.2 # too old DUB version on Travis-CI
+  exclude:
+    - env: CONFIG=libasync
+    - os: osx
+      env: CONFIG=epoll
+    - os: linux
+      env: CONFIG=kqueue
+    - os: osx
+      d: dmd-2.074.1
+    - os: osx
+      d: dmd-2.073.2
+    - os: osx
+      d: dmd-2.072.2
+    - os: osx
+      d: dmd-beta
+    - os: osx # requires a newer libcurl than available
+      d: ldc-1.4.0
+    - os: osx
+      d: ldc-1.3.0
+    - os: osx
+      d: ldc-1.2.0
+
+script: ./travis-ci.sh
+
+sudo: false
