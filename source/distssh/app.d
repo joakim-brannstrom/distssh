@@ -459,21 +459,35 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
 int cli_measureHosts(const Options opts) nothrow {
     import std.conv : to;
     import std.stdio : writefln, writeln;
+    import distssh.table;
 
     auto hosts = RemoteHostCache.make(opts.timeout);
     hosts.sortByLoad;
 
     writefln("Configured hosts (%s='%s')", globalEnvironemntKey, hosts.remoteHosts.joiner(";"))
         .collectException;
-    writeln("Host | Access Time | Load").collectException;
+
+    string[3] row = ["Host", "Access Time", "Load"];
+    auto tbl = Table!3(row);
 
     foreach (a; hosts.remoteByLoad) {
         try {
-            writefln("%s | %s | %s", a[0], a[1].accessTime.to!string, a[1].loadAvg.to!string);
+            row[0] = a[0];
+            row[1] = a[1].accessTime.to!string;
+            row[2] = a[1].loadAvg.to!string;
+            tbl.put(row);
+            //writefln("%s | %s | %s", a[0], a[1].accessTime.to!string, a[1].loadAvg.to!string);
         }
         catch (Exception e) {
             logger.trace(e.msg).collectException;
         }
+    }
+
+    try {
+        writeln(tbl);
+    }
+    catch (Exception e) {
+        logger.error(e.msg).collectException;
     }
 
     return 0;
