@@ -477,9 +477,8 @@ int cli_measureHosts(const Options opts) nothrow {
  */
 int cli_localLoad(WriterT)(scope WriterT writer) nothrow {
     import std.ascii : newline;
-    import std.algorithm : count;
-    import std.string : startsWith;
     import std.conv : to;
+    import std.parallelism : totalCPUs;
     import std.range : takeOne;
 
     try {
@@ -488,7 +487,7 @@ int cli_localLoad(WriterT)(scope WriterT writer) nothrow {
             loadavg = a.to!double;
         }
 
-        double cores = File("/proc/cpuinfo").byLine.filter!(a => a.startsWith("processor")).count;
+        double cores = totalCPUs;
 
         // make sure the loadavg is on a new line because the last line parsed is expected to contain the loadavg.
         writer(newline);
