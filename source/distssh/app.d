@@ -17,8 +17,6 @@ import logger = std.experimental.logger;
 
 static import std.getopt;
 
-extern extern (C) __gshared char** environ;
-
 immutable globalEnvironemntKey = "DISTSSH_HOSTS";
 immutable distShell = "distshell";
 immutable distCmd = "distcmd";
@@ -291,7 +289,7 @@ int executeOnHost(const Options opts, Host host) nothrow {
 
         ProtocolEnv env;
         if (opts.cloneEnv)
-            env = cloneEnv(environ);
+            env = cloneEnv;
         else
             env = readEnv(opts.importEnv.absolutePath);
         pwriter.pack(env);
@@ -967,26 +965,19 @@ struct Env {
  *
  * Returns: a clone of the environment.
  */
-auto cloneEnv(char** env) nothrow {
+auto cloneEnv() nothrow {
     import distssh.protocol : ProtocolEnv, EnvVariable;
-    import std.array : appender;
-    import std.string : fromStringz, indexOf;
-
-    static import core.stdc.stdlib;
+    import std.process : environment;
 
     ProtocolEnv app;
 
-    for (size_t i; env[i]!is null; ++i) {
-        const raw = env[i].fromStringz;
-        const pos = raw.indexOf('=');
-
-        if (pos != -1) {
-            string key = raw[0 .. pos].idup;
-            string value;
-            if (pos < raw.length)
-                value = raw[pos + 1 .. $].idup;
-            app ~= EnvVariable(key, value);
+    try {
+        foreach (const a; environment.toAA.byKeyValue) {
+            app ~= EnvVariable(a.key, a.value);
         }
+    }
+    catch (Exception e) {
+        logger.warning(e.msg).collectException;
     }
 
     return app;
