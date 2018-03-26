@@ -20,12 +20,10 @@
 */
 module vibe.appmain;
 
-version (VibeDefaultMain):
-
-version (VibeCustomMain) {
-	static assert(false, "Both, VibeCustomMain and VibeDefaultMain are defined. "
-		~ "Either define only VibeDefaultMain, or nothing at all (VibeCustomMain "
-		~ "has no effect since 0.7.26).");
+version (VibeDefaultMain)  : version (VibeCustomMain) {
+    static assert(false, "Both, VibeCustomMain and VibeDefaultMain are defined. "
+            ~ "Either define only VibeDefaultMain, or nothing at all (VibeCustomMain "
+            ~ "has no effect since 0.7.26).");
 }
 
 /**
@@ -34,13 +32,12 @@ version (VibeCustomMain) {
 	This function will automatically be executed if you import the module vibe.d in your code. It
 	will perform default command line parsing and starts the event loop.
 */
-int main()
-{
-	import vibe.core.core : runApplication;
+int main() {
+    import vibe.core.core : runApplication;
 
-	version (unittest) {
-		return 0;
-	} else {
-		return runApplication();
-	}
+    version (unittest) {
+        return 0;
+    } else {
+        return runApplication();
+    }
 }

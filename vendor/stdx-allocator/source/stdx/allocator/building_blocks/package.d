@@ -294,17 +294,14 @@ POST = $(BR)$(SMALL $(I Post:) $(BLUE $(D $0)))
 
 module stdx.allocator.building_blocks;
 
-public import
-    stdx.allocator.building_blocks.affix_allocator,
+public import stdx.allocator.building_blocks.affix_allocator,
     stdx.allocator.building_blocks.allocator_list,
     stdx.allocator.building_blocks.bucketizer,
     stdx.allocator.building_blocks.fallback_allocator,
     stdx.allocator.building_blocks.free_list,
-    stdx.allocator.building_blocks.free_tree,
-    stdx.allocator.gc_allocator,
+    stdx.allocator.building_blocks.free_tree, stdx.allocator.gc_allocator,
     stdx.allocator.building_blocks.bitmapped_block,
-    stdx.allocator.building_blocks.kernighan_ritchie,
-    stdx.allocator.mallocator,
+    stdx.allocator.building_blocks.kernighan_ritchie, stdx.allocator.mallocator,
     stdx.allocator.mmap_allocator,
     stdx.allocator.building_blocks.null_allocator,
     stdx.allocator.building_blocks.quantizer,

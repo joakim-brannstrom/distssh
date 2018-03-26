@@ -8,8 +8,7 @@ facilities, or import individual heap building blocks and assemble them.
 module stdx.allocator.showcase;
 
 import stdx.allocator.building_blocks.fallback_allocator,
-    stdx.allocator.gc_allocator,
-    stdx.allocator.building_blocks.region;
+    stdx.allocator.gc_allocator, stdx.allocator.building_blocks.region;
 import std.traits : hasMember;
 
 /**
@@ -33,14 +32,11 @@ backup allocator. Too large a size increases the stack consumed by the thread
 and may end up worse off because it explores cold portions of the stack.
 
 */
-alias StackFront(size_t stackSize, Allocator = GCAllocator) =
-    FallbackAllocator!(
-        InSituRegion!(stackSize, Allocator.alignment),
-        Allocator);
+alias StackFront(size_t stackSize, Allocator = GCAllocator) = FallbackAllocator!(
+        InSituRegion!(stackSize, Allocator.alignment), Allocator);
 
 ///
-@system unittest
-{
+@system unittest {
     StackFront!4096 a;
     auto b = a.allocate(4000);
     assert(b.length == 4000);
@@ -56,36 +52,31 @@ Creates a scalable `AllocatorList` of `Regions`, each having at least
 `deallocate` but does free all regions in its destructor. It is recommended for
 short-lived batch applications that count on never running out of memory.
 */
-auto mmapRegionList(size_t bytesPerRegion)
-{
-    static struct Factory
-    {
+auto mmapRegionList(size_t bytesPerRegion) {
+    static struct Factory {
         size_t bytesPerRegion;
         import std.algorithm.comparison : max;
-        import stdx.allocator.building_blocks.region
-            : Region;
-        import stdx.allocator.mmap_allocator
-            : MmapAllocator;
-        this(size_t n)
-        {
+        import stdx.allocator.building_blocks.region : Region;
+        import stdx.allocator.mmap_allocator : MmapAllocator;
+
+        this(size_t n) {
             bytesPerRegion = n;
         }
-        auto opCall(size_t n)
-        {
+
+        auto opCall(size_t n) {
             return Region!MmapAllocator(max(n, bytesPerRegion));
         }
     }
-    import stdx.allocator.building_blocks.allocator_list
-        : AllocatorList;
-    import stdx.allocator.building_blocks.null_allocator
-        : NullAllocator;
+
+    import stdx.allocator.building_blocks.allocator_list : AllocatorList;
+    import stdx.allocator.building_blocks.null_allocator : NullAllocator;
+
     auto shop = Factory(bytesPerRegion);
     return AllocatorList!(Factory, NullAllocator)(shop);
 }
 
 ///
-@system unittest
-{
+@system unittest {
     auto alloc = mmapRegionList(1024 * 1024);
     const b = alloc.allocate(100);
     assert(b.length == 100);

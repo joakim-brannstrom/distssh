@@ -10,29 +10,30 @@ import vibe.core.net;
 import core.time : msecs;
 import std.string : representation;
 
-void main()
-{
-	import vibe.core.log;
-	bool done = false;
-	listenTCP(11375, (conn) {
-		try {
-			conn.write("foo".representation);
-			conn.close();
-		} catch (Exception e) {
-			assert(false, e.msg);
-		}
-		done = true;
-	});
+void main() {
+    import vibe.core.log;
 
-	runTask({
-		auto conn = connectTCP("127.0.0.1", 11375);
-		conn.close();
+    bool done = false;
+    listenTCP(11375, (conn) {
+        try {
+            conn.write("foo".representation);
+            conn.close();
+        }
+        catch (Exception e) {
+            assert(false, e.msg);
+        }
+        done = true;
+    });
 
-		sleep(50.msecs);
-		assert(done);
+    runTask({
+        auto conn = connectTCP("127.0.0.1", 11375);
+        conn.close();
 
-		exitEventLoop();
-	});
+        sleep(50.msecs);
+        assert(done);
 
-	runEventLoop();
+        exitEventLoop();
+    });
+
+    runEventLoop();
 }

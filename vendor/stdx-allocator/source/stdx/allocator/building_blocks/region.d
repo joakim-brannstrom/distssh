@@ -26,10 +26,8 @@ Applications aiming at maximum speed may want to choose $(D minAlign = 1) and
 control alignment externally.
 
 */
-struct Region(ParentAllocator = NullAllocator,
-    uint minAlign = platformAlignment,
-    Flag!"growDownwards" growDownwards = No.growDownwards)
-{
+struct Region(ParentAllocator = NullAllocator, uint minAlign = platformAlignment,
+        Flag!"growDownwards" growDownwards = No.growDownwards) {
     static assert(minAlign.isGoodStaticAlignment);
     static assert(ParentAllocator.alignment >= minAlign);
 
@@ -42,12 +40,9 @@ struct Region(ParentAllocator = NullAllocator,
     or not, this is a member variable or an alias for
     `ParentAllocator.instance`.
     */
-    static if (stateSize!ParentAllocator)
-    {
+    static if (stateSize!ParentAllocator) {
         ParentAllocator parent;
-    }
-    else
-    {
+    } else {
         alias parent = ParentAllocator.instance;
     }
     private void* _current, _begin, _end;
@@ -67,8 +62,7 @@ struct Region(ParentAllocator = NullAllocator,
     $(D parent.allocate(n)) returns $(D null), the region will be initialized
     as empty (correctly initialized but unable to allocate).
     */
-    this(ubyte[] store)
-    {
+    this(ubyte[] store) {
         store = cast(ubyte[])(store.roundUpToAlignment(alignment));
         store = store[0 .. $.roundDownToAlignment(alignment)];
         assert(store.ptr.alignedAt(minAlign));
@@ -83,10 +77,9 @@ struct Region(ParentAllocator = NullAllocator,
 
     /// Ditto
     static if (!is(ParentAllocator == NullAllocator))
-    this(size_t n)
-    {
-        this(cast(ubyte[])(parent.allocate(n.roundUpToAlignment(alignment))));
-    }
+        this(size_t n) {
+            this(cast(ubyte[])(parent.allocate(n.roundUpToAlignment(alignment))));
+        }
 
     /*
     TODO: The postblit of $(D BasicRegion) should be disabled because such objects
@@ -97,13 +90,10 @@ struct Region(ParentAllocator = NullAllocator,
     If `ParentAllocator` is not `NullAllocator` and defines `deallocate`, the region defines a destructor that uses `ParentAllocator.delete` to free the
     memory chunk.
     */
-    static if (!is(ParentAllocator == NullAllocator)
-        && hasMember!(ParentAllocator, "deallocate"))
-    ~this()
-    {
-        parent.deallocate(_begin[0 .. _end - _begin]);
-    }
-
+    static if (!is(ParentAllocator == NullAllocator) && hasMember!(ParentAllocator, "deallocate"))
+         ~this() {
+            parent.deallocate(_begin[0 .. _end - _begin]);
+        }
 
     /**
     Alignment offered.
@@ -121,11 +111,10 @@ struct Region(ParentAllocator = NullAllocator,
     A properly-aligned buffer of size $(D n) or $(D null) if request could not
     be satisfied.
     */
-    void[] allocate(size_t n)
-    {
-        static if (growDownwards)
-        {
-            if (available < n) return null;
+    void[] allocate(size_t n) {
+        static if (growDownwards) {
+            if (available < n)
+                return null;
             static if (minAlign > 1)
                 const rounded = n.roundUpToAlignment(alignment);
             else
@@ -136,16 +125,15 @@ struct Region(ParentAllocator = NullAllocator,
             _current = result.ptr;
             assert(owns(result) == Ternary.yes);
             return result;
-        }
-        else
-        {
+        } else {
             auto result = _current[0 .. n];
             static if (minAlign > 1)
                 const rounded = n.roundUpToAlignment(alignment);
             else
                 alias rounded = n;
             _current += rounded;
-            if (_current <= _end) return result;
+            if (_current <= _end)
+                return result;
             // Slow path, backtrack
             _current -= rounded;
             return null;
@@ -162,29 +150,25 @@ struct Region(ParentAllocator = NullAllocator,
     Returns:
     Either a suitable block of $(D n) bytes aligned at $(D a), or $(D null).
     */
-    void[] alignedAllocate(size_t n, uint a)
-    {
+    void[] alignedAllocate(size_t n, uint a) {
         import stdx.allocator.internal : isPowerOf2;
+
         assert(a.isPowerOf2);
-        static if (growDownwards)
-        {
+        static if (growDownwards) {
             const available = _current - _begin;
-            if (available < n) return null;
+            if (available < n)
+                return null;
             auto result = (_current - n).alignDownTo(a)[0 .. n];
-            if (result.ptr >= _begin)
-            {
+            if (result.ptr >= _begin) {
                 _current = result.ptr;
                 return result;
             }
-        }
-        else
-        {
+        } else {
             // Just bump the pointer to the next good allocation
             auto save = _current;
             _current = _current.alignUpTo(a);
             auto result = allocate(n);
-            if (result.ptr)
-            {
+            if (result.ptr) {
                 assert(result.length == n);
                 return result;
             }
@@ -195,15 +179,11 @@ struct Region(ParentAllocator = NullAllocator,
     }
 
     /// Allocates and returns all memory available to this region.
-    void[] allocateAll()
-    {
-        static if (growDownwards)
-        {
+    void[] allocateAll() {
+        static if (growDownwards) {
             auto result = _begin[0 .. available];
             _current = _begin;
-        }
-        else
-        {
+        } else {
             auto result = _current[0 .. available];
             _current = _end;
         }
@@ -216,25 +196,23 @@ struct Region(ParentAllocator = NullAllocator,
     `No.growDownwards`.
     */
     static if (growDownwards == No.growDownwards)
-    bool expand(ref void[] b, size_t delta)
-    {
-        assert(owns(b) == Ternary.yes || b.ptr is null);
-        assert(b.ptr + b.length <= _current || b.ptr is null);
-        if (!b.ptr) return delta == 0;
-        auto newLength = b.length + delta;
-        if (_current < b.ptr + b.length + alignment)
-        {
-            // This was the last allocation! Allocate some more and we're done.
-            if (this.goodAllocSize(b.length) == this.goodAllocSize(newLength)
-                || allocate(delta).length == delta)
-            {
-                b = b.ptr[0 .. newLength];
-                assert(_current < b.ptr + b.length + alignment);
-                return true;
+        bool expand(ref void[] b, size_t delta) {
+            assert(owns(b) == Ternary.yes || b.ptr is null);
+            assert(b.ptr + b.length <= _current || b.ptr is null);
+            if (!b.ptr)
+                return delta == 0;
+            auto newLength = b.length + delta;
+            if (_current < b.ptr + b.length + alignment) {
+                // This was the last allocation! Allocate some more and we're done.
+                if (this.goodAllocSize(b.length) == this.goodAllocSize(newLength)
+                        || allocate(delta).length == delta) {
+                    b = b.ptr[0 .. newLength];
+                    assert(_current < b.ptr + b.length + alignment);
+                    return true;
+                }
             }
+            return false;
         }
-        return false;
-    }
 
     /**
     Deallocates $(D b). This works only if $(D b) was obtained as the last call
@@ -247,21 +225,15 @@ struct Region(ParentAllocator = NullAllocator,
     b = Block previously obtained by a call to $(D allocate) against this
     allocator ($(D null) is allowed).
     */
-    bool deallocate(void[] b)
-    {
+    bool deallocate(void[] b) {
         assert(owns(b) == Ternary.yes || b.ptr is null);
-        static if (growDownwards)
-        {
-            if (b.ptr == _current)
-            {
+        static if (growDownwards) {
+            if (b.ptr == _current) {
                 _current += this.goodAllocSize(b.length);
                 return true;
             }
-        }
-        else
-        {
-            if (b.ptr + this.goodAllocSize(b.length) == _current)
-            {
+        } else {
+            if (b.ptr + this.goodAllocSize(b.length) == _current) {
                 assert(b.ptr !is null || _current is null);
                 _current = b.ptr;
                 return true;
@@ -274,14 +246,10 @@ struct Region(ParentAllocator = NullAllocator,
     Deallocates all memory allocated by this region, which can be subsequently
     reused for new allocations.
     */
-    bool deallocateAll()
-    {
-        static if (growDownwards)
-        {
+    bool deallocateAll() {
+        static if (growDownwards) {
             _current = _end;
-        }
-        else
-        {
+        } else {
             _current = _begin;
         }
         return true;
@@ -298,8 +266,7 @@ struct Region(ParentAllocator = NullAllocator,
     $(D true) if $(D b) has been allocated with this region, $(D false)
     otherwise.
     */
-    Ternary owns(void[] b) const
-    {
+    Ternary owns(void[] b) const {
         return Ternary(b.ptr >= _begin && b.ptr + b.length <= _end);
     }
 
@@ -307,37 +274,29 @@ struct Region(ParentAllocator = NullAllocator,
     Returns `Ternary.yes` if no memory has been allocated in this region,
     `Ternary.no` otherwise. (Never returns `Ternary.unknown`.)
     */
-    Ternary empty() const
-    {
+    Ternary empty() const {
         return Ternary(_current == _begin);
     }
 
     /// Nonstandard property that returns bytes available for allocation.
-    size_t available() const
-    {
-        static if (growDownwards)
-        {
+    size_t available() const {
+        static if (growDownwards) {
             return _current - _begin;
-        }
-        else
-        {
+        } else {
             return _end - _current;
         }
     }
 }
 
 ///
-@system unittest
-{
+@system unittest {
     import std.algorithm.comparison : max;
-    import stdx.allocator.building_blocks.allocator_list
-        : AllocatorList;
+    import stdx.allocator.building_blocks.allocator_list : AllocatorList;
     import stdx.allocator.mallocator : Mallocator;
+
     // Create a scalable list of regions. Each gets at least 1MB at a time by
     // using malloc.
-    auto batchAllocator = AllocatorList!(
-        (size_t n) => Region!Mallocator(max(n, 1024 * 1024))
-    )();
+    auto batchAllocator = AllocatorList!((size_t n) => Region!Mallocator(max(n, 1024 * 1024)))();
     auto b = batchAllocator.allocate(101);
     assert(b.length == 101);
     // This will cause a second allocation
@@ -346,12 +305,11 @@ struct Region(ParentAllocator = NullAllocator,
     // Destructor will free the memory
 }
 
-@system unittest
-{
+@system unittest {
     import stdx.allocator.mallocator : Mallocator;
+
     // Create a 64 KB region allocated with malloc
-    auto reg = Region!(Mallocator, Mallocator.alignment,
-        Yes.growDownwards)(1024 * 64);
+    auto reg = Region!(Mallocator, Mallocator.alignment, Yes.growDownwards)(1024 * 64);
     const b = reg.allocate(101);
     assert(b.length == 101);
     // Destructor will free the memory
@@ -373,8 +331,7 @@ allocates starting at the end on systems where stack grows downwards, such that
 hot memory is used first.
 
 */
-struct InSituRegion(size_t size, size_t minAlign = platformAlignment)
-{
+struct InSituRegion(size_t size, size_t minAlign = platformAlignment) {
     import std.algorithm.comparison : max;
     import std.conv : to;
     import std.traits : hasMember;
@@ -383,24 +340,34 @@ struct InSituRegion(size_t size, size_t minAlign = platformAlignment)
     static assert(minAlign.isGoodStaticAlignment);
     static assert(size >= minAlign);
 
-    version (X86) enum growDownwards = Yes.growDownwards;
-    else version (X86_64) enum growDownwards = Yes.growDownwards;
-    else version (ARM) enum growDownwards = Yes.growDownwards;
-    else version (AArch64) enum growDownwards = Yes.growDownwards;
-    else version (PPC) enum growDownwards = Yes.growDownwards;
-    else version (PPC64) enum growDownwards = Yes.growDownwards;
-    else version (MIPS32) enum growDownwards = Yes.growDownwards;
-    else version (MIPS64) enum growDownwards = Yes.growDownwards;
-    else version (SPARC) enum growDownwards = Yes.growDownwards;
-    else version (SystemZ) enum growDownwards = Yes.growDownwards;
-    else static assert(0, "Dunno how the stack grows on this architecture.");
+    version (X86)
+        enum growDownwards = Yes.growDownwards;
+    else version (X86_64)
+        enum growDownwards = Yes.growDownwards;
+    else version (ARM)
+        enum growDownwards = Yes.growDownwards;
+    else version (AArch64)
+        enum growDownwards = Yes.growDownwards;
+    else version (PPC)
+        enum growDownwards = Yes.growDownwards;
+    else version (PPC64)
+        enum growDownwards = Yes.growDownwards;
+    else version (MIPS32)
+        enum growDownwards = Yes.growDownwards;
+    else version (MIPS64)
+        enum growDownwards = Yes.growDownwards;
+    else version (SPARC)
+        enum growDownwards = Yes.growDownwards;
+    else version (SystemZ)
+        enum growDownwards = Yes.growDownwards;
+    else
+        static assert(0, "Dunno how the stack grows on this architecture.");
 
     @disable this(this);
 
     // state {
     private Region!(NullAllocator, minAlign, growDownwards) _impl;
-    union
-    {
+    union {
         private ubyte[size] _store = void;
         private double _forAlignmentOnly1 = void;
     }
@@ -420,8 +387,7 @@ struct InSituRegion(size_t size, size_t minAlign = platformAlignment)
     */
     alias alignment = minAlign;
 
-    private void lazyInit()
-    {
+    private void lazyInit() {
         assert(!_impl._current);
         _impl = typeof(_impl)(_store);
         assert(_impl._current.alignedAt(alignment));
@@ -432,14 +398,15 @@ struct InSituRegion(size_t size, size_t minAlign = platformAlignment)
     accommodate the request. For efficiency reasons, if $(D bytes == 0) the
     function returns an empty non-null slice.
     */
-    void[] allocate(size_t n)
-    {
+    void[] allocate(size_t n) {
         // Fast path
     entry:
         auto result = _impl.allocate(n);
-        if (result.length == n) return result;
+        if (result.length == n)
+            return result;
         // Slow path
-        if (_impl._current) return null; // no more room
+        if (_impl._current)
+            return null; // no more room
         lazyInit;
         assert(_impl._current);
         goto entry;
@@ -448,14 +415,15 @@ struct InSituRegion(size_t size, size_t minAlign = platformAlignment)
     /**
     As above, but the memory allocated is aligned at $(D a) bytes.
     */
-    void[] alignedAllocate(size_t n, uint a)
-    {
+    void[] alignedAllocate(size_t n, uint a) {
         // Fast path
     entry:
         auto result = _impl.alignedAllocate(n, a);
-        if (result.length == n) return result;
+        if (result.length == n)
+            return result;
         // Slow path
-        if (_impl._current) return null; // no more room
+        if (_impl._current)
+            return null; // no more room
         lazyInit;
         assert(_impl._current);
         goto entry;
@@ -472,9 +440,9 @@ struct InSituRegion(size_t size, size_t minAlign = platformAlignment)
     b = Block previously obtained by a call to $(D allocate) against this
     allocator ($(D null) is allowed).
     */
-    bool deallocate(void[] b)
-    {
-        if (!_impl._current) return b is null;
+    bool deallocate(void[] b) {
+        if (!_impl._current)
+            return b is null;
         return _impl.deallocate(b);
     }
 
@@ -482,9 +450,9 @@ struct InSituRegion(size_t size, size_t minAlign = platformAlignment)
     Returns `Ternary.yes` if `b` is the result of a previous allocation,
     `Ternary.no` otherwise.
     */
-    Ternary owns(void[] b)
-    {
-        if (!_impl._current) return Ternary.no;
+    Ternary owns(void[] b) {
+        if (!_impl._current)
+            return Ternary.no;
         return _impl.owns(b);
     }
 
@@ -493,17 +461,16 @@ struct InSituRegion(size_t size, size_t minAlign = platformAlignment)
     block is the last allocated.
     */
     static if (hasMember!(typeof(_impl), "expand"))
-    bool expand(ref void[] b, size_t delta)
-    {
-        if (!_impl._current) lazyInit;
-        return _impl.expand(b, delta);
-    }
+        bool expand(ref void[] b, size_t delta) {
+            if (!_impl._current)
+                lazyInit;
+            return _impl.expand(b, delta);
+        }
 
     /**
     Deallocates all memory allocated with this allocator.
     */
-    bool deallocateAll()
-    {
+    bool deallocateAll() {
         // We don't care to lazily init the region
         return _impl.deallocateAll;
     }
@@ -511,38 +478,35 @@ struct InSituRegion(size_t size, size_t minAlign = platformAlignment)
     /**
     Allocates all memory available with this allocator.
     */
-    void[] allocateAll()
-    {
-        if (!_impl._current) lazyInit;
+    void[] allocateAll() {
+        if (!_impl._current)
+            lazyInit;
         return _impl.allocateAll;
     }
 
     /**
     Nonstandard function that returns the bytes available for allocation.
     */
-    size_t available()
-    {
-        if (!_impl._current) lazyInit;
+    size_t available() {
+        if (!_impl._current)
+            lazyInit;
         return _impl.available;
     }
 }
 
 ///
-@system unittest
-{
+@system unittest {
     // 128KB region, allocated to x86's cache line
     InSituRegion!(128 * 1024, 16) r1;
     auto a1 = r1.allocate(101);
     assert(a1.length == 101);
 
     // 128KB region, with fallback to the garbage collector.
-    import stdx.allocator.building_blocks.fallback_allocator
-        : FallbackAllocator;
-    import stdx.allocator.building_blocks.free_list
-        : FreeList;
-    import stdx.allocator.building_blocks.bitmapped_block
-        : BitmappedBlock;
+    import stdx.allocator.building_blocks.fallback_allocator : FallbackAllocator;
+    import stdx.allocator.building_blocks.free_list : FreeList;
+    import stdx.allocator.building_blocks.bitmapped_block : BitmappedBlock;
     import stdx.allocator.gc_allocator : GCAllocator;
+
     FallbackAllocator!(InSituRegion!(128 * 1024), GCAllocator) r2;
     const a2 = r2.allocate(102);
     assert(a2.length == 102);
@@ -562,22 +526,22 @@ struct InSituRegion(size_t size, size_t minAlign = platformAlignment)
     assert(a4.length == 104);
 }
 
-@system unittest
-{
+@system unittest {
     InSituRegion!(4096, 1) r1;
     auto a = r1.allocate(2001);
     assert(a.length == 2001);
     import std.conv : text;
+
     assert(r1.available == 2095, text(r1.available));
 
-    InSituRegion!(65_536, 1024*4) r2;
+    InSituRegion!(65_536, 1024 * 4) r2;
     assert(r2.available <= 65_536);
     a = r2.allocate(2001);
     assert(a.length == 2001);
 }
 
-private extern(C) void* sbrk(long);
-private extern(C) int brk(shared void*);
+private extern (C) void* sbrk(long);
+private extern (C) int brk(shared void*);
 
 /**
 
@@ -589,11 +553,11 @@ that uncontrolled calls to $(D brk) and $(D sbrk) may affect the workings of $(D
 SbrkRegion) adversely.
 
 */
-version(Posix) struct SbrkRegion(uint minAlign = platformAlignment)
-{
+version (Posix) struct SbrkRegion(uint minAlign = platformAlignment) {
     import core.sys.posix.pthread : pthread_mutex_init, pthread_mutex_destroy,
         pthread_mutex_t, pthread_mutex_lock, pthread_mutex_unlock,
         PTHREAD_MUTEX_INITIALIZER;
+
     private static shared pthread_mutex_t sbrkMutex = PTHREAD_MUTEX_INITIALIZER;
     import stdx.allocator.internal : Ternary;
 
@@ -612,60 +576,54 @@ version(Posix) struct SbrkRegion(uint minAlign = platformAlignment)
     enum uint alignment = minAlign;
 
     /// Ditto
-    void[] allocate(size_t bytes) shared
-    {
+    void[] allocate(size_t bytes) shared {
         static if (minAlign > 1)
             const rounded = bytes.roundUpToMultipleOf(alignment);
         else
             alias rounded = bytes;
-        pthread_mutex_lock(cast(pthread_mutex_t*) &sbrkMutex) == 0 || assert(0);
-        scope(exit) pthread_mutex_unlock(cast(pthread_mutex_t*) &sbrkMutex) == 0
-            || assert(0);
+        pthread_mutex_lock(cast(pthread_mutex_t*)&sbrkMutex) == 0 || assert(0);
+        scope (exit)
+            pthread_mutex_unlock(cast(pthread_mutex_t*)&sbrkMutex) == 0 || assert(0);
         // Assume sbrk returns the old break. Most online documentation confirms
         // that, except for http://www.inf.udec.cl/~leo/Malloc_tutorial.pdf,
         // which claims the returned value is not portable.
         auto p = sbrk(rounded);
-        if (p == cast(void*) -1)
-        {
+        if (p == cast(void*)-1) {
             return null;
         }
-        if (!_brkInitial)
-        {
+        if (!_brkInitial) {
             _brkInitial = cast(shared) p;
             assert(cast(size_t) _brkInitial % minAlign == 0,
-                "Too large alignment chosen for " ~ typeof(this).stringof);
+                    "Too large alignment chosen for " ~ typeof(this).stringof);
         }
-        _brkCurrent = cast(shared) (p + rounded);
+        _brkCurrent = cast(shared)(p + rounded);
         return p[0 .. bytes];
     }
 
     /// Ditto
-    void[] alignedAllocate(size_t bytes, uint a) shared
-    {
-        pthread_mutex_lock(cast(pthread_mutex_t*) &sbrkMutex) == 0 || assert(0);
-        scope(exit) pthread_mutex_unlock(cast(pthread_mutex_t*) &sbrkMutex) == 0
-            || assert(0);
-        if (!_brkInitial)
-        {
+    void[] alignedAllocate(size_t bytes, uint a) shared {
+        pthread_mutex_lock(cast(pthread_mutex_t*)&sbrkMutex) == 0 || assert(0);
+        scope (exit)
+            pthread_mutex_unlock(cast(pthread_mutex_t*)&sbrkMutex) == 0 || assert(0);
+        if (!_brkInitial) {
             // This is one extra call, but it'll happen only once.
             _brkInitial = cast(shared) sbrk(0);
             assert(cast(size_t) _brkInitial % minAlign == 0,
-                "Too large alignment chosen for " ~ typeof(this).stringof);
-            (_brkInitial != cast(void*) -1) || assert(0);
+                    "Too large alignment chosen for " ~ typeof(this).stringof);
+            (_brkInitial != cast(void*)-1) || assert(0);
             _brkCurrent = _brkInitial;
         }
-        immutable size_t delta = cast(shared void*) roundUpToMultipleOf(
-            cast(size_t) _brkCurrent, a) - _brkCurrent;
+        immutable size_t delta = cast(shared void*) roundUpToMultipleOf(cast(size_t) _brkCurrent, a)
+            - _brkCurrent;
         // Still must make sure the total size is aligned to the allocator's
         // alignment.
         immutable rounded = (bytes + delta).roundUpToMultipleOf(alignment);
 
         auto p = sbrk(rounded);
-        if (p == cast(void*) -1)
-        {
+        if (p == cast(void*)-1) {
             return null;
         }
-        _brkCurrent = cast(shared) (p + rounded);
+        _brkCurrent = cast(shared)(p + rounded);
         return p[delta .. delta + bytes];
     }
 
@@ -676,32 +634,31 @@ version(Posix) struct SbrkRegion(uint minAlign = platformAlignment)
     the right.
 
     */
-    bool expand(ref void[] b, size_t delta) shared
-    {
-        if (b is null) return delta == 0;
+    bool expand(ref void[] b, size_t delta) shared {
+        if (b is null)
+            return delta == 0;
         assert(_brkInitial && _brkCurrent); // otherwise where did b come from?
-        pthread_mutex_lock(cast(pthread_mutex_t*) &sbrkMutex) == 0 || assert(0);
-        scope(exit) pthread_mutex_unlock(cast(pthread_mutex_t*) &sbrkMutex) == 0
-            || assert(0);
-        if (_brkCurrent != b.ptr + b.length) return false;
+        pthread_mutex_lock(cast(pthread_mutex_t*)&sbrkMutex) == 0 || assert(0);
+        scope (exit)
+            pthread_mutex_unlock(cast(pthread_mutex_t*)&sbrkMutex) == 0 || assert(0);
+        if (_brkCurrent != b.ptr + b.length)
+            return false;
         // Great, can expand the last block
         static if (minAlign > 1)
             const rounded = delta.roundUpToMultipleOf(alignment);
         else
             alias rounded = bytes;
         auto p = sbrk(rounded);
-        if (p == cast(void*) -1)
-        {
+        if (p == cast(void*)-1) {
             return false;
         }
-        _brkCurrent = cast(shared) (p + rounded);
+        _brkCurrent = cast(shared)(p + rounded);
         b = b.ptr[0 .. b.length + delta];
         return true;
     }
 
     /// Ditto
-    Ternary owns(void[] b) shared
-    {
+    Ternary owns(void[] b) shared {
         // No need to lock here.
         assert(!_brkCurrent || b.ptr + b.length <= _brkCurrent);
         return Ternary(_brkInitial && b.ptr >= _brkInitial);
@@ -715,18 +672,18 @@ version(Posix) struct SbrkRegion(uint minAlign = platformAlignment)
     must be the last block allocated.
 
     */
-    bool deallocate(void[] b) shared
-    {
+    bool deallocate(void[] b) shared {
         static if (minAlign > 1)
             const rounded = b.length.roundUpToMultipleOf(alignment);
         else
             const rounded = b.length;
-        pthread_mutex_lock(cast(pthread_mutex_t*) &sbrkMutex) == 0 || assert(0);
-        scope(exit) pthread_mutex_unlock(cast(pthread_mutex_t*) &sbrkMutex) == 0
-            || assert(0);
-        if (_brkCurrent != b.ptr + rounded) return false;
+        pthread_mutex_lock(cast(pthread_mutex_t*)&sbrkMutex) == 0 || assert(0);
+        scope (exit)
+            pthread_mutex_unlock(cast(pthread_mutex_t*)&sbrkMutex) == 0 || assert(0);
+        if (_brkCurrent != b.ptr + rounded)
+            return false;
         assert(b.ptr >= _brkInitial);
-        if (sbrk(-rounded) == cast(void*) -1)
+        if (sbrk(-rounded) == cast(void*)-1)
             return false;
         _brkCurrent = cast(shared) b.ptr;
         return true;
@@ -737,24 +694,21 @@ version(Posix) struct SbrkRegion(uint minAlign = platformAlignment)
     that support reducing the  break address (i.e. accept calls to $(D sbrk)
     with negative offsets). OSX does not accept such.
     */
-    bool deallocateAll() shared
-    {
-        pthread_mutex_lock(cast(pthread_mutex_t*) &sbrkMutex) == 0 || assert(0);
-        scope(exit) pthread_mutex_unlock(cast(pthread_mutex_t*) &sbrkMutex) == 0
-            || assert(0);
+    bool deallocateAll() shared {
+        pthread_mutex_lock(cast(pthread_mutex_t*)&sbrkMutex) == 0 || assert(0);
+        scope (exit)
+            pthread_mutex_unlock(cast(pthread_mutex_t*)&sbrkMutex) == 0 || assert(0);
         return !_brkInitial || brk(_brkInitial) == 0;
     }
 
     /// Standard allocator API.
-    Ternary empty()
-    {
+    Ternary empty() {
         // Also works when they're both null.
         return Ternary(_brkCurrent == _brkInitial);
     }
 }
 
-version(Posix) @system unittest
-{
+version (Posix) @system unittest {
     // Let's test the assumption that sbrk(n) returns the old address
     const p1 = sbrk(0);
     const p2 = sbrk(4096);
@@ -765,9 +719,9 @@ version(Posix) @system unittest
     sbrk(-4096);
 }
 
-version(Posix) @system unittest
-{
+version (Posix) @system unittest {
     import stdx.allocator.internal : Ternary;
+
     alias alloc = SbrkRegion!(8).instance;
     auto a = alloc.alignedAllocate(2001, 4096);
     assert(a.length == 2001);
@@ -776,8 +730,8 @@ version(Posix) @system unittest
     assert(alloc.owns(a) == Ternary.yes);
     assert(alloc.owns(b) == Ternary.yes);
     // reducing the brk does not work on OSX
-    version(OSX) {} else
-    {
+    version (OSX) {
+    } else {
         assert(alloc.deallocate(b));
         assert(alloc.deallocateAll);
     }

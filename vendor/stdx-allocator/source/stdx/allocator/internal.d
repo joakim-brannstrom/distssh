@@ -14,28 +14,20 @@ Furthermore, emplaceRef optionally takes a type paremeter, which specifies
 the type we want to build. This helps to build qualified objects on mutable
 buffer, without breaking the type system with unsafe casts.
 +/
-package void emplaceRef(T, UT, Args...)(ref UT chunk, auto ref Args args)
-{
-    static if (args.length == 0)
-    {
-        static assert(is(typeof({static T i;})),
-            convFormat("Cannot emplace a %1$s because %1$s.this() is annotated with @disable.", T.stringof));
-        static if (is(T == class)) static assert(!isAbstractClass!T,
-            T.stringof ~ " is abstract and it can't be emplaced");
+package void emplaceRef(T, UT, Args...)(ref UT chunk, auto ref Args args) {
+    static if (args.length == 0) {
+        static assert(is(typeof({ static T i; })),
+                convFormat("Cannot emplace a %1$s because %1$s.this() is annotated with @disable.",
+                    T.stringof));
+        static if (is(T == class))
+            static assert(!isAbstractClass!T, T.stringof ~ " is abstract and it can't be emplaced");
         emplaceInitializer(chunk);
-    }
-    else static if (
-        !is(T == struct) && Args.length == 1 /* primitives, enums, arrays */
-        ||
-        Args.length == 1 && is(typeof({T t = args[0];})) /* conversions */
-        ||
-        is(typeof(T(args))) /* general constructors */)
-    {
-        static struct S
-        {
+    } else static if (!is(T == struct) && Args.length == 1 /* primitives, enums, arrays */
+         || Args.length == 1 && is(typeof({ T t = args[0]; })) /* conversions */
+         || is(typeof(T(args))) /* general constructors */ ) {
+        static struct S {
             T payload;
-            this(ref Args x)
-            {
+            this(ref Args x) {
                 static if (Args.length == 1)
                     static if (is(typeof(payload = x[0])))
                         payload = x[0];
@@ -45,54 +37,47 @@ package void emplaceRef(T, UT, Args...)(ref UT chunk, auto ref Args args)
                     payload = T(x);
             }
         }
-        if (__ctfe)
-        {
+
+        if (__ctfe) {
             static if (is(typeof(chunk = T(args))))
                 chunk = T(args);
             else static if (args.length == 1 && is(typeof(chunk = args[0])))
                 chunk = args[0];
-            else assert(0, "CTFE emplace doesn't support "
-                ~ T.stringof ~ " from " ~ Args.stringof);
-        }
-        else
-        {
-            S* p = () @trusted { return cast(S*) &chunk; }();
+            else
+                assert(0, "CTFE emplace doesn't support " ~ T.stringof ~ " from " ~ Args.stringof);
+        } else {
+            S* p = () @trusted{ return cast(S*)&chunk; }();
             emplaceInitializer(*p);
             p.__ctor(args);
         }
-    }
-    else static if (is(typeof(chunk.__ctor(args))))
-    {
+    } else static if (is(typeof(chunk.__ctor(args)))) {
         // This catches the rare case of local types that keep a frame pointer
         emplaceInitializer(chunk);
         chunk.__ctor(args);
-    }
-    else
-    {
+    } else {
         //We can't emplace. Try to diagnose a disabled postblit.
         static assert(!(Args.length == 1 && is(Args[0] : T)),
-            convFormat("Cannot emplace a %1$s because %1$s.this(this) is annotated with @disable.", T.stringof));
+                convFormat("Cannot emplace a %1$s because %1$s.this(this) is annotated with @disable.",
+                    T.stringof));
 
         //We can't emplace.
-        static assert(false,
-            convFormat("%s cannot be emplaced from %s.", T.stringof, Args[].stringof));
+        static assert(false, convFormat("%s cannot be emplaced from %s.",
+                T.stringof, Args[].stringof));
     }
 }
 // ditto
 package void emplaceRef(UT, Args...)(ref UT chunk, auto ref Args args)
-if (is(UT == Unqual!UT))
-{
+        if (is(UT == Unqual!UT)) {
     emplaceRef!(UT, UT)(chunk, args);
 }
 
 //emplace helper functions
-private void emplaceInitializer(T)(ref T chunk) @trusted pure nothrow
-{
+private void emplaceInitializer(T)(ref T chunk) @trusted pure nothrow {
     static if (!hasElaborateAssign!T && isAssignable!T)
         chunk = T.init;
-    else
-    {
+    else {
         import core.stdc.string : memcpy;
+
         static immutable T init = T.init;
         memcpy(&chunk, &init, T.sizeof);
     }
@@ -107,29 +92,29 @@ address. If `T` is a class, initializes the class reference to null.
 Returns: A pointer to the newly constructed object (which is the same
 as $(D chunk)).
  */
-T* emplace(T)(T* chunk) @safe pure nothrow
-{
+T* emplace(T)(T* chunk) @safe pure nothrow {
     emplaceRef!T(*chunk);
     return chunk;
 }
 
 ///
-@system unittest
-{
-    static struct S
-    {
+@system unittest {
+    static struct S {
         int i = 42;
     }
+
     S[2] s2 = void;
     emplace(&s2);
     assert(s2[0].i == 42 && s2[1].i == 42);
 }
 
 ///
-@system unittest
-{
-    interface I {}
-    class K : I {}
+@system unittest {
+    interface I {
+    }
+
+    class K : I {
+    }
 
     K k = void;
     emplace(&k);
@@ -153,30 +138,26 @@ Returns: A pointer to the newly constructed object (which is the same
 as $(D chunk)).
  */
 T* emplace(T, Args...)(T* chunk, auto ref Args args)
-if (is(T == struct) || Args.length == 1)
-{
+        if (is(T == struct) || Args.length == 1) {
     emplaceRef!T(*chunk, args);
     return chunk;
 }
 
 ///
-@system unittest
-{
+@system unittest {
     int a;
     int b = 42;
     assert(*emplace!int(&a, b) == 42);
 }
 
-@system unittest
-{
+@system unittest {
     shared int i;
     emplace(&i, 42);
     assert(i == 42);
 }
 
-private @nogc pure nothrow @safe
-void testEmplaceChunk(void[] chunk, size_t typeSize, size_t typeAlignment, string typeName)
-{
+private @nogc pure nothrow @safe void testEmplaceChunk(void[] chunk,
+        size_t typeSize, size_t typeAlignment, string typeName) {
     assert(chunk.length >= typeSize, "emplace: Chunk size too small.");
     assert((cast(size_t) chunk.ptr) % typeAlignment == 0, "emplace: Chunk is not aligned.");
 }
@@ -196,52 +177,45 @@ This function is `@safe` if the corresponding constructor of `T` is `@safe`.
 
 Returns: The newly constructed object.
  */
-T emplace(T, Args...)(T chunk, auto ref Args args)
-if (is(T == class))
-{
-    static assert(!isAbstractClass!T, T.stringof ~
-        " is abstract and it can't be emplaced");
+T emplace(T, Args...)(T chunk, auto ref Args args) if (is(T == class)) {
+    static assert(!isAbstractClass!T, T.stringof ~ " is abstract and it can't be emplaced");
 
     // Initialize the object in its pre-ctor state
     enum classSize = __traits(classInstanceSize, T);
     (() @trusted => (cast(void*) chunk)[0 .. classSize] = typeid(T).initializer[])();
 
-    static if (isInnerClass!T)
-    {
+    static if (isInnerClass!T) {
         static assert(Args.length > 0,
-            "Initializing an inner class requires a pointer to the outer class");
+                "Initializing an inner class requires a pointer to the outer class");
         static assert(is(Args[0] : typeof(T.outer)),
-            "The first argument must be a pointer to the outer class");
+                "The first argument must be a pointer to the outer class");
 
         chunk.outer = args[0];
-        alias args1 = args[1..$];
-    }
-    else alias args1 = args;
+        alias args1 = args[1 .. $];
+    } else
+        alias args1 = args;
 
     // Call the ctor if any
-    static if (is(typeof(chunk.__ctor(args1))))
-    {
+    static if (is(typeof(chunk.__ctor(args1)))) {
         // T defines a genuine constructor accepting args
         // Go the classic route: write .init first, then call ctor
         chunk.__ctor(args1);
-    }
-    else
-    {
+    } else {
         static assert(args1.length == 0 && !is(typeof(&T.__ctor)),
-            "Don't know how to initialize an object of type "
-            ~ T.stringof ~ " with arguments " ~ typeof(args1).stringof);
+                "Don't know how to initialize an object of type " ~ T.stringof ~ " with arguments " ~ typeof(args1)
+                .stringof);
     }
     return chunk;
 }
 
 ///
-@safe unittest
-{
-    () @safe {
-        class SafeClass
-        {
+@safe unittest {
+    () @safe{
+        class SafeClass {
             int x;
-            @safe this(int x) { this.x = x; }
+            @safe this(int x) {
+                this.x = x;
+            }
         }
 
         auto buf = new void[__traits(classInstanceSize, SafeClass)];
@@ -249,10 +223,11 @@ if (is(T == class))
         auto safeClass = emplace!SafeClass(support, 5);
         assert(safeClass.x == 5);
 
-        class UnsafeClass
-        {
+        class UnsafeClass {
             int x;
-            @system this(int x) { this.x = x; }
+            @system this(int x) {
+                this.x = x;
+            }
         }
 
         auto buf2 = new void[__traits(classInstanceSize, UnsafeClass)];
@@ -262,16 +237,16 @@ if (is(T == class))
     }();
 }
 
-@safe unittest
-{
-    class Outer
-    {
+@safe unittest {
+    class Outer {
         int i = 3;
-        class Inner
-        {
-            @safe auto getI() { return i; }
+        class Inner {
+            @safe auto getI() {
+                return i;
+            }
         }
     }
+
     auto outerBuf = new void[__traits(classInstanceSize, Outer)];
     auto outerSupport = (() @trusted => cast(Outer)(outerBuf.ptr))();
 
@@ -301,47 +276,45 @@ This function can be `@trusted` if the corresponding constructor of `T` is `@saf
 
 Returns: The newly constructed object.
  */
-T emplace(T, Args...)(void[] chunk, auto ref Args args)
-if (is(T == class))
-{
+T emplace(T, Args...)(void[] chunk, auto ref Args args) if (is(T == class)) {
     enum classSize = __traits(classInstanceSize, T);
     testEmplaceChunk(chunk, classSize, classInstanceAlignment!T, T.stringof);
     return emplace!T(cast(T)(chunk.ptr), args);
 }
 
 ///
-@system unittest
-{
-    static class C
-    {
+@system unittest {
+    static class C {
         int i;
-        this(int i){this.i = i;}
+        this(int i) {
+            this.i = i;
+        }
     }
+
     auto buf = new void[__traits(classInstanceSize, C)];
     auto c = emplace!C(buf, 5);
     assert(c.i == 5);
 }
 
-@system unittest
-{
-    class Outer
-    {
+@system unittest {
+    class Outer {
         int i = 3;
-        class Inner
-        {
-            auto getI() { return i; }
+        class Inner {
+            auto getI() {
+                return i;
+            }
         }
     }
+
     auto outerBuf = new void[__traits(classInstanceSize, Outer)];
     auto innerBuf = new void[__traits(classInstanceSize, Outer.Inner)];
     auto inner = innerBuf.emplace!(Outer.Inner)(outerBuf.emplace!Outer);
     assert(inner.getI == 3);
 }
 
-@nogc pure nothrow @safe unittest
-{
+@nogc pure nothrow @safe unittest {
     static if (__VERSION__ >= 2072)
-    mixin(`
+        mixin(`
     int var = 6;
     align(__conv_EmplaceTestClass.alignof) ubyte[__traits(classInstanceSize, __conv_EmplaceTestClass)] buf;
     auto support = (() @trusted => cast(__conv_EmplaceTestClass)(buf.ptr))();
@@ -367,21 +340,18 @@ $(D T) is $(D @safe).
 
 Returns: A pointer to the newly constructed object.
  */
-T* emplace(T, Args...)(void[] chunk, auto ref Args args)
-if (!is(T == class))
-{
+T* emplace(T, Args...)(void[] chunk, auto ref Args args) if (!is(T == class)) {
     testEmplaceChunk(chunk, T.sizeof, T.alignof, T.stringof);
     emplaceRef!(T, Unqual!T)(*cast(Unqual!T*) chunk.ptr, args);
     return cast(T*) chunk.ptr;
 }
 
 ///
-@system unittest
-{
-    struct S
-    {
+@system unittest {
+    struct S {
         int a, b;
     }
+
     auto buf = new void[S.sizeof];
     S s;
     s.a = 42;
@@ -392,34 +362,30 @@ if (!is(T == class))
 
 // Bulk of emplace unittests starts here
 
-@system unittest /* unions */
-{
-    static union U
-    {
+@system unittest  /* unions */ {
+    static union U {
         string a;
         int b;
-        struct
-        {
+        struct {
             long c;
             int[] d;
         }
     }
+
     U u1 = void;
-    U u2 = { "hello" };
+    U u2 = {"hello"};
     emplace(&u1, u2);
     assert(u1.a == "hello");
 }
 
-version(unittest) private struct __conv_EmplaceTest
-{
+version (unittest) private struct __conv_EmplaceTest {
     int i = 3;
-    this(int i)
-    {
+    this(int i) {
         assert(this.i == 3 && i == 5);
         this.i = i;
     }
-    this(int i, ref int j)
-    {
+
+    this(int i, ref int j) {
         assert(i == 5 && j == 6);
         this.i = i;
         ++j;
@@ -431,50 +397,52 @@ version(unittest) private struct __conv_EmplaceTest
     void opAssign();
 }
 
-version(unittest) private class __conv_EmplaceTestClass
-{
+version (unittest) private class __conv_EmplaceTestClass {
     int i = 3;
-    this(int i) @nogc @safe pure nothrow
-    {
+    this(int i) @nogc @safe pure nothrow {
         assert(this.i == 3 && i == 5);
         this.i = i;
     }
-    this(int i, ref int j) @nogc @safe pure nothrow
-    {
+
+    this(int i, ref int j) @nogc @safe pure nothrow {
         assert(i == 5 && j == 6);
         this.i = i;
         ++j;
     }
 }
 
-@system unittest // bugzilla 15772
+@system unittest  // bugzilla 15772
 {
-    abstract class Foo {}
-    class Bar: Foo {}
+    abstract class Foo {
+    }
+
+    class Bar : Foo {
+    }
+
     void[] memory;
     // test in emplaceInitializer
     static assert(!is(typeof(emplace!Foo(cast(Foo*) memory.ptr))));
-    static assert( is(typeof(emplace!Bar(cast(Bar*) memory.ptr))));
+    static assert(is(typeof(emplace!Bar(cast(Bar*) memory.ptr))));
     // test in the emplace overload that takes void[]
     static assert(!is(typeof(emplace!Foo(memory))));
-    static assert( is(typeof(emplace!Bar(memory))));
+    static assert(is(typeof(emplace!Bar(memory))));
 }
 
-@system unittest
-{
-    struct S { @disable this(); }
+@system unittest {
+    struct S {
+        @disable this();
+    }
+
     S s = void;
     static assert(!__traits(compiles, emplace(&s)));
     emplace(&s, S.init);
 }
 
-@system unittest
-{
-    struct S1
-    {}
+@system unittest {
+    struct S1 {
+    }
 
-    struct S2
-    {
+    struct S2 {
         void opAssign(S2);
     }
 
@@ -488,16 +456,15 @@ version(unittest) private class __conv_EmplaceTestClass
     emplace(&as2);
 }
 
-@system unittest
-{
-    static struct S1
-    {
+@system unittest {
+    static struct S1 {
         this(this) @disable;
     }
-    static struct S2
-    {
+
+    static struct S2 {
         this() @disable;
     }
+
     S1[2] ss1 = void;
     S2[2] ss2 = void;
     emplace(&ss1);
@@ -508,12 +475,11 @@ version(unittest) private class __conv_EmplaceTestClass
     emplace(&ss2, s2);
 }
 
-@system unittest
-{
-    struct S
-    {
+@system unittest {
+    struct S {
         immutable int i;
     }
+
     S s = void;
     S[2] ss1 = void;
     S[2] ss2 = void;
@@ -527,10 +493,12 @@ version(unittest) private class __conv_EmplaceTestClass
 
 //Start testing emplace-args here
 
-@system unittest
-{
-    interface I {}
-    class K : I {}
+@system unittest {
+    interface I {
+    }
+
+    class K : I {
+    }
 
     K k = null, k2 = new K;
     assert(k !is k2);
@@ -543,13 +511,14 @@ version(unittest) private class __conv_EmplaceTestClass
     assert(i is k);
 }
 
-@system unittest
-{
-    static struct S
-    {
+@system unittest {
+    static struct S {
         int i = 5;
-        void opAssign(S){assert(0);}
+        void opAssign(S) {
+            assert(0);
+        }
     }
+
     S[2] sa = void;
     S[2] sb;
     emplace(&sa, sb);
@@ -559,13 +528,10 @@ version(unittest) private class __conv_EmplaceTestClass
 //Start testing emplace-struct here
 
 // Test constructor branch
-@system unittest
-{
-    struct S
-    {
+@system unittest {
+    struct S {
         double x = 5, y = 6;
-        this(int a, int b)
-        {
+        this(int a, int b) {
             assert(x == 5 && y == 6);
             x = a;
             y = b;
@@ -578,15 +544,13 @@ version(unittest) private class __conv_EmplaceTestClass
     assert(*emplace!S(cast(S*) s1, 44, 45) == S(44, 45));
 }
 
-@system unittest
-{
+@system unittest {
     __conv_EmplaceTest k = void;
     emplace(&k, 5);
     assert(k.i == 5);
 }
 
-@system unittest
-{
+@system unittest {
     int var = 6;
     __conv_EmplaceTest k = void;
     emplace(&k, 5, var);
@@ -595,24 +559,32 @@ version(unittest) private class __conv_EmplaceTestClass
 }
 
 // Test matching fields branch
-@system unittest
-{
-    struct S { uint n; }
+@system unittest {
+    struct S {
+        uint n;
+    }
+
     S s;
     emplace!S(&s, 2U);
     assert(s.n == 2);
 }
 
-@safe unittest
-{
-    struct S { int a, b; this(int){} }
+@safe unittest {
+    struct S {
+        int a, b;
+        this(int) {
+        }
+    }
+
     S s;
     static assert(!__traits(compiles, emplace!S(&s, 2, 3)));
 }
 
-@system unittest
-{
-    struct S { int a, b = 7; }
+@system unittest {
+    struct S {
+        int a, b = 7;
+    }
+
     S s1 = void, s2 = void;
 
     emplace!S(&s1, 2);
@@ -623,14 +595,18 @@ version(unittest) private class __conv_EmplaceTestClass
 }
 
 //opAssign
-@system unittest
-{
-    static struct S
-    {
+@system unittest {
+    static struct S {
         int i = 5;
-        void opAssign(int){assert(0);}
-        void opAssign(S){assert(0);}
+        void opAssign(int) {
+            assert(0);
+        }
+
+        void opAssign(S) {
+            assert(0);
+        }
     }
+
     S sa1 = void;
     S sa2 = void;
     S sb1 = S(1);
@@ -641,30 +617,37 @@ version(unittest) private class __conv_EmplaceTestClass
 }
 
 //postblit precedence
-@system unittest
-{
+@system unittest {
     //Works, but breaks in "-w -O" because of @@@9332@@@.
     //Uncomment test when 9332 is fixed.
-    static struct S
-    {
+    static struct S {
         int i;
 
-        this(S other){assert(false);}
-        this(int i){this.i = i;}
-        this(this){}
+        this(S other) {
+            assert(false);
+        }
+
+        this(int i) {
+            this.i = i;
+        }
+
+        this(this) {
+        }
     }
+
     S a = void;
-    assert(is(typeof({S b = a;})));    //Postblit
-    assert(is(typeof({S b = S(a);}))); //Constructor
+    assert(is(typeof({ S b = a; }))); //Postblit
+    assert(is(typeof({ S b = S(a); }))); //Constructor
     auto b = S(5);
     emplace(&a, b);
     assert(a.i == 5);
 
-    static struct S2
-    {
+    static struct S2 {
         int* p;
-        this(const S2){}
+        this(const S2) {
+        }
     }
+
     static assert(!is(immutable S2 : S2));
     S2 s2 = void;
     immutable is2 = (immutable S2).init;
@@ -672,26 +655,26 @@ version(unittest) private class __conv_EmplaceTestClass
 }
 
 //nested structs and postblit
-@system unittest
-{
-    static struct S
-    {
+@system unittest {
+    static struct S {
         int* p;
-        this(int i){p = [i].ptr;}
-        this(this)
-        {
+        this(int i) {
+            p = [i].ptr;
+        }
+
+        this(this) {
             if (p)
                 p = [*p].ptr;
         }
     }
-    static struct SS
-    {
+
+    static struct SS {
         S s;
-        void opAssign(const SS)
-        {
+        void opAssign(const SS) {
             assert(0);
         }
     }
+
     SS ssa = void;
     SS ssb = SS(S(5));
     emplace(&ssa, ssb);
@@ -700,44 +683,43 @@ version(unittest) private class __conv_EmplaceTestClass
 }
 
 //disabled postblit
-@system unittest
-{
-    static struct S1
-    {
+@system unittest {
+    static struct S1 {
         int i;
         @disable this(this);
     }
+
     S1 s1 = void;
     emplace(&s1, 1);
     assert(s1.i == 1);
     static assert(!__traits(compiles, emplace(&s1, S1.init)));
 
-    static struct S2
-    {
+    static struct S2 {
         int i;
         @disable this(this);
-        this(ref S2){}
+        this(ref S2) {
+        }
     }
+
     S2 s2 = void;
     static assert(!__traits(compiles, emplace(&s2, 1)));
     emplace(&s2, S2.init);
 
-    static struct SS1
-    {
+    static struct SS1 {
         S1 s;
     }
+
     SS1 ss1 = void;
     emplace(&ss1);
     static assert(!__traits(compiles, emplace(&ss1, SS1.init)));
 
-    static struct SS2
-    {
+    static struct SS2 {
         S2 s;
     }
+
     SS2 ss2 = void;
     emplace(&ss2);
     static assert(!__traits(compiles, emplace(&ss2, SS2.init)));
-
 
     // SS1 sss1 = s1;      //This doesn't compile
     // SS1 sss1 = SS1(s1); //This doesn't compile
@@ -747,15 +729,14 @@ version(unittest) private class __conv_EmplaceTestClass
 }
 
 //Imutability
-@system unittest
-{
+@system unittest {
     //Castable immutability
     {
-        static struct S1
-        {
+        static struct S1 {
             int i;
         }
-        static assert(is( immutable(S1) : S1));
+
+        static assert(is(immutable(S1) : S1));
         S1 sa = void;
         auto sb = immutable(S1)(5);
         emplace(&sa, sb);
@@ -763,10 +744,10 @@ version(unittest) private class __conv_EmplaceTestClass
     }
     //Un-castable immutability
     {
-        static struct S2
-        {
+        static struct S2 {
             int* p;
         }
+
         static assert(!is(immutable(S2) : S2));
         S2 sa = void;
         auto sb = immutable(S2)(null);
@@ -774,13 +755,12 @@ version(unittest) private class __conv_EmplaceTestClass
     }
 }
 
-@system unittest
-{
-    static struct S
-    {
+@system unittest {
+    static struct S {
         immutable int i;
         immutable(int)* j;
     }
+
     S s = void;
     emplace(&s, 1, null);
     emplace(&s, 2, &s.i);
@@ -788,14 +768,15 @@ version(unittest) private class __conv_EmplaceTestClass
 }
 
 //Context pointer
-@system unittest
-{
+@system unittest {
     int i = 0;
     {
-        struct S1
-        {
-            void foo(){++i;}
+        struct S1 {
+            void foo() {
+                ++i;
+            }
         }
+
         S1 sa = void;
         S1 sb;
         emplace(&sa, sb);
@@ -803,11 +784,15 @@ version(unittest) private class __conv_EmplaceTestClass
         assert(i == 1);
     }
     {
-        struct S2
-        {
-            void foo(){++i;}
-            this(this){}
+        struct S2 {
+            void foo() {
+                ++i;
+            }
+
+            this(this) {
+            }
         }
+
         S2 sa = void;
         S2 sb;
         emplace(&sa, sb);
@@ -817,20 +802,18 @@ version(unittest) private class __conv_EmplaceTestClass
 }
 
 //Alias this
-@system unittest
-{
-    static struct S
-    {
+@system unittest {
+    static struct S {
         int i;
     }
     //By Ref
     {
-        static struct SS1
-        {
+        static struct SS1 {
             int j;
             S s;
             alias s this;
         }
+
         S s = void;
         SS1 ss = SS1(1, S(2));
         emplace(&s, ss);
@@ -838,42 +821,51 @@ version(unittest) private class __conv_EmplaceTestClass
     }
     //By Value
     {
-        static struct SS2
-        {
+        static struct SS2 {
             int j;
             S s;
-            S foo() @property{return s;}
+            S foo() @property {
+                return s;
+            }
+
             alias foo this;
         }
+
         S s = void;
         SS2 ss = SS2(1, S(2));
         emplace(&s, ss);
         assert(s.i == 2);
     }
 }
-version(unittest)
-{
+
+version (unittest) {
     //Ambiguity
-    struct __std_conv_S
-    {
+    struct __std_conv_S {
         int i;
-        this(__std_conv_SS ss)         {assert(0);}
-        static opCall(__std_conv_SS ss)
-        {
-            __std_conv_S s; s.i = ss.j;
+        this(__std_conv_SS ss) {
+            assert(0);
+        }
+
+        static opCall(__std_conv_SS ss) {
+            __std_conv_S s;
+            s.i = ss.j;
             return s;
         }
     }
-    struct __std_conv_SS
-    {
+
+    struct __std_conv_SS {
         int j;
         __std_conv_S s;
-        ref __std_conv_S foo() return @property {s.i = j; return s;}
+        ref __std_conv_S foo() return @property {
+            s.i = j;
+            return s;
+        }
+
         alias foo this;
     }
+
     static assert(is(__std_conv_SS : __std_conv_S));
-    @system unittest
-    {
+    @system unittest {
         __std_conv_S s = void;
         __std_conv_SS ss = __std_conv_SS(1);
 
@@ -884,13 +876,14 @@ version(unittest)
 }
 
 //Nested classes
-@system unittest
-{
-    class A{}
-    static struct S
-    {
+@system unittest {
+    class A {
+    }
+
+    static struct S {
         A a;
     }
+
     S s1 = void;
     S s2 = S(new A);
     emplace(&s1, s2);
@@ -898,17 +891,17 @@ version(unittest)
 }
 
 //safety & nothrow & CTFE
-@system unittest
-{
+@system unittest {
     //emplace should be safe for anything with no elaborate opassign
-    static struct S1
-    {
+    static struct S1 {
         int i;
     }
-    static struct S2
-    {
+
+    static struct S2 {
         int i;
-        this(int j)@safe nothrow{i = j;}
+        this(int j) @safe nothrow {
+            i = j;
+        }
     }
 
     int i;
@@ -919,8 +912,7 @@ version(unittest)
     auto ps1 = &s1;
     auto ps2 = &s2;
 
-    void foo() @safe nothrow
-    {
+    void foo() @safe nothrow {
         emplace(pi);
         emplace(pi, 5);
         emplace(ps1);
@@ -930,11 +922,11 @@ version(unittest)
         emplace(ps2, 5);
         emplace(ps2, S2.init);
     }
+
     foo();
 
-    T bar(T)() @property
-    {
-        T t/+ = void+/; //CTFE void illegal
+    T bar(T)() @property {
+        T t /+ = void+/ ; //CTFE void illegal
         emplace(&t, 5);
         return t;
     }
@@ -954,22 +946,23 @@ version(unittest)
     assert(cc.i == 5);
 }
 
+@system unittest {
+    struct S {
+        int[2] get() {
+            return [1, 2];
+        }
 
-@system unittest
-{
-    struct S
-    {
-        int[2] get(){return [1, 2];}
         alias get this;
     }
-    struct SS
-    {
+
+    struct SS {
         int[2] ii;
     }
-    struct ISS
-    {
+
+    struct ISS {
         int[2] ii;
     }
+
     S s;
     SS ss = void;
     ISS iss = void;
@@ -980,85 +973,94 @@ version(unittest)
 }
 
 //disable opAssign
-@system unittest
-{
-    static struct S
-    {
+@system unittest {
+    static struct S {
         @disable void opAssign(S);
     }
+
     S s;
     emplace(&s, S.init);
 }
 
 //opCall
-@system unittest
-{
+@system unittest {
     int i;
     //Without constructor
     {
-        static struct S1
-        {
+        static struct S1 {
             int i;
-            static S1 opCall(int*){assert(0);}
+            static S1 opCall(int*) {
+                assert(0);
+            }
         }
+
         S1 s = void;
-        static assert(!__traits(compiles, emplace(&s,  1)));
+        static assert(!__traits(compiles, emplace(&s, 1)));
     }
     //With constructor
     {
-        static struct S2
-        {
+        static struct S2 {
             int i = 0;
-            static S2 opCall(int*){assert(0);}
-            static S2 opCall(int){assert(0);}
-            this(int i){this.i = i;}
+            static S2 opCall(int*) {
+                assert(0);
+            }
+
+            static S2 opCall(int) {
+                assert(0);
+            }
+
+            this(int i) {
+                this.i = i;
+            }
         }
+
         S2 s = void;
-        emplace(&s,  1);
+        emplace(&s, 1);
         assert(s.i == 1);
     }
     //With postblit ambiguity
     {
-        static struct S3
-        {
+        static struct S3 {
             int i = 0;
-            static S3 opCall(ref S3){assert(0);}
+            static S3 opCall(ref S3) {
+                assert(0);
+            }
         }
+
         S3 s = void;
         emplace(&s, S3.init);
     }
 }
 
-@safe unittest //@@@9559@@@
+@safe unittest  //@@@9559@@@
 {
     import std.algorithm.iteration : map;
     import std.array : array;
     import std.typecons : Nullable;
+
     alias I = Nullable!int;
     auto ints = [0, 1, 2].map!(i => i & 1 ? I.init : I(i))();
     auto asArray = array(ints);
 }
 
-@system unittest //http://forum.dlang.org/post/nxbdgtdlmwscocbiypjs@forum.dlang.org
+@system unittest  //http://forum.dlang.org/post/nxbdgtdlmwscocbiypjs@forum.dlang.org
 {
     import std.array : array;
     import std.datetime : SysTime, UTC;
     import std.math : isNaN;
 
-    static struct A
-    {
+    static struct A {
         double i;
     }
 
-    static struct B
-    {
-        invariant()
-        {
+    static struct B {
+        invariant() {
             if (j == 0)
                 assert(a.i.isNaN(), "why is 'j' zero?? and i is not NaN?");
             else
                 assert(!a.i.isNaN());
         }
+
         SysTime when; // comment this line avoid the breakage
         int j;
         A a;
@@ -1080,18 +1082,17 @@ version(unittest)
 }
 
 //static arrays
-@system unittest
-{
-    static struct S
-    {
+@system unittest {
+    static struct S {
         int[2] ii;
     }
-    static struct IS
-    {
+
+    static struct IS {
         immutable int[2] ii;
     }
+
     int[2] ii;
-    S  s   = void;
+    S s = void;
     IS ims = void;
     ubyte ub = 2;
     emplace(&s, ub);
@@ -1099,14 +1100,13 @@ version(unittest)
     emplace(&ims, ub);
     emplace(&ims, ii);
     uint[2] uu;
-    static assert(!__traits(compiles, {S ss = S(uu);}));
+    static assert(!__traits(compiles, { S ss = S(uu); }));
     static assert(!__traits(compiles, emplace(&s, uu)));
 }
 
-@system unittest
-{
-    int[2]  sii;
-    int[2]  sii2;
+@system unittest {
+    int[2] sii;
+    int[2] sii2;
     uint[2] uii;
     uint[2] uii2;
     emplace(&sii, 1);
@@ -1123,15 +1123,18 @@ version(unittest)
     emplace(&uii, uii2[]);
 }
 
-@system unittest
-{
+@system unittest {
     bool allowDestruction = false;
-    struct S
-    {
+    struct S {
         int i;
-        this(this){}
-        ~this(){assert(allowDestruction);}
+        this(this) {
+        }
+
+        ~this() {
+            assert(allowDestruction);
+        }
     }
+
     S s = S(1);
     S[2] ss1 = void;
     S[2] ss2 = void;
@@ -1145,18 +1148,15 @@ version(unittest)
     allowDestruction = true;
 }
 
-@system unittest
-{
+@system unittest {
     //Checks postblit, construction, and context pointer
     int count = 0;
-    struct S
-    {
-        this(this)
-        {
+    struct S {
+        this(this) {
             ++count;
         }
-        ~this()
-        {
+
+        ~this() {
             --count;
         }
     }
@@ -1170,18 +1170,17 @@ version(unittest)
     assert(count == 0);
 }
 
-@system unittest
-{
-    struct S
-    {
+@system unittest {
+    struct S {
         int i;
     }
+
     S s;
     S[2][2][2] sss = void;
     emplace(&sss, s);
 }
 
-@system unittest //Constness
+@system unittest  //Constness
 {
     import std.stdio;
 
@@ -1192,10 +1191,10 @@ version(unittest)
     const(int)* p = void;
     emplaceRef!(const int*)(p, &i);
 
-    struct S
-    {
+    struct S {
         int* p;
     }
+
     alias IS = immutable(S);
     S s = void;
     emplaceRef!IS(s, IS());
@@ -1207,8 +1206,7 @@ version(unittest)
     emplaceRef!(IS[2])(ss, iss[]);
 }
 
-pure nothrow @safe @nogc unittest
-{
+pure nothrow @safe @nogc unittest {
     int i;
     emplaceRef(i);
     emplaceRef!int(i);
@@ -1217,11 +1215,10 @@ pure nothrow @safe @nogc unittest
 }
 
 // Test attribute propagation for UDTs
-pure nothrow @safe /* @nogc */ unittest
-{
-    static struct Safe
-    {
-        this(this) pure nothrow @safe @nogc {}
+pure nothrow @safe /* @nogc */ unittest {
+    static struct Safe {
+        this(this) pure nothrow @safe @nogc {
+        }
     }
 
     Safe safe = void;
@@ -1232,9 +1229,9 @@ pure nothrow @safe /* @nogc */ unittest
     emplaceRef(uninitializedSafeArr, safe);
     emplaceRef(uninitializedSafeArr, safeArr);
 
-    static struct Unsafe
-    {
-        this(this) @system {}
+    static struct Unsafe {
+        this(this) @system {
+        }
     }
 
     Unsafe unsafe = void;
@@ -1246,50 +1243,47 @@ pure nothrow @safe /* @nogc */ unittest
     static assert(!__traits(compiles, emplaceRef(uninitializedUnsafeArr, unsafeArr)));
 }
 
-@system unittest
-{
+@system unittest {
     // Issue 15313
-    static struct Node
-    {
+    static struct Node {
         int payload;
         Node* next;
         uint refs;
     }
 
     import core.stdc.stdlib : malloc;
+
     void[] buf = malloc(Node.sizeof)[0 .. Node.sizeof];
 
     import std.conv : emplace;
+
     const Node* n = emplace!(const Node)(buf, 42, null, 10);
     assert(n.payload == 42);
     assert(n.next == null);
     assert(n.refs == 10);
 }
 
-@system unittest
-{
+@system unittest {
     int var = 6;
     auto k = emplace!__conv_EmplaceTest(new void[__conv_EmplaceTest.sizeof], 5, var);
     assert(k.i == 5);
     assert(var == 7);
 }
 
-@system unittest
-{
-    class A
-    {
+@system unittest {
+    class A {
         int x = 5;
         int y = 42;
-        this(int z)
-        {
+        this(int z) {
             assert(x == 5 && y == 42);
             x = y = z;
         }
     }
+
     void[] buf;
 
     static if (__VERSION__ >= 2072)
-    mixin(`
+        mixin(`
     static align(A.alignof) byte[__traits(classInstanceSize, A)] sbuf;
     buf = sbuf[];
     auto a = emplace!A(buf, 55);
@@ -1306,12 +1300,9 @@ pure nothrow @safe /* @nogc */ unittest
 }
 // Bulk of emplace unittests ends here
 
-static if (__VERSION__ >= 2072)
-{
+static if (__VERSION__ >= 2072) {
     public import std.typecons : Ternary;
-}
-else
-{
+} else {
     public import std.experimental.allocator.common : Ternary;
 }
 
@@ -1327,41 +1318,33 @@ Params:
 Returns:
     `true` if `x` is an integer power of two.
 */
-bool isPowerOf2(X)(const X x) pure @safe nothrow @nogc
-if (isNumeric!X)
-{
-    static if (isFloatingPoint!X)
-    {
+bool isPowerOf2(X)(const X x) pure @safe nothrow @nogc if (isNumeric!X) {
+    static if (isFloatingPoint!X) {
         import std.math : frexp;
+
         int exp;
         const X sig = frexp(x, exp);
 
         return (exp != int.min) && (sig is cast(X) 0.5L);
-    }
-    else
-    {
-        static if (isSigned!X)
-        {
-            auto y = cast(typeof(x + 0))x;
+    } else {
+        static if (isSigned!X) {
+            auto y = cast(typeof(x + 0)) x;
             return y > 0 && !(y & (y - 1));
-        }
-        else
-        {
-            auto y = cast(typeof(x + 0u))x;
+        } else {
+            auto y = cast(typeof(x + 0u)) x;
             return (y & -y) > (y - 1);
         }
     }
 }
 ///
-@safe unittest
-{
+@safe unittest {
     import std.math : pow;
 
-    assert( isPowerOf2(1.0L));
-    assert( isPowerOf2(2.0L));
-    assert( isPowerOf2(0.5L));
-    assert( isPowerOf2(pow(2.0L, 96)));
-    assert( isPowerOf2(pow(2.0L, -77)));
+    assert(isPowerOf2(1.0L));
+    assert(isPowerOf2(2.0L));
+    assert(isPowerOf2(0.5L));
+    assert(isPowerOf2(pow(2.0L, 96)));
+    assert(isPowerOf2(pow(2.0L, -77)));
 
     assert(!isPowerOf2(-2.0L));
     assert(!isPowerOf2(-0.5L));
@@ -1373,19 +1356,17 @@ if (isNumeric!X)
     assert(!isPowerOf2(real.infinity));
 }
 ///
-@safe unittest
-{
-    assert( isPowerOf2(1));
-    assert( isPowerOf2(2));
-    assert( isPowerOf2(1uL << 63));
+@safe unittest {
+    assert(isPowerOf2(1));
+    assert(isPowerOf2(2));
+    assert(isPowerOf2(1uL << 63));
 
     assert(!isPowerOf2(-4));
     assert(!isPowerOf2(0));
     assert(!isPowerOf2(1337u));
 }
 
-@safe unittest
-{
+@safe unittest {
     import std.meta : AliasSeq;
     import std.math : pow;
 
@@ -1394,29 +1375,25 @@ if (isNumeric!X)
     immutable smallP7 = pow(7.0L, -35);
     immutable bigP7 = pow(7.0L, 30);
 
-    foreach (X; AliasSeq!(float, double, real))
-    {
+    foreach (X; AliasSeq!(float, double, real)) {
         immutable min_sub = X.min_normal * X.epsilon;
 
-        foreach (x; [smallP2, min_sub, X.min_normal, .25L, 0.5L, 1.0L,
-                              2.0L, 8.0L, pow(2.0L, X.max_exp - 1), bigP2])
-        {
-            assert( isPowerOf2(cast(X) x));
+        foreach (x; [smallP2, min_sub, X.min_normal, .25L, 0.5L, 1.0L, 2.0L,
+                8.0L, pow(2.0L, X.max_exp - 1), bigP2]) {
+            assert(isPowerOf2(cast(X) x));
             assert(!isPowerOf2(cast(X)-x));
         }
 
-        foreach (x; [0.0L, 3 * min_sub, smallP7, 0.1L, 1337.0L, bigP7, X.max, real.nan, real.infinity])
-        {
+        foreach (x; [0.0L, 3 * min_sub, smallP7, 0.1L, 1337.0L, bigP7, X.max,
+                real.nan, real.infinity]) {
             assert(!isPowerOf2(cast(X) x));
             assert(!isPowerOf2(cast(X)-x));
         }
     }
 
-    foreach (X; AliasSeq!(byte, ubyte, short, ushort, int, uint, long, ulong))
-    {
-        foreach (x; [1, 2, 4, 8, (X.max >>> 1) + 1])
-        {
-            assert( isPowerOf2(cast(X) x));
+    foreach (X; AliasSeq!(byte, ubyte, short, ushort, int, uint, long, ulong)) {
+        foreach (x; [1, 2, 4, 8, (X.max >>> 1) + 1]) {
+            assert(isPowerOf2(cast(X) x));
             static if (isSigned!X)
                 assert(!isPowerOf2(cast(X)-x));
         }
@@ -1438,44 +1415,41 @@ Returns:
 `true` if `T` is a class nested inside another, with the conditions described above;
 `false` otherwise
 */
-template isInnerClass(T)
-    if (is(T == class))
-{
+template isInnerClass(T) if (is(T == class)) {
     import std.meta : staticIndexOf;
 
     static if (is(typeof(T.outer)))
         enum isInnerClass = __traits(isSame, typeof(T.outer), __traits(parent, T))
-                         && (staticIndexOf!(__traits(allMembers, T), "outer") == -1);
+                && (staticIndexOf!(__traits(allMembers, T), "outer") == -1);
     else
-        enum isInnerClass = false;
+                    enum isInnerClass = false;
 }
 
 ///
-@safe unittest
-{
-    class C
-    {
+@safe unittest {
+    class C {
         int outer;
     }
+
     static assert(!isInnerClass!C);
 
-    class Outer1
-    {
-        class Inner1 { }
-        class Inner2
-        {
+    class Outer1 {
+        class Inner1 {
+        }
+
+        class Inner2 {
             int outer;
         }
     }
+
     static assert(isInnerClass!(Outer1.Inner1));
     static assert(!isInnerClass!(Outer1.Inner2));
 
-    static class Outer2
-    {
-        static class Inner
-        {
+    static class Outer2 {
+        static class Inner {
             int outer;
         }
     }
+
     static assert(!isInnerClass!(Outer2.Inner));
 }

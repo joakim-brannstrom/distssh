@@ -34,8 +34,7 @@ $(LI $(D roundingFunction) must be $(D pure), i.e. always return the same
 value for a given $(D n).)
 )
 */
-struct Quantizer(ParentAllocator, alias roundingFunction)
-{
+struct Quantizer(ParentAllocator, alias roundingFunction) {
     import std.traits : hasMember;
 
     /**
@@ -43,12 +42,9 @@ struct Quantizer(ParentAllocator, alias roundingFunction)
     or not, this is a member variable or an alias for
     `ParentAllocator.instance`.
     */
-    static if (stateSize!ParentAllocator)
-    {
+    static if (stateSize!ParentAllocator) {
         ParentAllocator parent;
-    }
-    else
-    {
+    } else {
         alias parent = ParentAllocator.instance;
         static __gshared Quantizer instance;
     }
@@ -56,8 +52,7 @@ struct Quantizer(ParentAllocator, alias roundingFunction)
     /**
     Returns $(D roundingFunction(n)).
     */
-    size_t goodAllocSize(size_t n)
-    {
+    size_t goodAllocSize(size_t n) {
         auto result = roundingFunction(n);
         assert(result >= n);
         return result;
@@ -73,8 +68,7 @@ struct Quantizer(ParentAllocator, alias roundingFunction)
     $(D parent.allocate(goodAllocSize(n))). If $(D buf) is $(D null), returns
     $(D null). Otherwise, returns $(D buf[0 .. n]).
     */
-    void[] allocate(size_t n)
-    {
+    void[] allocate(size_t n) {
         auto result = parent.allocate(goodAllocSize(n));
         return result.ptr ? result.ptr[0 .. n] : null;
     }
@@ -85,11 +79,10 @@ struct Quantizer(ParentAllocator, alias roundingFunction)
     $(D parent.alignedAllocate(goodAllocSize(n), a)).
     */
     static if (hasMember!(ParentAllocator, "alignedAllocate"))
-    void[] alignedAllocate(size_t n, uint)
-    {
-        auto result = parent.alignedAllocate(goodAllocSize(n));
-        return result.ptr ? result.ptr[0 .. n] : null;
-    }
+        void[] alignedAllocate(size_t n, uint) {
+            auto result = parent.alignedAllocate(goodAllocSize(n));
+            return result.ptr ? result.ptr[0 .. n] : null;
+        }
 
     /**
     First checks whether there's enough slack memory preallocated for $(D b)
@@ -97,25 +90,22 @@ struct Quantizer(ParentAllocator, alias roundingFunction)
     the case, expands $(D b) in place. Otherwise, attempts to use
     $(D parent.expand) appropriately if present.
     */
-    bool expand(ref void[] b, size_t delta)
-    {
-        if (!b.ptr) return delta == 0;
-        immutable allocated = goodAllocSize(b.length),
-            needed = b.length + delta,
+    bool expand(ref void[] b, size_t delta) {
+        if (!b.ptr)
+            return delta == 0;
+        immutable allocated = goodAllocSize(b.length), needed = b.length + delta,
             neededAllocation = goodAllocSize(needed);
         assert(b.length <= allocated);
         assert(needed <= neededAllocation);
         assert(allocated <= neededAllocation);
         // Second test needed because expand must work for null pointers, too.
-        if (allocated == neededAllocation)
-        {
+        if (allocated == neededAllocation) {
             // Nice!
             b = b.ptr[0 .. needed];
             return true;
         }
         // Hail Mary
-        static if (hasMember!(ParentAllocator, "expand"))
-        {
+        static if (hasMember!(ParentAllocator, "expand")) {
             // Expand to the appropriate quantum
             auto original = b.ptr[0 .. allocated];
             assert(goodAllocSize(needed) >= allocated);
@@ -124,9 +114,7 @@ struct Quantizer(ParentAllocator, alias roundingFunction)
             // Dial back the size
             b = original.ptr[0 .. needed];
             return true;
-        }
-        else
-        {
+        } else {
             return false;
         }
     }
@@ -137,26 +125,24 @@ struct Quantizer(ParentAllocator, alias roundingFunction)
     by $(D expand). Shrinking occurs in place if $(D goodAllocSize(b.length)
     == goodAllocSize(s)).
     */
-    bool reallocate(ref void[] b, size_t s)
-    {
-        if (!b.ptr)
-        {
+    bool reallocate(ref void[] b, size_t s) {
+        if (!b.ptr) {
             b = allocate(s);
             return b.length == s;
         }
-        if (s >= b.length && expand(b, s - b.length)) return true;
-        immutable toAllocate = goodAllocSize(s),
-            allocated = goodAllocSize(b.length);
+        if (s >= b.length && expand(b, s - b.length))
+            return true;
+        immutable toAllocate = goodAllocSize(s), allocated = goodAllocSize(b.length);
         // Are the lengths within the same quantum?
-        if (allocated == toAllocate)
-        {
+        if (allocated == toAllocate) {
             // Reallocation (whether up or down) will be done in place
             b = b.ptr[0 .. s];
             return true;
         }
         // Defer to parent (or global) with quantized size
         auto original = b.ptr[0 .. allocated];
-        if (!parent.reallocate(original, toAllocate)) return false;
+        if (!parent.reallocate(original, toAllocate))
+            return false;
         b = original.ptr[0 .. s];
         return true;
     }
@@ -167,73 +153,66 @@ struct Quantizer(ParentAllocator, alias roundingFunction)
     occurs in place if $(D goodAllocSize(b.length) == goodAllocSize(s)).
     */
     static if (hasMember!(ParentAllocator, "alignedAllocate"))
-    bool alignedReallocate(ref void[] b, size_t s, uint a)
-    {
-        if (!b.ptr)
-        {
-            b = alignedAllocate(s);
-            return b.length == s;
-        }
-        if (s >= b.length && expand(b, s - b.length)) return true;
-        immutable toAllocate = goodAllocSize(s),
-            allocated = goodAllocSize(b.length);
-        // Are the lengths within the same quantum?
-        if (allocated == toAllocate)
-        {
-            assert(b.ptr); // code above must have caught this
-            // Reallocation (whether up or down) will be done in place
-            b = b.ptr[0 .. s];
+        bool alignedReallocate(ref void[] b, size_t s, uint a) {
+            if (!b.ptr) {
+                b = alignedAllocate(s);
+                return b.length == s;
+            }
+            if (s >= b.length && expand(b, s - b.length))
+                return true;
+            immutable toAllocate = goodAllocSize(s), allocated = goodAllocSize(b.length);
+            // Are the lengths within the same quantum?
+            if (allocated == toAllocate) {
+                assert(b.ptr); // code above must have caught this
+                // Reallocation (whether up or down) will be done in place
+                b = b.ptr[0 .. s];
+                return true;
+            }
+            // Defer to parent (or global) with quantized size
+            auto original = b.ptr[0 .. allocated];
+            if (!parent.alignedReallocate(original, toAllocate, a))
+                return false;
+            b = original.ptr[0 .. s];
             return true;
         }
-        // Defer to parent (or global) with quantized size
-        auto original = b.ptr[0 .. allocated];
-        if (!parent.alignedReallocate(original, toAllocate, a)) return false;
-        b = original.ptr[0 .. s];
-        return true;
-    }
 
     /**
     Defined if $(D ParentAllocator.deallocate) exists and forwards to
     $(D parent.deallocate(b.ptr[0 .. goodAllocSize(b.length)])).
     */
     static if (hasMember!(ParentAllocator, "deallocate"))
-    bool deallocate(void[] b)
-    {
-        if (!b.ptr) return true;
-        return parent.deallocate(b.ptr[0 .. goodAllocSize(b.length)]);
-    }
+        bool deallocate(void[] b) {
+            if (!b.ptr)
+                return true;
+            return parent.deallocate(b.ptr[0 .. goodAllocSize(b.length)]);
+        }
 
     // Forwarding methods
-    mixin(forwardToMember("parent",
-        "allocateAll", "owns", "deallocateAll", "empty"));
+    mixin(forwardToMember("parent", "allocateAll", "owns", "deallocateAll", "empty"));
 }
 
 ///
-@system unittest
-{
+@system unittest {
     import stdx.allocator.building_blocks.free_tree : FreeTree;
     import stdx.allocator.gc_allocator : GCAllocator;
 
-    size_t roundUpToMultipleOf(size_t s, uint base)
-    {
+    size_t roundUpToMultipleOf(size_t s, uint base) {
         auto rem = s % base;
         return rem ? s + base - rem : s;
     }
 
     // Quantize small allocations to a multiple of cache line, large ones to a
     // multiple of page size
-    alias MyAlloc = Quantizer!(
-        FreeTree!GCAllocator,
-        n => roundUpToMultipleOf(n, n <= 16_384 ? 64 : 4096));
+    alias MyAlloc = Quantizer!(FreeTree!GCAllocator,
+            n => roundUpToMultipleOf(n, n <= 16_384 ? 64 : 4096));
     MyAlloc alloc;
     const buf = alloc.allocate(256);
     assert(buf.ptr);
 }
 
-@system unittest
-{
+@system unittest {
     import stdx.allocator.gc_allocator : GCAllocator;
-    alias MyAlloc = Quantizer!(GCAllocator,
-        (size_t n) => n.roundUpToMultipleOf(64));
+
+    alias MyAlloc = Quantizer!(GCAllocator, (size_t n) => n.roundUpToMultipleOf(64));
     testAllocator!(() => MyAlloc());
 }

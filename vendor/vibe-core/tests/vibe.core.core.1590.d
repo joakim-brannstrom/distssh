@@ -14,10 +14,10 @@ import vibe.core.log;
 import vibe.core.concurrency;
 import vibe.core.connectionpool;
 
-class Conn {}
+class Conn {
+}
 
-void main()
-{
+void main() {
     runTask({
         // create pool with 2 max connections
         bool[int] results;
@@ -56,4 +56,3 @@ void main()
 
     runEventLoop();
 }
-

@@ -13,8 +13,8 @@ module stdx.allocator.typed;
 
 import stdx.allocator;
 import stdx.allocator.common;
-import std.range : isInputRange, isForwardRange, walkLength, save, empty,
-    front, popFront;
+import std.range : isInputRange, isForwardRange, walkLength, save, empty, front,
+    popFront;
 import std.traits : isPointer, hasElaborateDestructor;
 import std.typecons : Flag, Yes, No;
 
@@ -23,8 +23,7 @@ Allocation-related flags dictated by type characteristics. `TypedAllocator`
 deduces these flags from the type being allocated and uses the appropriate
 allocator accordingly.
 */
-enum AllocFlag : uint
-{
+enum AllocFlag : uint {
     init = 0,
     /**
     Fixed-size allocation (unlikely to get reallocated later). Examples: `int`,
@@ -120,57 +119,48 @@ PrimaryAllocator = The default allocator.
 Policies = Zero or more pairs consisting of an `AllocFlag` and an allocator
 type.
 */
-struct TypedAllocator(PrimaryAllocator, Policies...)
-{
+struct TypedAllocator(PrimaryAllocator, Policies...) {
     import std.algorithm.sorting : isSorted;
     import std.meta : AliasSeq;
     import std.typecons : Tuple;
 
     static assert(Policies.length == 0 || isSorted([Stride2!Policies]));
 
-    private template Stride2(T...)
-    {
-        static if (T.length >= 2)
-        {
+    private template Stride2(T...) {
+        static if (T.length >= 2) {
             alias Stride2 = AliasSeq!(T[0], Stride2!(T[2 .. $]));
-        }
-        else
-        {
+        } else {
             alias Stride2 = AliasSeq!(T[0 .. $]);
         }
     }
 
     // state
-    static if (stateSize!PrimaryAllocator) private PrimaryAllocator primary;
-    else alias primary = PrimaryAllocator.instance;
+    static if (stateSize!PrimaryAllocator)
+        private PrimaryAllocator primary;
+    else
+        alias primary = PrimaryAllocator.instance;
     static if (Policies.length > 0)
         private Tuple!(Stride2!(Policies[1 .. $])) extras;
 
-    private static bool match(uint have, uint want)
-    {
-        enum uint maskAway =
-            ~(AllocFlag.immutableShared | AllocFlag.threadLocal);
+    private static bool match(uint have, uint want) {
+        enum uint maskAway = ~(AllocFlag.immutableShared | AllocFlag.threadLocal);
         // Do we offer thread local?
-        if (have & AllocFlag.threadLocal)
-        {
+        if (have & AllocFlag.threadLocal) {
             if (want & AllocFlag.threadLocal)
                 return match(have & maskAway, want & maskAway);
             return false;
         }
-        if (have & AllocFlag.immutableShared)
-        {
+        if (have & AllocFlag.immutableShared) {
             // Okay to ask for either thread local or immutable shared
-            if (want & (AllocFlag.threadLocal
-                    | AllocFlag.immutableShared))
+            if (want & (AllocFlag.threadLocal | AllocFlag.immutableShared))
                 return match(have & maskAway, want & maskAway);
             return false;
         }
         // From here on we have full-blown thread sharing.
-        if (have & AllocFlag.hasNoIndirections)
-        {
+        if (have & AllocFlag.hasNoIndirections) {
             if (want & AllocFlag.hasNoIndirections)
                 return match(have & ~AllocFlag.hasNoIndirections,
-                    want & ~AllocFlag.hasNoIndirections);
+                        want & ~AllocFlag.hasNoIndirections);
             return false;
         }
         // Fixed size or variable size both match.
@@ -181,22 +171,14 @@ struct TypedAllocator(PrimaryAllocator, Policies...)
     Given `flags` as a combination of `AllocFlag` values, or a type `T`, returns
     the allocator that's a closest fit in capabilities.
     */
-    auto ref allocatorFor(uint flags)()
-    {
-        static if (Policies.length == 0 || !match(Policies[0], flags))
-        {
+    auto ref allocatorFor(uint flags)() {
+        static if (Policies.length == 0 || !match(Policies[0], flags)) {
             return primary;
-        }
-        else static if (Policies.length && match(Policies[$ - 2], flags))
-        {
+        } else static if (Policies.length && match(Policies[$ - 2], flags)) {
             return extras[$ - 1];
-        }
-        else
-        {
-            foreach (i, choice; Stride2!Policies)
-            {
-                static if (!match(choice, flags))
-                {
+        } else {
+            foreach (i, choice; Stride2!Policies) {
+                static if (!match(choice, flags)) {
                     return extras[i - 1];
                 }
             }
@@ -205,14 +187,10 @@ struct TypedAllocator(PrimaryAllocator, Policies...)
     }
 
     /// ditto
-    auto ref allocatorFor(T)()
-    {
-        static if (is(T == void[]))
-        {
+    auto ref allocatorFor(T)() {
+        static if (is(T == void[])) {
             return primary;
-        }
-        else
-        {
+        } else {
             return allocatorFor!(type2flags!T)();
         }
     }
@@ -221,8 +199,7 @@ struct TypedAllocator(PrimaryAllocator, Policies...)
     Given a type `T`, returns its allocation-related flags as a combination of
     `AllocFlag` values.
     */
-    static uint type2flags(T)()
-    {
+    static uint type2flags(T)() {
         uint result;
         static if (is(T == immutable))
             result |= AllocFlag.immutableShared;
@@ -231,6 +208,7 @@ struct TypedAllocator(PrimaryAllocator, Policies...)
         static if (!is(T == U[], U))
             result |= AllocFlag.fixedSize;
         import std.traits : hasIndirections;
+
         static if (!hasIndirections!T)
             result |= AllocFlag.hasNoIndirections;
         return result;
@@ -257,8 +235,7 @@ struct TypedAllocator(PrimaryAllocator, Policies...)
     Throws: If `T`'s constructor throws, deallocates the allocated memory and
     propagates the exception.
     */
-    auto make(T, A...)(auto ref A args)
-    {
+    auto make(T, A...)(auto ref A args) {
         return .make!T(allocatorFor!T, args);
     }
 
@@ -281,21 +258,17 @@ struct TypedAllocator(PrimaryAllocator, Policies...)
     The first two overloads throw only if the used allocator's primitives do.
     The overloads that involve copy initialization deallocate memory and propagate the exception if the copy operation throws.
     */
-    T[] makeArray(T)(size_t length)
-    {
+    T[] makeArray(T)(size_t length) {
         return .makeArray!T(allocatorFor!(T[]), length);
     }
 
     /// Ditto
-    T[] makeArray(T)(size_t length, auto ref T init)
-    {
+    T[] makeArray(T)(size_t length, auto ref T init) {
         return .makeArray!T(allocatorFor!(T[]), init, length);
     }
 
     /// Ditto
-    T[] makeArray(T, R)(R range)
-    if (isInputRange!R)
-    {
+    T[] makeArray(T, R)(R range) if (isInputRange!R) {
         return .makeArray!T(allocatorFor!(T[]), range);
     }
 
@@ -322,19 +295,15 @@ struct TypedAllocator(PrimaryAllocator, Policies...)
     The overloads that involve copy initialization deallocate memory and
     propagate the exception if the copy operation throws.
     */
-    bool expandArray(T)(ref T[] array, size_t delta)
-    {
+    bool expandArray(T)(ref T[] array, size_t delta) {
         return .expandArray(allocatorFor!(T[]), array, delta);
     }
     /// Ditto
-    bool expandArray(T)(T[] array, size_t delta, auto ref T init)
-    {
+    bool expandArray(T)(T[] array, size_t delta, auto ref T init) {
         return .expandArray(allocatorFor!(T[]), array, delta, init);
     }
     /// Ditto
-    bool expandArray(T, R)(ref T[] array, R range)
-    if (isInputRange!R)
-    {
+    bool expandArray(T, R)(ref T[] array, R range) if (isInputRange!R) {
         return .expandArray(allocatorFor!(T[]), array, range);
     }
 
@@ -362,8 +331,7 @@ struct TypedAllocator(PrimaryAllocator, Policies...)
     The overloads that involve copy initialization deallocate memory and
     propagate the exception if the copy operation throws.
     */
-    bool shrinkArray(T)(ref T[] arr, size_t delta)
-    {
+    bool shrinkArray(T)(ref T[] arr, size_t delta) {
         return .shrinkArray(allocatorFor!(T[]), arr, delta);
     }
 
@@ -373,35 +341,28 @@ struct TypedAllocator(PrimaryAllocator, Policies...)
     reference, or an entire array. It is assumed the respective entities had
     been allocated with the same allocator.
     */
-    void dispose(T)(T* p)
-    {
+    void dispose(T)(T* p) {
         return .dispose(allocatorFor!T, p);
     }
     /// Ditto
-    void dispose(T)(T p)
-    if (is(T == class) || is(T == interface))
-    {
+    void dispose(T)(T p) if (is(T == class) || is(T == interface)) {
         return .dispose(allocatorFor!T, p);
     }
     /// Ditto
-    void dispose(T)(T[] array)
-    {
+    void dispose(T)(T[] array) {
         return .dispose(allocatorFor!(T[]), array);
     }
 }
 
 ///
-@system unittest
-{
+@system unittest {
     import stdx.allocator.gc_allocator : GCAllocator;
     import stdx.allocator.mallocator : Mallocator;
     import stdx.allocator.mmap_allocator : MmapAllocator;
-    alias MyAllocator = TypedAllocator!(GCAllocator,
-        AllocFlag.fixedSize | AllocFlag.threadLocal, Mallocator,
-        AllocFlag.fixedSize | AllocFlag.threadLocal
-                | AllocFlag.hasNoIndirections,
-            MmapAllocator,
-    );
+
+    alias MyAllocator = TypedAllocator!(GCAllocator, AllocFlag.fixedSize | AllocFlag.threadLocal, Mallocator,
+            AllocFlag.fixedSize | AllocFlag.threadLocal | AllocFlag.hasNoIndirections,
+            MmapAllocator,);
     MyAllocator a;
     auto b = &a.allocatorFor!0();
     static assert(is(typeof(*b) == shared GCAllocator));
@@ -415,9 +376,11 @@ struct TypedAllocator(PrimaryAllocator, Policies...)
     static assert(is(typeof(a.allocatorFor!f3()) == Mallocator));
 
     int* p = a.make!int;
-    scope(exit) a.dispose(p);
+    scope (exit)
+        a.dispose(p);
     int[] arr = a.makeArray!int(42);
-    scope(exit) a.dispose(arr);
+    scope (exit)
+        a.dispose(arr);
     assert(a.expandArray(arr, 3));
     assert(a.shrinkArray(arr, 4));
 }

@@ -16,14 +16,14 @@
 */
 module vibe.core.stream;
 
-import vibe.internal.traits : checkInterfaceConformance, validateInterfaceConformance;
+import vibe.internal.traits : checkInterfaceConformance,
+    validateInterfaceConformance;
 import vibe.internal.interfaceproxy;
 import core.time;
 import std.algorithm;
 import std.conv;
 
 public import eventcore.driver : IOMode;
-
 
 /** Pipes an InputStream directly into this OutputStream.
 
@@ -35,46 +35,42 @@ public import eventcore.driver : IOMode;
 		The actual number of bytes written is returned. If `nbytes` is  given
 		and not equal to `ulong.max`, íts value will be returned.
 */
-ulong pipe(InputStream, OutputStream)(InputStream source, OutputStream sink, ulong nbytes)
-	@blocking @trusted
-	if (isOutputStream!OutputStream && isInputStream!InputStream)
-{
-	import vibe.internal.allocator : theAllocator, makeArray, dispose;
+ulong pipe(InputStream, OutputStream)(InputStream source, OutputStream sink, ulong nbytes) @blocking @trusted
+        if (isOutputStream!OutputStream && isInputStream!InputStream) {
+    import vibe.internal.allocator : theAllocator, makeArray, dispose;
 
-	scope buffer = cast(ubyte[]) theAllocator.allocate(64*1024);
-	scope (exit) theAllocator.dispose(buffer);
+    scope buffer = cast(ubyte[]) theAllocator.allocate(64 * 1024);
+    scope (exit)
+        theAllocator.dispose(buffer);
 
-	//logTrace("default write %d bytes, empty=%s", nbytes, stream.empty);
-	ulong ret = 0;
-	if (nbytes == ulong.max) {
-		while (!source.empty) {
-			size_t chunk = min(source.leastSize, buffer.length);
-			assert(chunk > 0, "leastSize returned zero for non-empty stream.");
-			//logTrace("read pipe chunk %d", chunk);
-			source.read(buffer[0 .. chunk]);
-			sink.write(buffer[0 .. chunk]);
-			ret += chunk;
-		}
-	} else {
-		while (nbytes > 0) {
-			size_t chunk = min(nbytes, buffer.length);
-			//logTrace("read pipe chunk %d", chunk);
-			source.read(buffer[0 .. chunk]);
-			sink.write(buffer[0 .. chunk]);
-			nbytes -= chunk;
-			ret += chunk;
-		}
-	}
-	return ret;
+    //logTrace("default write %d bytes, empty=%s", nbytes, stream.empty);
+    ulong ret = 0;
+    if (nbytes == ulong.max) {
+        while (!source.empty) {
+            size_t chunk = min(source.leastSize, buffer.length);
+            assert(chunk > 0, "leastSize returned zero for non-empty stream.");
+            //logTrace("read pipe chunk %d", chunk);
+            source.read(buffer[0 .. chunk]);
+            sink.write(buffer[0 .. chunk]);
+            ret += chunk;
+        }
+    } else {
+        while (nbytes > 0) {
+            size_t chunk = min(nbytes, buffer.length);
+            //logTrace("read pipe chunk %d", chunk);
+            source.read(buffer[0 .. chunk]);
+            sink.write(buffer[0 .. chunk]);
+            nbytes -= chunk;
+            ret += chunk;
+        }
+    }
+    return ret;
 }
 /// ditto
-ulong pipe(InputStream, OutputStream)(InputStream source, OutputStream sink)
-	@blocking
-	if (isOutputStream!OutputStream && isInputStream!InputStream)
-{
-	return pipe(source, sink, ulong.max);
+ulong pipe(InputStream, OutputStream)(InputStream source, OutputStream sink) @blocking
+        if (isOutputStream!OutputStream && isInputStream!InputStream) {
+    return pipe(source, sink, ulong.max);
 }
-
 
 /** Marks a function as blocking.
 
@@ -85,7 +81,8 @@ ulong pipe(InputStream, OutputStream)(InputStream source, OutputStream sink)
 	Currently this attribute serves only as a documentation aid and is not enforced
 	or used for deducation in any way.
 */
-struct blocking {}
+struct blocking {
+}
 
 /**************************************************************************************************/
 /* Public functions                                                                               */
@@ -97,11 +94,11 @@ struct blocking {}
 	The instance will only be created on the first request and gets reused for
 	all subsequent calls from the same thread.
 */
-NullOutputStream nullSink() @safe nothrow
-{
-	static NullOutputStream ret;
-	if (!ret) ret = new NullOutputStream;
-	return ret;
+NullOutputStream nullSink() @safe nothrow {
+    static NullOutputStream ret;
+    if (!ret)
+        ret = new NullOutputStream;
+    return ret;
 }
 
 /**************************************************************************************************/
@@ -112,27 +109,27 @@ NullOutputStream nullSink() @safe nothrow
 	Interface for all classes implementing readable streams.
 */
 interface InputStream {
-	@safe:
+@safe:
 
-	/** Returns true $(I iff) the end of the input stream has been reached.
+    /** Returns true $(I iff) the end of the input stream has been reached.
 
 		For connection oriented streams, this function will block until either
 		new data arrives or the connection got closed.
 	*/
-	@property bool empty() @blocking;
+    @property bool empty() @blocking;
 
-	/**	(Scheduled for deprecation) Returns the maximum number of bytes that are known to remain available for read.
+    /**	(Scheduled for deprecation) Returns the maximum number of bytes that are known to remain available for read.
 
 		After `leastSize()` bytes have been read, the stream will either have reached EOS
 		and `empty()` returns `true`, or `leastSize()` returns again a number greater than `0`.
 	*/
-	@property ulong leastSize() @blocking;
+    @property ulong leastSize() @blocking;
 
-	/** (Scheduled for deprecation) Queries if there is data available for immediate, non-blocking read.
+    /** (Scheduled for deprecation) Queries if there is data available for immediate, non-blocking read.
 	*/
-	@property bool dataAvailableForRead();
+    @property bool dataAvailableForRead();
 
-	/** Returns a temporary reference to the data that is currently buffered.
+    /** Returns a temporary reference to the data that is currently buffered.
 
 		The returned slice typically has the size `leastSize()` or `0` if `dataAvailableForRead()`
 		returns `false`. Streams that don't have an internal buffer will always return an empty
@@ -141,9 +138,9 @@ interface InputStream {
 		Note that any method invocation on the same stream potentially invalidates the contents of
 		the returned buffer.
 	*/
-	const(ubyte)[] peek();
+    const(ubyte)[] peek();
 
-	/**	Fills the preallocated array 'bytes' with data from the stream.
+    /**	Fills the preallocated array 'bytes' with data from the stream.
 
 		This function will continue read from the stream until the buffer has
 		been fully filled.
@@ -161,36 +158,43 @@ interface InputStream {
 
 		See_Also: `readOnce`, `tryRead`
 	*/
-	size_t read(scope ubyte[] dst, IOMode mode) @blocking;
-	/// ditto
-	final void read(scope ubyte[] dst) @blocking { auto n = read(dst, IOMode.all); assert(n == dst.length); }
+    size_t read(scope ubyte[] dst, IOMode mode) @blocking;
+    /// ditto
+    final void read(scope ubyte[] dst) @blocking {
+        auto n = read(dst, IOMode.all);
+        assert(n == dst.length);
+    }
 }
-
 
 /**
 	Interface for all classes implementing writeable streams.
 */
 interface OutputStream {
-	@safe:
+@safe:
 
-	/** Writes an array of bytes to the stream.
+    /** Writes an array of bytes to the stream.
 	*/
-	size_t write(in ubyte[] bytes, IOMode mode) @blocking;
-	/// ditto
-	final void write(in ubyte[] bytes) @blocking { auto n = write(bytes, IOMode.all); assert(n == bytes.length); }
-	/// ditto
-	final void write(in char[] bytes) @blocking { write(cast(const(ubyte)[])bytes); }
+    size_t write(in ubyte[] bytes, IOMode mode) @blocking;
+    /// ditto
+    final void write(in ubyte[] bytes) @blocking {
+        auto n = write(bytes, IOMode.all);
+        assert(n == bytes.length);
+    }
+    /// ditto
+    final void write(in char[] bytes) @blocking {
+        write(cast(const(ubyte)[]) bytes);
+    }
 
-	/** Flushes the stream and makes sure that all data is being written to the output device.
+    /** Flushes the stream and makes sure that all data is being written to the output device.
 	*/
-	void flush() @blocking;
+    void flush() @blocking;
 
-	/** Flushes and finalizes the stream.
+    /** Flushes and finalizes the stream.
 
 		Finalize has to be called on certain types of streams. No writes are possible after a
 		call to finalize().
 	*/
-	void finalize() @blocking;
+    void finalize() @blocking;
 }
 
 /**
@@ -198,7 +202,6 @@ interface OutputStream {
 */
 interface Stream : InputStream, OutputStream {
 }
-
 
 /**
 	Interface for streams based on a connection.
@@ -209,17 +212,17 @@ interface Stream : InputStream, OutputStream {
 	See_also: `vibe.core.net.TCPConnection`
 */
 interface ConnectionStream : Stream {
-	@safe:
+@safe:
 
-	/** Determines The current connection status.
+    /** Determines The current connection status.
 
 		If `connected` is `false`, writing to the connection will trigger an exception. Reading may
 		still succeed as long as there is data left in the input buffer. Use `InputStream.empty`
 		instead to determine when to stop reading.
 	*/
-	@property bool connected() const;
+    @property bool connected() const;
 
-	/** Actively closes the connection and frees associated resources.
+    /** Actively closes the connection and frees associated resources.
 
 		Note that close must always be called, even if the remote has already closed the connection.
 		Failure to do so will result in resource and memory leakage.
@@ -227,9 +230,9 @@ interface ConnectionStream : Stream {
 		Closing a connection implies a call to `finalize`, so that it doesn't need to be called
 		explicitly (it will be a no-op in that case).
 	*/
-	void close() @blocking;
+    void close() @blocking;
 
-	/** Blocks until data becomes available for read.
+    /** Blocks until data becomes available for read.
 
 		The maximum wait time can be customized with the `timeout` parameter. If there is already
 		data availabe for read, or if the connection is closed, the function will return immediately
@@ -242,32 +245,30 @@ interface ConnectionStream : Stream {
 			The function will return `true` if data becomes available before the timeout is reached.
 			If the connection gets closed, or the timeout gets reached, `false` is returned instead.
 	*/
-	bool waitForData(Duration timeout = Duration.max) @blocking;
+    bool waitForData(Duration timeout = Duration.max) @blocking;
 }
-
 
 /**
 	Interface for all streams supporting random access.
 */
 interface RandomAccessStream : Stream {
-	@safe:
+@safe:
 
-	/// Returns the total size of the file.
-	@property ulong size() const nothrow;
+    /// Returns the total size of the file.
+    @property ulong size() const nothrow;
 
-	/// Determines if this stream is readable.
-	@property bool readable() const nothrow;
+    /// Determines if this stream is readable.
+    @property bool readable() const nothrow;
 
-	/// Determines if this stream is writable.
-	@property bool writable() const nothrow;
+    /// Determines if this stream is writable.
+    @property bool writable() const nothrow;
 
-	/// Seeks to a specific position in the file if supported by the stream.
-	void seek(ulong offset) @blocking;
+    /// Seeks to a specific position in the file if supported by the stream.
+    void seek(ulong offset) @blocking;
 
-	/// Returns the current offset of the file pointer
-	ulong tell() nothrow;
+    /// Returns the current offset of the file pointer
+    ulong tell() nothrow;
 }
-
 
 /**
 	Stream implementation acting as a sink with no function.
@@ -276,12 +277,17 @@ interface RandomAccessStream : Stream {
 	the output of a particular stream is not needed but the stream needs to be drained.
 */
 final class NullOutputStream : OutputStream {
-	size_t write(in ubyte[] bytes, IOMode) { return bytes.length; }
-	alias write = OutputStream.write;
-	void flush() {}
-	void finalize() {}
-}
+    size_t write(in ubyte[] bytes, IOMode) {
+        return bytes.length;
+    }
 
+    alias write = OutputStream.write;
+    void flush() {
+    }
+
+    void finalize() {
+    }
+}
 
 /// Generic storage for types that implement the `InputStream` interface
 alias InputStreamProxy = InterfaceProxy!InputStream;
@@ -293,7 +299,6 @@ alias StreamProxy = InterfaceProxy!Stream;
 alias ConnectionStreamProxy = InterfaceProxy!ConnectionStream;
 /// Generic storage for types that implement the `RandomAccessStream` interface
 alias RandomAccessStreamProxy = InterfaceProxy!RandomAccessStream;
-
 
 /** Tests if the given aggregate type is a valid input stream.
 
@@ -333,7 +338,11 @@ enum isRandomAccessStream(T) = checkInterfaceConformance!(T, RandomAccessStream)
 
 	See_Also: `isInputStream`
 */
-mixin template validateInputStream(T) { import vibe.internal.traits : validateInterfaceConformance; mixin validateInterfaceConformance!(T, .InputStream); }
+mixin template validateInputStream(T) {
+    import vibe.internal.traits : validateInterfaceConformance;
+
+    mixin validateInterfaceConformance!(T, .InputStream);
+}
 
 /** Verifies that the given type is a valid output stream.
 
@@ -343,7 +352,11 @@ mixin template validateInputStream(T) { import vibe.internal.traits : validateIn
 
 	See_Also: `isOutputStream`
 */
-mixin template validateOutputStream(T) { import vibe.internal.traits : validateInterfaceConformance; mixin validateInterfaceConformance!(T, .OutputStream); }
+mixin template validateOutputStream(T) {
+    import vibe.internal.traits : validateInterfaceConformance;
+
+    mixin validateInterfaceConformance!(T, .OutputStream);
+}
 
 /** Verifies that the given type is a valid bidirectional stream.
 
@@ -353,7 +366,11 @@ mixin template validateOutputStream(T) { import vibe.internal.traits : validateI
 
 	See_Also: `isStream`
 */
-mixin template validateStream(T) { import vibe.internal.traits : validateInterfaceConformance; mixin validateInterfaceConformance!(T, .Stream); }
+mixin template validateStream(T) {
+    import vibe.internal.traits : validateInterfaceConformance;
+
+    mixin validateInterfaceConformance!(T, .Stream);
+}
 
 /** Verifies that the given type is a valid connection stream.
 
@@ -363,7 +380,11 @@ mixin template validateStream(T) { import vibe.internal.traits : validateInterfa
 
 	See_Also: `isConnectionStream`
 */
-mixin template validateConnectionStream(T) { import vibe.internal.traits : validateInterfaceConformance; mixin validateInterfaceConformance!(T, .ConnectionStream); }
+mixin template validateConnectionStream(T) {
+    import vibe.internal.traits : validateInterfaceConformance;
+
+    mixin validateInterfaceConformance!(T, .ConnectionStream);
+}
 
 /** Verifies that the given type is a valid random access stream.
 
@@ -373,4 +394,8 @@ mixin template validateConnectionStream(T) { import vibe.internal.traits : valid
 
 	See_Also: `isRandomAccessStream`
 */
-mixin template validateRandomAccessStream(T) { import vibe.internal.traits : validateInterfaceConformance; mixin validateInterfaceConformance!(T, .RandomAccessStream); }
+mixin template validateRandomAccessStream(T) {
+    import vibe.internal.traits : validateInterfaceConformance;
+
+    mixin validateInterfaceConformance!(T, .RandomAccessStream);
+}

@@ -12,19 +12,21 @@ dispatched to $(D SmallAllocator). The others will go to $(D LargeAllocator).
 If both allocators are $(D shared), the $(D Segregator) will also offer $(D
 shared) methods.
 */
-struct Segregator(size_t threshold, SmallAllocator, LargeAllocator)
-{
+struct Segregator(size_t threshold, SmallAllocator, LargeAllocator) {
     import std.algorithm.comparison : min;
     import std.traits : hasMember;
     import stdx.allocator.internal : Ternary;
 
-    static if (stateSize!SmallAllocator) private SmallAllocator _small;
-    else private alias _small = SmallAllocator.instance;
-    static if (stateSize!LargeAllocator) private LargeAllocator _large;
-    else private alias _large = LargeAllocator.instance;
+    static if (stateSize!SmallAllocator)
+        private SmallAllocator _small;
+    else
+        private alias _small = SmallAllocator.instance;
+    static if (stateSize!LargeAllocator)
+        private LargeAllocator _large;
+    else
+        private alias _large = LargeAllocator.instance;
 
-    version (StdDdoc)
-    {
+    version (StdDdoc) {
         /**
         The alignment offered is the minimum of the two allocators' alignment.
         */
@@ -110,163 +112,132 @@ struct Segregator(size_t threshold, SmallAllocator, LargeAllocator)
     static assert(typeof(a.allocatorForSize!301) == A3);
     ----
     */
-    ref auto allocatorForSize(size_t s)()
-    {
+    ref auto allocatorForSize(size_t s)() {
         static if (s <= threshold)
             static if (is(SmallAllocator == Segregator!(Args), Args...))
                 return _small.allocatorForSize!s;
-            else return _small;
+            else
+                return _small;
+        else static if (is(LargeAllocator == Segregator!(Args), Args...))
+            return _large.allocatorForSize!s;
         else
-            static if (is(LargeAllocator == Segregator!(Args), Args...))
-                return _large.allocatorForSize!s;
-            else return _large;
+            return _large;
     }
 
-    enum uint alignment = min(SmallAllocator.alignment,
-        LargeAllocator.alignment);
+    enum uint alignment = min(SmallAllocator.alignment, LargeAllocator.alignment);
 
-    private template Impl()
-    {
-        size_t goodAllocSize(size_t s)
-        {
-            return s <= threshold
-                ? _small.goodAllocSize(s)
-                : _large.goodAllocSize(s);
+    private template Impl() {
+        size_t goodAllocSize(size_t s) {
+            return s <= threshold ? _small.goodAllocSize(s) : _large.goodAllocSize(s);
         }
 
-        void[] allocate(size_t s)
-        {
+        void[] allocate(size_t s) {
             return s <= threshold ? _small.allocate(s) : _large.allocate(s);
         }
 
         static if (hasMember!(SmallAllocator, "alignedAllocate")
                 && hasMember!(LargeAllocator, "alignedAllocate"))
-        void[] alignedAllocate(size_t s, uint a)
-        {
-            return s <= threshold
-                ? _small.alignedAllocate(s, a)
-                : _large.alignedAllocate(s, a);
-        }
+            void[] alignedAllocate(size_t s, uint a) {
+                return s <= threshold ? _small.alignedAllocate(s, a) : _large.alignedAllocate(s, a);
+            }
 
-        static if (hasMember!(SmallAllocator, "expand")
-                || hasMember!(LargeAllocator, "expand"))
-        bool expand(ref void[] b, size_t delta)
-        {
-            if (!delta) return true;
-            if (b.length + delta <= threshold)
-            {
-                // Old and new allocations handled by _small
-                static if (hasMember!(SmallAllocator, "expand"))
-                    return _small.expand(b, delta);
-                else
-                    return false;
+        static if (hasMember!(SmallAllocator, "expand") || hasMember!(LargeAllocator, "expand"))
+            bool expand(ref void[] b, size_t delta) {
+                if (!delta)
+                    return true;
+                if (b.length + delta <= threshold) {
+                    // Old and new allocations handled by _small
+                    static if (hasMember!(SmallAllocator, "expand"))
+                        return _small.expand(b, delta);
+                    else
+                        return false;
+                }
+                if (b.length > threshold) {
+                    // Old and new allocations handled by _large
+                    static if (hasMember!(LargeAllocator, "expand"))
+                        return _large.expand(b, delta);
+                    else
+                        return false;
+                }
+                // Oops, cross-allocator transgression
+                return false;
             }
-            if (b.length > threshold)
-            {
-                // Old and new allocations handled by _large
-                static if (hasMember!(LargeAllocator, "expand"))
-                    return _large.expand(b, delta);
-                else
-                    return false;
-            }
-            // Oops, cross-allocator transgression
-            return false;
-        }
 
         static if (hasMember!(SmallAllocator, "reallocate")
                 || hasMember!(LargeAllocator, "reallocate"))
-        bool reallocate(ref void[] b, size_t s)
-        {
-            static if (hasMember!(SmallAllocator, "reallocate"))
-                if (b.length <= threshold && s <= threshold)
-                {
-                    // Old and new allocations handled by _small
-                    return _small.reallocate(b, s);
-                }
-            static if (hasMember!(LargeAllocator, "reallocate"))
-                if (b.length > threshold && s > threshold)
-                {
-                    // Old and new allocations handled by _large
-                    return _large.reallocate(b, s);
-                }
-            // Cross-allocator transgression
-            return .reallocate(this, b, s);
-        }
+            bool reallocate(ref void[] b, size_t s) {
+                static if (hasMember!(SmallAllocator, "reallocate"))
+                    if (b.length <= threshold && s <= threshold) {
+                        // Old and new allocations handled by _small
+                        return _small.reallocate(b, s);
+                    }
+                static if (hasMember!(LargeAllocator, "reallocate"))
+                    if (b.length > threshold && s > threshold) {
+                        // Old and new allocations handled by _large
+                        return _large.reallocate(b, s);
+                    }
+                // Cross-allocator transgression
+                return .reallocate(this, b, s);
+            }
 
         static if (hasMember!(SmallAllocator, "alignedReallocate")
                 || hasMember!(LargeAllocator, "alignedReallocate"))
-        bool reallocate(ref void[] b, size_t s)
-        {
-            static if (hasMember!(SmallAllocator, "alignedReallocate"))
-                if (b.length <= threshold && s <= threshold)
-                {
-                    // Old and new allocations handled by _small
-                    return _small.alignedReallocate(b, s);
-                }
-            static if (hasMember!(LargeAllocator, "alignedReallocate"))
-                if (b.length > threshold && s > threshold)
-                {
-                    // Old and new allocations handled by _large
-                    return _large.alignedReallocate(b, s);
-                }
-            // Cross-allocator transgression
-            return .alignedReallocate(this, b, s);
-        }
+            bool reallocate(ref void[] b, size_t s) {
+                static if (hasMember!(SmallAllocator, "alignedReallocate"))
+                    if (b.length <= threshold && s <= threshold) {
+                        // Old and new allocations handled by _small
+                        return _small.alignedReallocate(b, s);
+                    }
+                static if (hasMember!(LargeAllocator, "alignedReallocate"))
+                    if (b.length > threshold && s > threshold) {
+                        // Old and new allocations handled by _large
+                        return _large.alignedReallocate(b, s);
+                    }
+                // Cross-allocator transgression
+                return .alignedReallocate(this, b, s);
+            }
 
-        static if (hasMember!(SmallAllocator, "owns")
-                && hasMember!(LargeAllocator, "owns"))
-        Ternary owns(void[] b)
-        {
-            return Ternary(b.length <= threshold
-                ? _small.owns(b) : _large.owns(b));
-        }
+        static if (hasMember!(SmallAllocator, "owns") && hasMember!(LargeAllocator, "owns"))
+            Ternary owns(void[] b) {
+                return Ternary(b.length <= threshold ? _small.owns(b) : _large.owns(b));
+            }
 
         static if (hasMember!(SmallAllocator, "deallocate")
                 && hasMember!(LargeAllocator, "deallocate"))
-        bool deallocate(void[] data)
-        {
-            return data.length <= threshold
-                ? _small.deallocate(data)
-                : _large.deallocate(data);
-        }
+            bool deallocate(void[] data) {
+                return data.length <= threshold ? _small.deallocate(data) : _large.deallocate(data);
+            }
 
         static if (hasMember!(SmallAllocator, "deallocateAll")
                 && hasMember!(LargeAllocator, "deallocateAll"))
-        bool deallocateAll()
-        {
-            // Use & insted of && to evaluate both
-            return _small.deallocateAll() & _large.deallocateAll();
-        }
+            bool deallocateAll() {
+                // Use & insted of && to evaluate both
+                return _small.deallocateAll() & _large.deallocateAll();
+            }
 
-        static if (hasMember!(SmallAllocator, "empty")
-                && hasMember!(LargeAllocator, "empty"))
-        Ternary empty()
-        {
-            return _small.empty && _large.empty;
-        }
+        static if (hasMember!(SmallAllocator, "empty") && hasMember!(LargeAllocator, "empty"))
+            Ternary empty() {
+                return _small.empty && _large.empty;
+            }
 
         static if (hasMember!(SmallAllocator, "resolveInternalPointer")
                 && hasMember!(LargeAllocator, "resolveInternalPointer"))
-        Ternary resolveInternalPointer(const void* p, ref void[] result)
-        {
-            Ternary r = _small.resolveInternalPointer(p, result);
-            return r == Ternary.no ? _large.resolveInternalPointer(p, result) : r;
-        }
+            Ternary resolveInternalPointer(const void* p, ref void[] result) {
+                Ternary r = _small.resolveInternalPointer(p, result);
+                return r == Ternary.no ? _large.resolveInternalPointer(p, result) : r;
+            }
     }
 
-    private enum sharedMethods =
-        !stateSize!SmallAllocator
-        && !stateSize!LargeAllocator
-        && is(typeof(SmallAllocator.instance) == shared)
-        && is(typeof(LargeAllocator.instance) == shared);
+    private enum sharedMethods = !stateSize!SmallAllocator && !stateSize!LargeAllocator
+            && is(typeof(SmallAllocator.instance) == shared)
+            && is(typeof(LargeAllocator.instance) == shared);
 
-    static if (sharedMethods)
-    {
+    static if (sharedMethods) {
         static shared Segregator instance;
-        shared { mixin Impl!(); }
-    }
-    else
-    {
+        shared {
+            mixin Impl!();
+        }
+    } else {
         static if (!stateSize!SmallAllocator && !stateSize!LargeAllocator)
             static __gshared Segregator instance;
         mixin Impl!();
@@ -274,21 +245,13 @@ struct Segregator(size_t threshold, SmallAllocator, LargeAllocator)
 }
 
 ///
-@system unittest
-{
+@system unittest {
     import stdx.allocator.building_blocks.free_list : FreeList;
     import stdx.allocator.gc_allocator : GCAllocator;
     import stdx.allocator.mallocator : Mallocator;
-    alias A =
-        Segregator!(
-            1024 * 4,
-            Segregator!(
-                128, FreeList!(Mallocator, 0, 128),
-                GCAllocator),
-            Segregator!(
-                1024 * 1024, Mallocator,
-                GCAllocator)
-            );
+
+    alias A = Segregator!(1024 * 4, Segregator!(128, FreeList!(Mallocator, 0,
+            128), GCAllocator), Segregator!(1024 * 1024, Mallocator, GCAllocator));
     A a;
     auto b = a.allocate(200);
     assert(b.length == 200);
@@ -317,43 +280,27 @@ to $(D A4). If some particular range should not be handled, $(D NullAllocator)
 may be used appropriately.
 
 */
-template Segregator(Args...)
-if (Args.length > 3)
-{
+template Segregator(Args...) if (Args.length > 3) {
     // Binary search
     private enum cutPoint = ((Args.length - 2) / 4) * 2;
-    static if (cutPoint >= 2)
-    {
-        alias Segregator = .Segregator!(
-            Args[cutPoint],
-            .Segregator!(Args[0 .. cutPoint], Args[cutPoint + 1]),
-            .Segregator!(Args[cutPoint + 2 .. $])
-        );
-    }
-    else
-    {
+    static if (cutPoint >= 2) {
+        alias Segregator = .Segregator!(Args[cutPoint],
+                .Segregator!(Args[0 .. cutPoint], Args[cutPoint + 1]),
+                .Segregator!(Args[cutPoint + 2 .. $]));
+    } else {
         // Favor small sizes
-        alias Segregator = .Segregator!(
-            Args[0],
-            Args[1],
-            .Segregator!(Args[2 .. $])
-        );
+        alias Segregator = .Segregator!(Args[0], Args[1], .Segregator!(Args[2 .. $]));
     }
 }
 
 ///
-@system unittest
-{
+@system unittest {
     import stdx.allocator.building_blocks.free_list : FreeList;
     import stdx.allocator.gc_allocator : GCAllocator;
     import stdx.allocator.mallocator : Mallocator;
-    alias A =
-        Segregator!(
-            128, FreeList!(Mallocator, 0, 128),
-            1024 * 4, GCAllocator,
-            1024 * 1024, Mallocator,
-            GCAllocator
-        );
+
+    alias A = Segregator!(128, FreeList!(Mallocator, 0, 128), 1024 * 4,
+            GCAllocator, 1024 * 1024, Mallocator, GCAllocator);
     A a;
     auto b = a.allocate(201);
     assert(b.length == 201);

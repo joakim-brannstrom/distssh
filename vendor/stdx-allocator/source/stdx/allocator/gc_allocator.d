@@ -5,11 +5,13 @@ import stdx.allocator.common;
 /**
 D's built-in garbage-collected allocator.
  */
-struct GCAllocator
-{
+struct GCAllocator {
     import core.memory : GC;
     import stdx.allocator.internal : Ternary;
-    @system unittest { testAllocator!(() => GCAllocator.instance); }
+
+    @system unittest {
+        testAllocator!(() => GCAllocator.instance);
+    }
 
     /**
     The alignment is a static constant equal to $(D platformAlignment), which
@@ -22,18 +24,19 @@ struct GCAllocator
     deallocate) and $(D reallocate) methods are $(D @system) because they may
     move memory around, leaving dangling pointers in user code.
     */
-    pure nothrow @trusted void[] allocate(size_t bytes) shared
-    {
-        if (!bytes) return null;
+    pure nothrow @trusted void[] allocate(size_t bytes) shared {
+        if (!bytes)
+            return null;
         auto p = GC.malloc(bytes);
         return p ? p[0 .. bytes] : null;
     }
 
     /// Ditto
-    @system bool expand(ref void[] b, size_t delta) shared
-    {
-        if (delta == 0) return true;
-        if (b is null) return false;
+    @system bool expand(ref void[] b, size_t delta) shared {
+        if (delta == 0)
+            return true;
+        if (b is null)
+            return false;
         immutable curLength = GC.sizeOf(b.ptr);
         assert(curLength != 0); // we have a valid GC pointer here
         immutable desired = b.length + delta;
@@ -41,8 +44,7 @@ struct GCAllocator
         {
             immutable sizeRequest = desired - curLength;
             immutable newSize = GC.extend(b.ptr, sizeRequest, sizeRequest);
-            if (newSize == 0)
-            {
+            if (newSize == 0) {
                 // expansion unsuccessful
                 return false;
             }
@@ -53,16 +55,14 @@ struct GCAllocator
     }
 
     /// Ditto
-    pure nothrow @system bool reallocate(ref void[] b, size_t newSize) shared
-    {
+    pure nothrow @system bool reallocate(ref void[] b, size_t newSize) shared {
         import core.exception : OutOfMemoryError;
-        try
-        {
+
+        try {
             auto p = cast(ubyte*) GC.realloc(b.ptr, newSize);
             b = p[0 .. newSize];
         }
-        catch (OutOfMemoryError)
-        {
+        catch (OutOfMemoryError) {
             // leave the block in place, tell caller
             return false;
         }
@@ -70,25 +70,22 @@ struct GCAllocator
     }
 
     /// Ditto
-    pure nothrow
-    Ternary resolveInternalPointer(const void* p, ref void[] result) shared
-    {
+    pure nothrow Ternary resolveInternalPointer(const void* p, ref void[] result) shared {
         auto r = GC.addrOf(cast(void*) p);
-        if (!r) return Ternary.no;
+        if (!r)
+            return Ternary.no;
         result = r[0 .. GC.sizeOf(r)];
         return Ternary.yes;
     }
 
     /// Ditto
-    pure nothrow @system bool deallocate(void[] b) shared
-    {
+    pure nothrow @system bool deallocate(void[] b) shared {
         GC.free(b.ptr);
         return true;
     }
 
     /// Ditto
-    size_t goodAllocSize(size_t n) shared
-    {
+    size_t goodAllocSize(size_t n) shared {
         if (n == 0)
             return 0;
         if (n <= 16)
@@ -96,7 +93,7 @@ struct GCAllocator
 
         import core.bitop : bsr;
 
-        auto largestBit = bsr(n-1) + 1;
+        auto largestBit = bsr(n - 1) + 1;
         if (largestBit <= 12) // 4096 or less
             return size_t(1) << largestBit;
 
@@ -113,41 +110,38 @@ struct GCAllocator
     static shared GCAllocator instance;
 
     // Leave it undocummented for now.
-    nothrow @trusted void collect() shared
-    {
+    nothrow @trusted void collect() shared {
         GC.collect();
     }
 }
 
 ///
-@system unittest
-{
+@system unittest {
     auto buffer = GCAllocator.instance.allocate(1024 * 1024 * 4);
     // deallocate upon scope's end (alternatively: leave it to collection)
-    scope(exit) GCAllocator.instance.deallocate(buffer);
+    scope (exit)
+        GCAllocator.instance.deallocate(buffer);
     //...
 }
 
-@system unittest
-{
+@system unittest {
     auto b = GCAllocator.instance.allocate(10_000);
     assert(GCAllocator.instance.expand(b, 1));
 }
 
-@system unittest
-{
+@system unittest {
     import core.memory : GC;
     import stdx.allocator.internal : Ternary;
 
     // test allocation sizes
     assert(GCAllocator.instance.goodAllocSize(1) == 16);
-    for (size_t s = 16; s <= 8192; s *= 2)
-    {
+    for (size_t s = 16; s <= 8192; s *= 2) {
         assert(GCAllocator.instance.goodAllocSize(s) == s);
         assert(GCAllocator.instance.goodAllocSize(s - (s / 2) + 1) == s);
 
         auto buffer = GCAllocator.instance.allocate(s);
-        scope(exit) GCAllocator.instance.deallocate(buffer);
+        scope (exit)
+            GCAllocator.instance.deallocate(buffer);
 
         void[] p;
         assert(GCAllocator.instance.resolveInternalPointer(null, p) == Ternary.no);
@@ -157,7 +151,8 @@ struct GCAllocator
         assert(GC.sizeOf(buffer.ptr) == s);
 
         auto buffer2 = GCAllocator.instance.allocate(s - (s / 2) + 1);
-        scope(exit) GCAllocator.instance.deallocate(buffer2);
+        scope (exit)
+            GCAllocator.instance.deallocate(buffer2);
 
         assert(GC.sizeOf(buffer2.ptr) == s);
     }

@@ -14,34 +14,34 @@ shared size_t counter;
 
 enum ntasks = 500;
 
-shared static this()
-{
-	ev = createSharedManualEvent();
+shared static this() {
+    ev = createSharedManualEvent();
 }
 
-void main()
-{
-	setTaskStackSize(64*1024);
+void main() {
+    setTaskStackSize(64 * 1024);
 
-	runTask({
-		foreach (x; 0 .. ntasks)
-			runWorkerTask(&worker);
-	});
+    runTask({
+        foreach (x; 0 .. ntasks)
+            runWorkerTask(&worker);
+    });
 
-	setTimer(dur!"msecs"(10), { ev.emit(); });
-	setTimer(dur!"seconds"(60), { assert(false, "Timers didn't fire within the time limit"); });
+    setTimer(dur!"msecs"(10), { ev.emit(); });
+    setTimer(dur!"seconds"(60), {
+        assert(false, "Timers didn't fire within the time limit");
+    });
 
-	runApplication();
+    runApplication();
 
-	assert(atomicLoad(counter) == ntasks, "Event loop exited prematurely.");
+    assert(atomicLoad(counter) == ntasks, "Event loop exited prematurely.");
 }
 
-void worker()
-{
-	ev.wait();
-	ev.emit();
-	setTimer(dur!"seconds"(1), {
-		auto c = atomicOp!"+="(counter, 1);
-		if (c == ntasks) exitEventLoop(true);
-	});
+void worker() {
+    ev.wait();
+    ev.emit();
+    setTimer(dur!"seconds"(1), {
+        auto c = atomicOp!"+="(counter, 1);
+        if (c == ntasks)
+            exitEventLoop(true);
+    });
 }

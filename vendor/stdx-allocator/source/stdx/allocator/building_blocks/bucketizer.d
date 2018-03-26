@@ -15,14 +15,13 @@ Allocations for sizes smaller than $(D min) or larger than $(D max) are illegal
 for $(D Bucketizer). To handle them separately, $(D Segregator) may be of use.
 
 */
-struct Bucketizer(Allocator, size_t min, size_t max, size_t step)
-{
+struct Bucketizer(Allocator, size_t min, size_t max, size_t step) {
     import common = stdx.allocator.common : roundUpToMultipleOf;
     import std.traits : hasMember;
     import stdx.allocator.internal : Ternary;
 
     static assert((max - (min - 1)) % step == 0,
-        "Invalid limits when instantiating " ~ Bucketizer.stringof);
+            "Invalid limits when instantiating " ~ Bucketizer.stringof);
 
     // state
     /**
@@ -31,8 +30,7 @@ struct Bucketizer(Allocator, size_t min, size_t max, size_t step)
     */
     Allocator[(max + 1 - min) / step] buckets;
 
-    private Allocator* allocatorFor(size_t n)
-    {
+    private Allocator* allocatorFor(size_t n) {
         const i = (n - min) / step;
         return i < buckets.length ? buckets.ptr + i : null;
     }
@@ -45,8 +43,7 @@ struct Bucketizer(Allocator, size_t min, size_t max, size_t step)
     /**
     Rounds up to the maximum size of the bucket in which $(D bytes) falls.
     */
-    size_t goodAllocSize(size_t bytes) const
-    {
+    size_t goodAllocSize(size_t bytes) const {
         // round up bytes such that bytes - min + 1 is a multiple of step
         assert(bytes >= min);
         const min_1 = min - 1;
@@ -56,11 +53,10 @@ struct Bucketizer(Allocator, size_t min, size_t max, size_t step)
     /**
     Directs the call to either one of the $(D buckets) allocators.
     */
-    void[] allocate(size_t bytes)
-    {
-        if (!bytes) return null;
-        if (auto a = allocatorFor(bytes))
-        {
+    void[] allocate(size_t bytes) {
+        if (!bytes)
+            return null;
+        if (auto a = allocatorFor(bytes)) {
             const actual = goodAllocSize(bytes);
             auto result = a.allocate(actual);
             return result.ptr ? result.ptr[0 .. bytes] : null;
@@ -73,30 +69,30 @@ struct Bucketizer(Allocator, size_t min, size_t max, size_t step)
     if `Allocator` defines `alignedAllocate`.
     */
     static if (hasMember!(Allocator, "alignedAllocate"))
-    void[] alignedAllocate(size_t bytes, uint a)
-    {
-        if (!bytes) return null;
-        if (auto a = allocatorFor(b.length))
-        {
-            const actual = goodAllocSize(bytes);
-            auto result = a.alignedAllocate(actual);
-            return result.ptr ? result.ptr[0 .. bytes] : null;
+        void[] alignedAllocate(size_t bytes, uint a) {
+            if (!bytes)
+                return null;
+            if (auto a = allocatorFor(b.length)) {
+                const actual = goodAllocSize(bytes);
+                auto result = a.alignedAllocate(actual);
+                return result.ptr ? result.ptr[0 .. bytes] : null;
+            }
+            return null;
         }
-        return null;
-    }
 
     /**
     This method allows expansion within the respective bucket range. It succeeds
     if both $(D b.length) and $(D b.length + delta) fall in a range of the form
     $(D [min + k * step, min + (k + 1) * step - 1]).
     */
-    bool expand(ref void[] b, size_t delta)
-    {
-        if (!b.ptr) return delta == 0;
+    bool expand(ref void[] b, size_t delta) {
+        if (!b.ptr)
+            return delta == 0;
         assert(b.length >= min && b.length <= max);
         const available = goodAllocSize(b.length);
         const desired = b.length + delta;
-        if (available < desired) return false;
+        if (available < desired)
+            return false;
         b = b.ptr[0 .. desired];
         return true;
     }
@@ -107,21 +103,17 @@ struct Bucketizer(Allocator, size_t min, size_t max, size_t step)
     step, min + (k + 1) * step - 1]), then reallocation is in place. Otherwise,
     reallocation with moving is attempted.
     */
-    bool reallocate(ref void[] b, size_t size)
-    {
-        if (size == 0)
-        {
+    bool reallocate(ref void[] b, size_t size) {
+        if (size == 0) {
             deallocate(b);
             b = null;
             return true;
         }
-        if (size >= b.length)
-        {
+        if (size >= b.length) {
             return expand(b, size - b.length);
         }
         assert(b.length >= min && b.length <= max);
-        if (goodAllocSize(size) == goodAllocSize(b.length))
-        {
+        if (goodAllocSize(size) == goodAllocSize(b.length)) {
             b = b.ptr[0 .. size];
             return true;
         }
@@ -134,56 +126,50 @@ struct Bucketizer(Allocator, size_t min, size_t max, size_t step)
     defines `alignedReallocate`.
     */
     static if (hasMember!(Allocator, "alignedReallocate"))
-    bool alignedReallocate(ref void[] b, size_t size, uint a)
-    {
-        if (size == 0)
-        {
-            deallocate(b);
-            b = null;
-            return true;
+        bool alignedReallocate(ref void[] b, size_t size, uint a) {
+            if (size == 0) {
+                deallocate(b);
+                b = null;
+                return true;
+            }
+            if (size >= b.length) {
+                return expand(b, size - b.length);
+            }
+            assert(b.length >= min && b.length <= max);
+            if (goodAllocSize(size) == goodAllocSize(b.length)) {
+                b = b.ptr[0 .. size];
+                return true;
+            }
+            // Move cross buckets
+            return .alignedReallocate(this, b, size, a);
         }
-        if (size >= b.length)
-        {
-            return expand(b, size - b.length);
-        }
-        assert(b.length >= min && b.length <= max);
-        if (goodAllocSize(size) == goodAllocSize(b.length))
-        {
-            b = b.ptr[0 .. size];
-            return true;
-        }
-        // Move cross buckets
-        return .alignedReallocate(this, b, size, a);
-    }
 
     /**
     Defined only if `Allocator` defines `owns`. Finds the owner of `b` and forwards the call to it.
     */
     static if (hasMember!(Allocator, "owns"))
-    Ternary owns(void[] b)
-    {
-        if (!b.ptr) return Ternary.no;
-        if (auto a = allocatorFor(b.length))
-        {
-            const actual = goodAllocSize(b.length);
-            return a.owns(b.ptr[0 .. actual]);
+        Ternary owns(void[] b) {
+            if (!b.ptr)
+                return Ternary.no;
+            if (auto a = allocatorFor(b.length)) {
+                const actual = goodAllocSize(b.length);
+                return a.owns(b.ptr[0 .. actual]);
+            }
+            return Ternary.no;
         }
-        return Ternary.no;
-    }
 
     /**
     This method is only defined if $(D Allocator) defines $(D deallocate).
     */
     static if (hasMember!(Allocator, "deallocate"))
-    bool deallocate(void[] b)
-    {
-        if (!b.ptr) return true;
-        if (auto a = allocatorFor(b.length))
-        {
-            a.deallocate(b.ptr[0 .. goodAllocSize(b.length)]);
+        bool deallocate(void[] b) {
+            if (!b.ptr)
+                return true;
+            if (auto a = allocatorFor(b.length)) {
+                a.deallocate(b.ptr[0 .. goodAllocSize(b.length)]);
+            }
+            return true;
         }
-        return true;
-    }
 
     /**
     This method is only defined if all allocators involved define $(D
@@ -191,35 +177,32 @@ struct Bucketizer(Allocator, size_t min, size_t max, size_t step)
     allocators could deallocate all.
     */
     static if (hasMember!(Allocator, "deallocateAll"))
-    bool deallocateAll()
-    {
-        bool result = true;
-        foreach (ref a; buckets)
-        {
-            if (!a.deallocateAll()) result = false;
+        bool deallocateAll() {
+            bool result = true;
+            foreach (ref a; buckets) {
+                if (!a.deallocateAll())
+                    result = false;
+            }
+            return result;
         }
-        return result;
-    }
 
     /**
     This method is only defined if all allocators involved define $(D
     resolveInternalPointer), and tries it for each bucket in turn.
     */
     static if (hasMember!(Allocator, "resolveInternalPointer"))
-    Ternary resolveInternalPointer(const void* p, ref void[] result)
-    {
-        foreach (ref a; buckets)
-        {
-            Ternary r = a.resolveInternalPointer(p, result);
-            if (r == Ternary.yes) return r;
+        Ternary resolveInternalPointer(const void* p, ref void[] result) {
+            foreach (ref a; buckets) {
+                Ternary r = a.resolveInternalPointer(p, result);
+                if (r == Ternary.yes)
+                    return r;
+            }
+            return Ternary.no;
         }
-        return Ternary.no;
-    }
 }
 
 ///
-@system unittest
-{
+@system unittest {
     import std.algorithm.comparison : max;
     import stdx.allocator.building_blocks.allocator_list : AllocatorList;
     import stdx.allocator.building_blocks.free_list : FreeList;
@@ -227,12 +210,9 @@ struct Bucketizer(Allocator, size_t min, size_t max, size_t step)
     import stdx.allocator.common : unbounded;
     import stdx.allocator.mallocator : Mallocator;
     import stdx.allocator.internal : Ternary;
-    Bucketizer!(
-        FreeList!(
-            AllocatorList!(
-                (size_t n) => Region!Mallocator(max(n, 1024 * 1024))),
-            0, unbounded),
-        65, 512, 64) a;
+
+    Bucketizer!(FreeList!(AllocatorList!((size_t n) => Region!Mallocator(max(n,
+            1024 * 1024))), 0, unbounded), 65, 512, 64) a;
     auto b = a.allocate(400);
     assert(b.length == 400);
     assert(a.owns(b) == Ternary.yes);

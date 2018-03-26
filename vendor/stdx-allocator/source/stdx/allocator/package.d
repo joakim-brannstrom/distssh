@@ -223,37 +223,26 @@ Source: $(PHOBOSSRC std/experimental/_allocator)
 
 module stdx.allocator;
 
-public import stdx.allocator.common,
-    stdx.allocator.typed;
+public import stdx.allocator.common, stdx.allocator.typed;
 
 // Example in the synopsis above
-@system unittest
-{
+@system unittest {
     import std.algorithm.comparison : min, max;
-    import stdx.allocator.building_blocks.allocator_list
-        : AllocatorList;
-    import stdx.allocator.building_blocks.bitmapped_block
-        : BitmappedBlock;
+    import stdx.allocator.building_blocks.allocator_list : AllocatorList;
+    import stdx.allocator.building_blocks.bitmapped_block : BitmappedBlock;
     import stdx.allocator.building_blocks.bucketizer : Bucketizer;
     import stdx.allocator.building_blocks.free_list : FreeList;
     import stdx.allocator.building_blocks.segregator : Segregator;
     import stdx.allocator.gc_allocator : GCAllocator;
 
     alias FList = FreeList!(GCAllocator, 0, unbounded);
-    alias A = Segregator!(
-        8, FreeList!(GCAllocator, 0, 8),
-        128, Bucketizer!(FList, 1, 128, 16),
-        256, Bucketizer!(FList, 129, 256, 32),
-        512, Bucketizer!(FList, 257, 512, 64),
-        1024, Bucketizer!(FList, 513, 1024, 128),
-        2048, Bucketizer!(FList, 1025, 2048, 256),
-        3584, Bucketizer!(FList, 2049, 3584, 512),
-        4072 * 1024, AllocatorList!(
-            (n) => BitmappedBlock!(4096)(
-                    cast(ubyte[])(GCAllocator.instance.allocate(
-                        max(n, 4072 * 1024))))),
-        GCAllocator
-    );
+    alias A = Segregator!(8, FreeList!(GCAllocator, 0, 8), 128,
+            Bucketizer!(FList, 1, 128, 16), 256, Bucketizer!(FList, 129, 256,
+                32), 512, Bucketizer!(FList, 257, 512, 64), 1024,
+            Bucketizer!(FList, 513, 1024, 128), 2048, Bucketizer!(FList, 1025,
+                2048, 256), 3584, Bucketizer!(FList, 2049, 3584, 512),
+            4072 * 1024, AllocatorList!((n) => BitmappedBlock!(4096)(
+                cast(ubyte[])(GCAllocator.instance.allocate(max(n, 4072 * 1024))))), GCAllocator);
     A tuMalloc;
     auto b = tuMalloc.allocate(500);
     assert(b.length == 500);
@@ -285,8 +274,7 @@ Methods returning $(D Ternary) return $(D Ternary.yes) upon success,
 $(D Ternary.no) upon failure, and $(D Ternary.unknown) if the primitive is not
 implemented by the allocator instance.
 */
-interface IAllocator
-{
+interface IAllocator {
     /**
     Returns the alignment offered.
     */
@@ -381,8 +369,7 @@ Methods returning $(D Ternary) return $(D Ternary.yes) upon success,
 $(D Ternary.no) upon failure, and $(D Ternary.unknown) if the primitive is not
 implemented by the allocator instance.
 */
-interface ISharedAllocator
-{
+interface ISharedAllocator {
     /**
     Returns the alignment offered.
     */
@@ -463,83 +450,71 @@ interface ISharedAllocator
 private shared ISharedAllocator _processAllocator;
 private IAllocator _threadAllocator;
 
-private IAllocator setupThreadAllocator() nothrow @nogc @safe
-{
+private IAllocator setupThreadAllocator() nothrow @nogc @safe {
     /*
     Forwards the `_threadAllocator` calls to the `processAllocator`
     */
-    static class ThreadAllocator : IAllocator
-    {
-        override @property uint alignment()
-        {
+    static class ThreadAllocator : IAllocator {
+        override @property uint alignment() {
             return processAllocator.alignment();
         }
 
-        override size_t goodAllocSize(size_t s)
-        {
+        override size_t goodAllocSize(size_t s) {
             return processAllocator.goodAllocSize(s);
         }
 
-        override void[] allocate(size_t n, TypeInfo ti = null)
-        {
+        override void[] allocate(size_t n, TypeInfo ti = null) {
             return processAllocator.allocate(n, ti);
         }
 
-        override void[] alignedAllocate(size_t n, uint a)
-        {
+        override void[] alignedAllocate(size_t n, uint a) {
             return processAllocator.alignedAllocate(n, a);
         }
 
-        override void[] allocateAll()
-        {
+        override void[] allocateAll() {
             return processAllocator.allocateAll();
         }
 
-        override bool expand(ref void[] b, size_t size)
-        {
+        override bool expand(ref void[] b, size_t size) {
             return processAllocator.expand(b, size);
         }
 
-        override bool reallocate(ref void[] b, size_t size)
-        {
+        override bool reallocate(ref void[] b, size_t size) {
             return processAllocator.reallocate(b, size);
         }
 
-        override bool alignedReallocate(ref void[] b, size_t size, uint alignment)
-        {
+        override bool alignedReallocate(ref void[] b, size_t size, uint alignment) {
             return processAllocator.alignedReallocate(b, size, alignment);
         }
 
-        override Ternary owns(void[] b)
-        {
+        override Ternary owns(void[] b) {
             return processAllocator.owns(b);
         }
 
-        override Ternary resolveInternalPointer(const void* p, ref void[] result)
-        {
+        override Ternary resolveInternalPointer(const void* p, ref void[] result) {
             return processAllocator.resolveInternalPointer(p, result);
         }
 
-        override bool deallocate(void[] b)
-        {
+        override bool deallocate(void[] b) {
             return processAllocator.deallocate(b);
         }
 
-        override bool deallocateAll()
-        {
+        override bool deallocateAll() {
             return processAllocator.deallocateAll();
         }
 
-        override Ternary empty()
-        {
+        override Ternary empty() {
             return processAllocator.empty();
         }
     }
 
     assert(!_threadAllocator);
     import std.conv : emplace;
+
     static ulong[stateSize!(ThreadAllocator).divideRoundUp(ulong.sizeof)] _threadAllocatorState;
-    _threadAllocator = () @trusted { return emplace!(ThreadAllocator)(_threadAllocatorState[]); } ();
+    _threadAllocator = () @trusted{
+        return emplace!(ThreadAllocator)(_threadAllocatorState[]);
+    }();
     return _threadAllocator;
 }
 
@@ -550,27 +525,26 @@ to be shared across threads, use $(D processAllocator) (below). By default,
 $(D theAllocator) ultimately fetches memory from $(D processAllocator), which
 in turn uses the garbage collected heap.
 */
-nothrow @safe @nogc @property IAllocator theAllocator()
-{
+nothrow @safe @nogc @property IAllocator theAllocator() {
     auto p = _threadAllocator;
     return p !is null ? p : setupThreadAllocator();
 }
 
 /// Ditto
-nothrow @safe @nogc @property void theAllocator(IAllocator a)
-{
+nothrow @safe @nogc @property void theAllocator(IAllocator a) {
     assert(a);
     _threadAllocator = a;
 }
 
 ///
-@system unittest
-{
+@system unittest {
     // Install a new allocator that is faster for 128-byte allocations.
     import stdx.allocator.building_blocks.free_list : FreeList;
     import stdx.allocator.gc_allocator : GCAllocator;
+
     auto oldAllocator = theAllocator;
-    scope(exit) theAllocator = oldAllocator;
+    scope (exit)
+        theAllocator = oldAllocator;
     theAllocator = allocatorObject(FreeList!(GCAllocator, 128)());
     // Use the now changed allocator to allocate an array
     const ubyte[] arr = theAllocator.makeArray!ubyte(128);
@@ -583,23 +557,20 @@ Gets/sets the allocator for the current process. This allocator must be used
 for allocating memory shared across threads. Objects created using this
 allocator can be cast to $(D shared).
 */
-@property shared(ISharedAllocator) processAllocator()
-{
+@property shared(ISharedAllocator) processAllocator() {
     import stdx.allocator.gc_allocator : GCAllocator;
     import std.concurrency : initOnce;
-    return initOnce!_processAllocator(
-        sharedAllocatorObject(GCAllocator.instance));
+
+    return initOnce!_processAllocator(sharedAllocatorObject(GCAllocator.instance));
 }
 
 /// Ditto
-@property void processAllocator(shared ISharedAllocator a)
-{
+@property void processAllocator(shared ISharedAllocator a) {
     assert(a);
     _processAllocator = a;
 }
 
-@system unittest
-{
+@system unittest {
     import core.exception : AssertError;
     import std.exception : assertThrown;
     import stdx.allocator.building_blocks.free_list : SharedFreeList;
@@ -660,37 +631,33 @@ cases, returns $(D null) if allocation failed.
 Throws: If $(D T)'s constructor throws, deallocates the allocated memory and
 propagates the exception.
 */
-auto make(T, Allocator, A...)(auto ref Allocator alloc, auto ref A args)
-{
+auto make(T, Allocator, A...)(auto ref Allocator alloc, auto ref A args) {
     import std.algorithm.comparison : max;
     import stdx.allocator.internal : emplace, emplaceRef;
+
     auto m = alloc.allocate(max(stateSize!T, 1));
-    if (!m.ptr) return null;
+    if (!m.ptr)
+        return null;
 
     // make can only be @safe if emplace or emplaceRef is `pure`
-    auto construct()
-    {
-        static if (is(T == class)) return emplace!T(m, args);
-        else
-        {
+    auto construct() {
+        static if (is(T == class))
+            return emplace!T(m, args);
+        else {
             // Assume cast is safe as allocation succeeded for `stateSize!T`
-            auto p = () @trusted { return cast(T*) m.ptr; }();
+            auto p = () @trusted{ return cast(T*) m.ptr; }();
             emplaceRef(*p, args);
             return p;
         }
     }
 
-    scope(failure)
-    {
-        static if (is(typeof(() pure { return construct(); })))
-        {
+    scope (failure) {
+        static if (is(typeof(()pure{ return construct(); }))) {
             // Assume deallocation is safe because:
             // 1) in case of failure, `m` is the only reference to this memory
             // 2) `m` is known to originate from `alloc`
-            () @trusted { alloc.deallocate(m); }();
-        }
-        else
-        {
+            () @trusted{ alloc.deallocate(m); }();
+        } else {
             alloc.deallocate(m);
         }
     }
@@ -699,8 +666,7 @@ auto make(T, Allocator, A...)(auto ref Allocator alloc, auto ref A args)
 }
 
 ///
-@system unittest
-{
+@system unittest {
     // Dynamically allocate one integer
     const int* p1 = theAllocator.make!int;
     // It's implicitly initialized with its .init value
@@ -710,8 +676,7 @@ auto make(T, Allocator, A...)(auto ref Allocator alloc, auto ref A args)
     assert(*p2 == 42.5);
 
     // Dynamically allocate a struct
-    static struct Point
-    {
+    static struct Point {
         int x, y, z;
     }
     // Use the generated constructor taking field values in order
@@ -719,49 +684,55 @@ auto make(T, Allocator, A...)(auto ref Allocator alloc, auto ref A args)
     assert(p.x == 1 && p.y == 2 && p.z == 0);
 
     // Dynamically allocate a class object
-    static class Customer
-    {
+    static class Customer {
         uint id = uint.max;
-        this() {}
-        this(uint id) { this.id = id; }
+        this() {
+        }
+
+        this(uint id) {
+            this.id = id;
+        }
         // ...
     }
+
     Customer cust = theAllocator.make!Customer;
     assert(cust.id == uint.max); // default initialized
     cust = theAllocator.make!Customer(42);
     assert(cust.id == 42);
 
     // explicit passing of outer pointer
-    static class Outer
-    {
+    static class Outer {
         int x = 3;
-        class Inner
-        {
-            auto getX() { return x; }
+        class Inner {
+            auto getX() {
+                return x;
+            }
         }
     }
+
     auto outer = theAllocator.make!Outer();
     auto inner = theAllocator.make!(Outer.Inner)(outer);
     assert(outer.x == inner.getX);
 }
 
-@system unittest // bugzilla 15639 & 15772
+@system unittest  // bugzilla 15639 & 15772
 {
-    abstract class Foo {}
-    class Bar: Foo {}
+    abstract class Foo {
+    }
+
+    class Bar : Foo {
+    }
+
     static assert(!is(typeof(theAllocator.make!Foo)));
-    static assert( is(typeof(theAllocator.make!Bar)));
+    static assert(is(typeof(theAllocator.make!Bar)));
 }
 
-@system unittest
-{
-    void test(Allocator)(auto ref Allocator alloc)
-    {
+@system unittest {
+    void test(Allocator)(auto ref Allocator alloc) {
         const int* a = alloc.make!int(10);
         assert(*a == 10);
 
-        struct A
-        {
+        struct A {
             int x;
             string y;
             double z;
@@ -771,6 +742,7 @@ auto make(T, Allocator, A...)(auto ref Allocator alloc, auto ref A args)
         assert(b.x == 42);
         assert(b.y is null);
         import std.math : isNaN;
+
         assert(b.z.isNaN);
 
         b = alloc.make!A(43, "44", 45);
@@ -778,13 +750,11 @@ auto make(T, Allocator, A...)(auto ref Allocator alloc, auto ref A args)
         assert(b.y == "44");
         assert(b.z == 45);
 
-        static class B
-        {
+        static class B {
             int x;
             string y;
             double z;
-            this(int _x, string _y = null, double _z = double.init)
-            {
+            this(int _x, string _y = null, double _z = double.init) {
                 x = _x;
                 y = _y;
                 z = _z;
@@ -806,20 +776,20 @@ auto make(T, Allocator, A...)(auto ref Allocator alloc, auto ref A args)
     }
 
     import stdx.allocator.gc_allocator : GCAllocator;
+
     test(GCAllocator.instance);
     test(theAllocator);
 }
 
 // Attribute propagation
-nothrow @safe @nogc unittest
-{
+nothrow @safe @nogc unittest {
     import stdx.allocator.mallocator : Mallocator;
+
     alias alloc = Mallocator.instance;
 
-    void test(T, Args...)(auto ref Args args)
-    {
+    void test(T, Args...)(auto ref Args args) {
         auto k = alloc.make!T(args);
-        () @trusted { alloc.dispose(k); }();
+        () @trusted{ alloc.dispose(k); }();
     }
 
     test!int;
@@ -829,16 +799,15 @@ nothrow @safe @nogc unittest
 }
 
 // should be pure with the GCAllocator
-/*pure nothrow*/ @safe unittest
-{
+/*pure nothrow*/
+@safe unittest {
     import stdx.allocator.gc_allocator : GCAllocator;
 
     alias alloc = GCAllocator.instance;
 
-    void test(T, Args...)(auto ref Args args)
-    {
+    void test(T, Args...)(auto ref Args args) {
         auto k = alloc.make!T(args);
-        (a) @trusted { a.dispose(k); }(alloc);
+        (a) @trusted{ a.dispose(k); }(alloc);
     }
 
     test!int();
@@ -848,90 +817,94 @@ nothrow @safe @nogc unittest
 }
 
 // Verify that making an object by calling an impure constructor is not @safe
-nothrow @safe @nogc unittest
-{
+nothrow @safe @nogc unittest {
     import stdx.allocator.mallocator : Mallocator;
-    static struct Pure { this(int) pure nothrow @nogc @safe {} }
+
+    static struct Pure {
+        this(int) pure nothrow @nogc @safe {
+        }
+    }
 
     cast(void) Mallocator.instance.make!Pure(0);
 
     static int g = 0;
-    static struct Impure { this(int) nothrow @nogc @safe {
-        g++;
-    } }
+    static struct Impure {
+        this(int) nothrow @nogc @safe {
+            g++;
+        }
+    }
+
     static assert(!__traits(compiles, cast(void) Mallocator.instance.make!Impure(0)));
 }
 
 // test failure with a pure, failing struct
-@safe unittest
-{
+@safe unittest {
     import std.exception : assertThrown, enforce;
 
     // this struct can't be initialized
-    struct InvalidStruct
-    {
-        this(int b)
-        {
+    struct InvalidStruct {
+        this(int b) {
             enforce(1 == 2);
         }
     }
+
     import stdx.allocator.mallocator : Mallocator;
+
     assertThrown(make!InvalidStruct(Mallocator.instance, 42));
 }
 
 // test failure with an impure, failing struct
-@system unittest
-{
+@system unittest {
     import std.exception : assertThrown, enforce;
+
     static int g;
-    struct InvalidImpureStruct
-    {
-        this(int b)
-        {
+    struct InvalidImpureStruct {
+        this(int b) {
             g++;
             enforce(1 == 2);
         }
     }
+
     import stdx.allocator.mallocator : Mallocator;
+
     assertThrown(make!InvalidImpureStruct(Mallocator.instance, 42));
 }
 
-private void fillWithMemcpy(T)(void[] array, auto ref T filler) nothrow
-{
+private void fillWithMemcpy(T)(void[] array, auto ref T filler) nothrow {
     import core.stdc.string : memcpy;
     import std.algorithm.comparison : min;
-    if (!array.length) return;
+
+    if (!array.length)
+        return;
     memcpy(array.ptr, &filler, T.sizeof);
     // Fill the array from the initialized portion of itself exponentially.
-    for (size_t offset = T.sizeof; offset < array.length; )
-    {
+    for (size_t offset = T.sizeof; offset < array.length;) {
         size_t extent = min(offset, array.length - offset);
         memcpy(array.ptr + offset, array.ptr, extent);
         offset += extent;
     }
 }
 
-@system unittest
-{
+@system unittest {
     int[] a;
     fillWithMemcpy(a, 42);
     assert(a.length == 0);
-    a = [ 1, 2, 3, 4, 5 ];
+    a = [1, 2, 3, 4, 5];
     fillWithMemcpy(a, 42);
-    assert(a == [ 42, 42, 42, 42, 42]);
+    assert(a == [42, 42, 42, 42, 42]);
 }
 
-private T[] uninitializedFillDefault(T)(T[] array) nothrow
-{
+private T[] uninitializedFillDefault(T)(T[] array) nothrow {
     T t = T.init;
     fillWithMemcpy(array, t);
     return array;
 }
 
-pure nothrow @nogc
-@system unittest
-{
-    static struct S { int x = 42; @disable this(this); }
+pure nothrow @nogc @system unittest {
+    static struct S {
+        int x = 42;
+        @disable this(this);
+    }
 
     int[5] expected = [42, 42, 42, 42, 42];
     S[5] arr = void;
@@ -939,8 +912,7 @@ pure nothrow @nogc
     assert((cast(int*) arr.ptr)[0 .. arr.length] == expected);
 }
 
-@system unittest
-{
+@system unittest {
     int[] a = [1, 2, 4];
     uninitializedFillDefault(a);
     assert(a == [0, 0, 0]);
@@ -965,19 +937,18 @@ The first two overloads throw only if `alloc`'s primitives do. The
 overloads that involve copy initialization deallocate memory and propagate the
 exception if the copy operation throws.
 */
-T[] makeArray(T, Allocator)(auto ref Allocator alloc, size_t length)
-{
-    if (!length) return null;
+T[] makeArray(T, Allocator)(auto ref Allocator alloc, size_t length) {
+    if (!length)
+        return null;
     auto m = alloc.allocate(T.sizeof * length);
-    if (!m.ptr) return null;
+    if (!m.ptr)
+        return null;
     alias U = Unqual!T;
-    return () @trusted { return cast(T[]) uninitializedFillDefault(cast(U[]) m); }();
+    return () @trusted{ return cast(T[]) uninitializedFillDefault(cast(U[]) m); }();
 }
 
-@system unittest
-{
-    void test1(A)(auto ref A alloc)
-    {
+@system unittest {
+    void test1(A)(auto ref A alloc) {
         int[] a = alloc.makeArray!int(0);
         assert(a.length == 0 && a.ptr is null);
         a = alloc.makeArray!int(5);
@@ -986,26 +957,30 @@ T[] makeArray(T, Allocator)(auto ref Allocator alloc, size_t length)
         assert(a == cheatsheet);
     }
 
-    void test2(A)(auto ref A alloc)
-    {
-        static struct S { int x = 42; @disable this(this); }
+    void test2(A)(auto ref A alloc) {
+        static struct S {
+            int x = 42;
+            @disable this(this);
+        }
+
         S[] arr = alloc.makeArray!S(5);
         assert(arr.length == 5);
-        int[] arrInt = () @trusted { return (cast(int*) arr.ptr)[0 .. 5]; }();
+        int[] arrInt = () @trusted{ return (cast(int*) arr.ptr)[0 .. 5]; }();
         static immutable res = [42, 42, 42, 42, 42];
         assert(arrInt == res);
     }
 
     import stdx.allocator.gc_allocator : GCAllocator;
     import stdx.allocator.mallocator : Mallocator;
-    (alloc) /*pure nothrow*/ @safe { test1(alloc); test2(alloc);} (GCAllocator.instance);
-    (alloc) nothrow @safe @nogc { test1(alloc); test2(alloc);} (Mallocator.instance);
+
+    (alloc)  /*pure nothrow*/ @safe{ test1(alloc); test2(alloc); }(GCAllocator.instance);
+    (alloc) nothrow @safe @nogc{ test1(alloc); test2(alloc); }(Mallocator.instance);
     test2(theAllocator);
 }
 
-@system unittest
-{
+@system unittest {
     import std.algorithm.comparison : equal;
+
     auto a = theAllocator.makeArray!(shared int)(5);
     static assert(is(typeof(a) == shared(int)[]));
     assert(a.length == 5);
@@ -1022,282 +997,269 @@ T[] makeArray(T, Allocator)(auto ref Allocator alloc, size_t length)
     assert(c.equal([0, 0, 0, 0, 0]));
 }
 
-private enum hasPurePostblit(T) = !hasElaborateCopyConstructor!T ||
-    is(typeof(() pure { T.init.__xpostblit(); }));
+private enum hasPurePostblit(T) = !hasElaborateCopyConstructor!T || is(typeof(() pure{
+            T.init.__xpostblit();
+        }));
 
-private enum hasPureDtor(T) = !hasElaborateDestructor!T ||
-    is(typeof(() pure { T.init.__xdtor(); }));
+private enum hasPureDtor(T) = !hasElaborateDestructor!T || is(typeof(() pure{
+            T.init.__xdtor();
+        }));
 
 // `true` when postblit and destructor of T cannot escape references to itself
 private enum canSafelyDeallocPostRewind(T) = hasPurePostblit!T && hasPureDtor!T;
 
 /// Ditto
-T[] makeArray(T, Allocator)(auto ref Allocator alloc, size_t length,
-    auto ref T init)
-{
-    if (!length) return null;
+T[] makeArray(T, Allocator)(auto ref Allocator alloc, size_t length, auto ref T init) {
+    if (!length)
+        return null;
     auto m = alloc.allocate(T.sizeof * length);
-    if (!m.ptr) return null;
-    auto result = () @trusted { return cast(T[]) m; } ();
+    if (!m.ptr)
+        return null;
+    auto result = () @trusted{ return cast(T[]) m; }();
     import std.traits : hasElaborateCopyConstructor;
-    static if (hasElaborateCopyConstructor!T)
-    {
-        scope(failure)
-        {
+
+    static if (hasElaborateCopyConstructor!T) {
+        scope (failure) {
             static if (canSafelyDeallocPostRewind!T)
-                () @trusted { alloc.deallocate(m); } ();
+                () @trusted{ alloc.deallocate(m); }();
             else
                 alloc.deallocate(m);
         }
 
         size_t i = 0;
-        static if (hasElaborateDestructor!T)
-        {
-            scope (failure)
-            {
-                foreach (j; 0 .. i)
-                {
+        static if (hasElaborateDestructor!T) {
+            scope (failure) {
+                foreach (j; 0 .. i) {
                     destroy(result[j]);
                 }
             }
         }
         import std.conv : emplace;
-        for (; i < length; ++i)
-        {
+
+        for (; i < length; ++i) {
             emplace!T(&result[i], init);
         }
-    }
-    else
-    {
+    } else {
         alias U = Unqual!T;
-        () @trusted { fillWithMemcpy(cast(U[]) result, *(cast(U*) &init)); }();
+        () @trusted{ fillWithMemcpy(cast(U[]) result, *(cast(U*)&init)); }();
     }
     return result;
 }
 
 ///
-@system unittest
-{
+@system unittest {
     import std.algorithm.comparison : equal;
-    static void test(T)()
-    {
+
+    static void test(T)() {
         T[] a = theAllocator.makeArray!T(2);
         assert(a.equal([0, 0]));
         a = theAllocator.makeArray!T(3, 42);
         assert(a.equal([42, 42, 42]));
         import std.range : only;
+
         a = theAllocator.makeArray!T(only(42, 43, 44));
         assert(a.equal([42, 43, 44]));
     }
+
     test!int();
     test!(shared int)();
     test!(const int)();
     test!(immutable int)();
 }
 
-@system unittest
-{
-    void test(A)(auto ref A alloc)
-    {
+@system unittest {
+    void test(A)(auto ref A alloc) {
         long[] a = alloc.makeArray!long(0, 42);
         assert(a.length == 0 && a.ptr is null);
         a = alloc.makeArray!long(5, 42);
         assert(a.length == 5);
-        assert(a == [ 42, 42, 42, 42, 42 ]);
+        assert(a == [42, 42, 42, 42, 42]);
     }
+
     import stdx.allocator.gc_allocator : GCAllocator;
-    (alloc) /*pure nothrow*/ @safe { test(alloc); } (GCAllocator.instance);
+
+    (alloc)  /*pure nothrow*/ @safe{ test(alloc); }(GCAllocator.instance);
     test(theAllocator);
 }
 
 // test failure with a pure, failing struct
-@safe unittest
-{
+@safe unittest {
     import std.exception : assertThrown, enforce;
 
-    struct NoCopy
-    {
+    struct NoCopy {
         @disable this();
 
-        this(int b){}
+        this(int b) {
+        }
 
         // can't be copied
-        this(this)
-        {
+        this(this) {
             enforce(1 == 2);
         }
     }
+
     import stdx.allocator.mallocator : Mallocator;
+
     assertThrown(makeArray!NoCopy(Mallocator.instance, 10, NoCopy(42)));
 }
 
 // test failure with an impure, failing struct
-@system unittest
-{
+@system unittest {
     import std.exception : assertThrown, enforce;
 
     static int i = 0;
-    struct Singleton
-    {
+    struct Singleton {
         @disable this();
 
-        this(int b){}
+        this(int b) {
+        }
 
         // can't be copied
-        this(this)
-        {
+        this(this) {
             enforce(i++ == 0);
         }
 
-        ~this()
-        {
+        ~this() {
             i--;
         }
     }
+
     import stdx.allocator.mallocator : Mallocator;
+
     assertThrown(makeArray!Singleton(Mallocator.instance, 10, Singleton(42)));
 }
 
 /// Ditto
 Unqual!(ElementEncodingType!R)[] makeArray(Allocator, R)(auto ref Allocator alloc, R range)
-if (isInputRange!R && !isInfinite!R)
-{
+        if (isInputRange!R && !isInfinite!R) {
     alias T = Unqual!(ElementEncodingType!R);
     return makeArray!(T, Allocator, R)(alloc, range);
 }
 
 /// Ditto
 T[] makeArray(T, Allocator, R)(auto ref Allocator alloc, R range)
-if (isInputRange!R && !isInfinite!R)
-{
-    static if (isForwardRange!R || hasLength!R)
-    {
+        if (isInputRange!R && !isInfinite!R) {
+    static if (isForwardRange!R || hasLength!R) {
         static if (hasLength!R || isNarrowString!R)
             immutable length = range.length;
         else
             immutable length = range.save.walkLength;
 
-        if (!length) return null;
+        if (!length)
+            return null;
         auto m = alloc.allocate(T.sizeof * length);
-        if (!m.ptr) return null;
-        auto result = () @trusted { return cast(T[]) m; } ();
+        if (!m.ptr)
+            return null;
+        auto result = () @trusted{ return cast(T[]) m; }();
 
         size_t i = 0;
-        scope (failure)
-        {
-            foreach (j; 0 .. i)
-            {
-                auto p = () @trusted { return cast(Unqual!T*) &result[j]; }();
+        scope (failure) {
+            foreach (j; 0 .. i) {
+                auto p = () @trusted{ return cast(Unqual!T*)&result[j]; }();
                 destroy(p);
             }
 
             static if (canSafelyDeallocPostRewind!T)
-                () @trusted { alloc.deallocate(m); } ();
+                () @trusted{ alloc.deallocate(m); }();
             else
                 alloc.deallocate(m);
         }
 
         import stdx.allocator.internal : emplaceRef;
-        static if (isNarrowString!R || isRandomAccessRange!R)
-        {
-            foreach (j; 0 .. range.length)
-            {
+
+        static if (isNarrowString!R || isRandomAccessRange!R) {
+            foreach (j; 0 .. range.length) {
                 emplaceRef!T(result[i++], range[j]);
             }
-        }
-        else
-        {
-            for (; !range.empty; range.popFront, ++i)
-            {
+        } else {
+            for (; !range.empty; range.popFront, ++i) {
                 emplaceRef!T(result[i], range.front);
             }
         }
 
         return result;
-    }
-    else
-    {
+    } else {
         // Estimated size
         size_t estimated = 8;
         auto m = alloc.allocate(T.sizeof * estimated);
-        if (!m.ptr) return null;
-        auto result = () @trusted { return cast(T[]) m; } ();
+        if (!m.ptr)
+            return null;
+        auto result = () @trusted{ return cast(T[]) m; }();
 
         size_t initialized = 0;
-        void bailout()
-        {
-            foreach (i; 0 .. initialized + 1)
-            {
+        void bailout() {
+            foreach (i; 0 .. initialized + 1) {
                 destroy(result[i]);
             }
 
             static if (canSafelyDeallocPostRewind!T)
-                () @trusted { alloc.deallocate(m); } ();
+                () @trusted{ alloc.deallocate(m); }();
             else
                 alloc.deallocate(m);
         }
-        scope (failure) bailout;
 
-        for (; !range.empty; range.popFront, ++initialized)
-        {
-            if (initialized == estimated)
-            {
+        scope (failure)
+            bailout;
+
+        for (; !range.empty; range.popFront, ++initialized) {
+            if (initialized == estimated) {
                 // Need to reallocate
                 static if (hasPurePostblit!T)
-                    auto success = () @trusted { return alloc.reallocate(m, T.sizeof * (estimated *= 2)); } ();
+                    auto success = () @trusted{
+                        return alloc.reallocate(m, T.sizeof * (estimated *= 2));
+                    }();
                 else
                     auto success = alloc.reallocate(m, T.sizeof * (estimated *= 2));
-                if (!success)
-                {
+                if (!success) {
                     bailout;
                     return null;
                 }
-                result = () @trusted { return cast(T[]) m; } ();
+                result = () @trusted{ return cast(T[]) m; }();
             }
             import stdx.allocator.internal : emplaceRef;
+
             emplaceRef(result[initialized], range.front);
         }
 
-        if (initialized < estimated)
-        {
+        if (initialized < estimated) {
             // Try to shrink memory, no harm if not possible
             static if (hasPurePostblit!T)
-                auto success = () @trusted { return alloc.reallocate(m, T.sizeof * initialized); } ();
+                auto success = () @trusted{
+                    return alloc.reallocate(m, T.sizeof * initialized);
+                }();
             else
                 auto success = alloc.reallocate(m, T.sizeof * initialized);
             if (success)
-                result = () @trusted { return cast(T[]) m; } ();
+                result = () @trusted{ return cast(T[]) m; }();
         }
 
         return result[0 .. initialized];
     }
 }
 
-@system unittest
-{
-    void test(A)(auto ref A alloc)
-    {
+@system unittest {
+    void test(A)(auto ref A alloc) {
         long[] a = alloc.makeArray!long((int[]).init);
         assert(a.length == 0 && a.ptr is null);
         a = alloc.makeArray!long([5, 42]);
         assert(a.length == 2);
-        assert(a == [ 5, 42]);
+        assert(a == [5, 42]);
 
         // we can also infer the type
         auto b = alloc.makeArray([4.0, 2.0]);
         static assert(is(typeof(b) == double[]));
         assert(b == [4.0, 2.0]);
     }
+
     import stdx.allocator.gc_allocator : GCAllocator;
-    (alloc) pure nothrow @safe { test(alloc); } (GCAllocator.instance);
+
+    (alloc) pure nothrow @safe{ test(alloc); }(GCAllocator.instance);
     test(theAllocator);
 }
 
 // infer types for strings
-@system unittest
-{
-    void test(A)(auto ref A alloc)
-    {
+@system unittest {
+    void test(A)(auto ref A alloc) {
         auto c = alloc.makeArray("fooπ😜");
         static assert(is(typeof(c) == char[]));
         assert(c == "fooπ😜");
@@ -1312,99 +1274,92 @@ if (isInputRange!R && !isInfinite!R)
     }
 
     import stdx.allocator.gc_allocator : GCAllocator;
-    (alloc) pure nothrow @safe { test(alloc); } (GCAllocator.instance);
+
+    (alloc) pure nothrow @safe{ test(alloc); }(GCAllocator.instance);
     test(theAllocator);
 }
 
-/*pure*/ nothrow @safe unittest
-{
+/*pure*/
+nothrow @safe unittest {
     import std.algorithm.comparison : equal;
     import stdx.allocator.gc_allocator : GCAllocator;
     import std.internal.test.dummyrange;
     import std.range : iota;
-    foreach (DummyType; AllDummyRanges)
-    {
-        (alloc) pure nothrow @safe
-        {
+
+    foreach (DummyType; AllDummyRanges) {
+        (alloc) pure nothrow @safe{
             DummyType d;
             auto arr = alloc.makeArray(d);
             assert(arr.length == 10);
             assert(arr.equal(iota(1, 11)));
-        } (GCAllocator.instance);
+        }(GCAllocator.instance);
     }
 }
 
 // test failure with a pure, failing struct
-@safe unittest
-{
+@safe unittest {
     import std.exception : assertThrown, enforce;
 
-    struct NoCopy
-    {
+    struct NoCopy {
         int b;
 
         @disable this();
 
-        this(int b)
-        {
+        this(int b) {
             this.b = b;
         }
 
         // can't be copied
-        this(this)
-        {
+        this(this) {
             enforce(b < 3, "there can only be three elements");
         }
     }
+
     import stdx.allocator.mallocator : Mallocator;
+
     auto arr = [NoCopy(1), NoCopy(2), NoCopy(3)];
     assertThrown(makeArray!NoCopy(Mallocator.instance, arr));
 
-    struct NoCopyRange
-    {
+    struct NoCopyRange {
         static j = 0;
-        bool empty()
-        {
+        bool empty() {
             return j > 5;
         }
 
-        auto front()
-        {
+        auto front() {
             return NoCopy(j);
         }
 
-        void popFront()
-        {
+        void popFront() {
             j++;
         }
     }
+
     assertThrown(makeArray!NoCopy(Mallocator.instance, NoCopyRange()));
 }
 
 // test failure with an impure, failing struct
-@system unittest
-{
+@system unittest {
     import std.exception : assertThrown, enforce;
 
     static i = 0;
     static maxElements = 2;
-    struct NoCopy
-    {
+    struct NoCopy {
         int val;
         @disable this();
 
-        this(int b){
+        this(int b) {
             this.val = i++;
         }
 
         // can't be copied
-        this(this)
-        {
+        this(this) {
             enforce(i++ < maxElements, "there can only be four elements");
         }
     }
 
     import stdx.allocator.mallocator : Mallocator;
+
     auto arr = [NoCopy(1), NoCopy(2)];
     assertThrown(makeArray!NoCopy(Mallocator.instance, arr));
 
@@ -1413,23 +1368,20 @@ if (isInputRange!R && !isInfinite!R)
     maxElements = 30;
     static j = 0;
 
-    struct NoCopyRange
-    {
-        bool empty()
-        {
+    struct NoCopyRange {
+        bool empty() {
             return j > 100;
         }
 
-        auto front()
-        {
+        auto front() {
             return NoCopy(1);
         }
 
-        void popFront()
-        {
+        void popFront() {
             j++;
         }
     }
+
     assertThrown(makeArray!NoCopy(Mallocator.instance, NoCopyRange()));
 
     maxElements = 300;
@@ -1438,40 +1390,48 @@ if (isInputRange!R && !isInfinite!R)
     import std.algorithm.comparison : equal;
     import std.algorithm.iteration : map;
     import std.range : iota;
+
     assert(arr2.map!`a.val`.equal(iota(32, 204, 2)));
 }
 
-version(unittest)
-{
-    private struct ForcedInputRange
-    {
+version (unittest) {
+    private struct ForcedInputRange {
         int[]* array;
-        pure nothrow @safe @nogc:
-        bool empty() { return !array || (*array).empty; }
-        ref int front() { return (*array)[0]; }
-        void popFront() { *array = (*array)[1 .. $]; }
+    pure nothrow @safe @nogc:
+        bool empty() {
+            return !array || (*array).empty;
+        }
+
+        ref int front() {
+            return (*array)[0];
+        }
+
+        void popFront() {
+            *array = (*array)[1 .. $];
+        }
     }
 }
 
-@system unittest
-{
+@system unittest {
     import std.array : array;
     import std.range : iota;
+
     int[] arr = iota(10).array;
 
-    void test(A)(auto ref A alloc)
-    {
+    void test(A)(auto ref A alloc) {
         ForcedInputRange r;
         long[] a = alloc.makeArray!long(r);
         assert(a.length == 0 && a.ptr is null);
         auto arr2 = arr;
-        r.array = () @trusted { return &arr2; } ();
+        r.array = () @trusted{ return &arr2; }();
         a = alloc.makeArray!long(r);
         assert(a.length == 10);
         assert(a == iota(10).array);
     }
+
     import stdx.allocator.gc_allocator : GCAllocator;
-    (alloc) pure nothrow @safe { test(alloc); } (GCAllocator.instance);
+
+    (alloc) pure nothrow @safe{ test(alloc); }(GCAllocator.instance);
     test(theAllocator);
 }
 
@@ -1499,113 +1459,110 @@ The first two overloads throw only if `alloc`'s primitives do. The
 overloads that involve copy initialization deallocate memory and propagate the
 exception if the copy operation throws.
 */
-bool expandArray(T, Allocator)(auto ref Allocator alloc, ref T[] array,
-        size_t delta)
-{
-    if (!delta) return true;
-    if (array is null) return false;
+bool expandArray(T, Allocator)(auto ref Allocator alloc, ref T[] array, size_t delta) {
+    if (!delta)
+        return true;
+    if (array is null)
+        return false;
     immutable oldLength = array.length;
     void[] buf = array;
-    if (!alloc.reallocate(buf, buf.length + T.sizeof * delta)) return false;
+    if (!alloc.reallocate(buf, buf.length + T.sizeof * delta))
+        return false;
     array = cast(T[]) buf;
     array[oldLength .. $].uninitializedFillDefault;
     return true;
 }
 
-@system unittest
-{
-    void test(A)(auto ref A alloc)
-    {
+@system unittest {
+    void test(A)(auto ref A alloc) {
         auto arr = alloc.makeArray!int([1, 2, 3]);
         assert(alloc.expandArray(arr, 3));
         assert(arr == [1, 2, 3, 0, 0, 0]);
     }
+
     import stdx.allocator.gc_allocator : GCAllocator;
+
     test(GCAllocator.instance);
     test(theAllocator);
 }
 
 /// Ditto
-bool expandArray(T, Allocator)(auto ref Allocator alloc, ref T[] array,
-    size_t delta, auto ref T init)
-{
-    if (!delta) return true;
-    if (array is null) return false;
+bool expandArray(T, Allocator)(auto ref Allocator alloc, ref T[] array, size_t delta, auto ref T init) {
+    if (!delta)
+        return true;
+    if (array is null)
+        return false;
     void[] buf = array;
-    if (!alloc.reallocate(buf, buf.length + T.sizeof * delta)) return false;
+    if (!alloc.reallocate(buf, buf.length + T.sizeof * delta))
+        return false;
     immutable oldLength = array.length;
     array = cast(T[]) buf;
-    scope(failure) array[oldLength .. $].uninitializedFillDefault;
+    scope (failure)
+        array[oldLength .. $].uninitializedFillDefault;
     import std.algorithm.mutation : uninitializedFill;
+
     array[oldLength .. $].uninitializedFill(init);
     return true;
 }
 
-@system unittest
-{
-    void test(A)(auto ref A alloc)
-    {
+@system unittest {
+    void test(A)(auto ref A alloc) {
         auto arr = alloc.makeArray!int([1, 2, 3]);
         assert(alloc.expandArray(arr, 3, 1));
         assert(arr == [1, 2, 3, 1, 1, 1]);
     }
+
     import stdx.allocator.gc_allocator : GCAllocator;
+
     test(GCAllocator.instance);
     test(theAllocator);
 }
 
 /// Ditto
-bool expandArray(T, Allocator, R)(auto ref Allocator alloc, ref T[] array,
-        R range)
-if (isInputRange!R)
-{
-    if (array is null) return false;
-    static if (isForwardRange!R)
-    {
+bool expandArray(T, Allocator, R)(auto ref Allocator alloc, ref T[] array, R range)
+        if (isInputRange!R) {
+    if (array is null)
+        return false;
+    static if (isForwardRange!R) {
         immutable delta = walkLength(range.save);
-        if (!delta) return true;
+        if (!delta)
+            return true;
         immutable oldLength = array.length;
 
         // Reallocate support memory
         void[] buf = array;
-        if (!alloc.reallocate(buf, buf.length + T.sizeof * delta))
-        {
+        if (!alloc.reallocate(buf, buf.length + T.sizeof * delta)) {
             return false;
         }
         array = cast(T[]) buf;
         // At this point we're committed to the new length.
 
         auto toFill = array[oldLength .. $];
-        scope (failure)
-        {
+        scope (failure) {
             // Fill the remainder with default-constructed data
             toFill.uninitializedFillDefault;
         }
 
-        for (; !range.empty; range.popFront, toFill.popFront)
-        {
+        for (; !range.empty; range.popFront, toFill.popFront) {
             assert(!toFill.empty);
             import std.conv : emplace;
+
             emplace!T(&toFill.front, range.front);
         }
         assert(toFill.empty);
-    }
-    else
-    {
-        scope(failure)
-        {
+    } else {
+        scope (failure) {
             // The last element didn't make it, fill with default
             array[$ - 1 .. $].uninitializedFillDefault;
         }
         void[] buf = array;
-        for (; !range.empty; range.popFront)
-        {
-            if (!alloc.reallocate(buf, buf.length + T.sizeof))
-            {
+        for (; !range.empty; range.popFront) {
+            if (!alloc.reallocate(buf, buf.length + T.sizeof)) {
                 array = cast(T[]) buf;
                 return false;
             }
             import std.conv : emplace;
+
             emplace!T(buf[$ - T.sizeof .. $], range.front);
         }
 
@@ -1615,21 +1572,20 @@ if (isInputRange!R)
 }
 
 ///
-@system unittest
-{
+@system unittest {
     auto arr = theAllocator.makeArray!int([1, 2, 3]);
     assert(theAllocator.expandArray(arr, 2));
     assert(arr == [1, 2, 3, 0, 0]);
     import std.range : only;
+
     assert(theAllocator.expandArray(arr, only(4, 5)));
     assert(arr == [1, 2, 3, 0, 0, 4, 5]);
 }
 
-@system unittest
-{
+@system unittest {
     auto arr = theAllocator.makeArray!int([1, 2, 3]);
     ForcedInputRange r;
-    int[] b = [ 1, 2, 3, 4 ];
+    int[] b = [1, 2, 3, 4];
     auto temp = b;
     r.array = &temp;
     assert(theAllocator.expandArray(arr, r));
@@ -1660,36 +1616,31 @@ The first two overloads throw only if `alloc`'s primitives do. The
 overloads that involve copy initialization deallocate memory and propagate the
 exception if the copy operation throws.
 */
-bool shrinkArray(T, Allocator)(auto ref Allocator alloc,
-        ref T[] array, size_t delta)
-{
-    if (delta > array.length) return false;
+bool shrinkArray(T, Allocator)(auto ref Allocator alloc, ref T[] array, size_t delta) {
+    if (delta > array.length)
+        return false;
 
     // Destroy elements. If a destructor throws, fill the already destroyed
     // stuff with the default initializer.
     {
         size_t destroyed;
-        scope(failure)
-        {
+        scope (failure) {
             array[$ - delta .. $][0 .. destroyed].uninitializedFillDefault;
         }
-        foreach (ref e; array[$ - delta .. $])
-        {
+        foreach (ref e; array[$ - delta .. $]) {
             e.destroy;
             ++destroyed;
         }
     }
 
-    if (delta == array.length)
-    {
+    if (delta == array.length) {
         alloc.deallocate(array);
         array = null;
         return true;
     }
 
     void[] buf = array;
-    if (!alloc.reallocate(buf, buf.length - T.sizeof * delta))
-    {
+    if (!alloc.reallocate(buf, buf.length - T.sizeof * delta)) {
         // urgh, at least fill back with default
         array[$ - delta .. $].uninitializedFillDefault;
         return false;
@@ -1699,8 +1650,7 @@ bool shrinkArray(T, Allocator)(auto ref Allocator alloc,
 }
 
 ///
-@system unittest
-{
+@system unittest {
     int[] a = theAllocator.makeArray!int(100, 42);
     assert(a.length == 100);
     assert(theAllocator.shrinkArray(a, 98));
@@ -1708,18 +1658,18 @@ bool shrinkArray(T, Allocator)(auto ref Allocator alloc,
     assert(a == [42, 42]);
 }
 
-@system unittest
-{
-    void test(A)(auto ref A alloc)
-    {
+@system unittest {
+    void test(A)(auto ref A alloc) {
         long[] a = alloc.makeArray!long((int[]).init);
         assert(a.length == 0 && a.ptr is null);
         a = alloc.makeArray!long(100, 42);
         assert(alloc.shrinkArray(a, 98));
         assert(a.length == 2);
-        assert(a == [ 42, 42]);
+        assert(a == [42, 42]);
     }
+
     import stdx.allocator.gc_allocator : GCAllocator;
+
     test(GCAllocator.instance);
     test(theAllocator);
 }
@@ -1732,10 +1682,8 @@ reference, or an entire array. It is assumed the respective entities had been
 allocated with the same allocator.
 
 */
-void dispose(A, T)(auto ref A alloc, auto ref T* p)
-{
-    static if (hasElaborateDestructor!T)
-    {
+void dispose(A, T)(auto ref A alloc, auto ref T* p) {
+    static if (hasElaborateDestructor!T) {
         destroy(*p);
     }
     alloc.deallocate((cast(void*) p)[0 .. T.sizeof]);
@@ -1745,20 +1693,18 @@ void dispose(A, T)(auto ref A alloc, auto ref T* p)
 
 /// Ditto
 void dispose(A, T)(auto ref A alloc, auto ref T p)
-if (is(T == class) || is(T == interface))
-{
-    if (!p) return;
-    static if (is(T == interface))
-    {
-        version(Windows)
-        {
+        if (is(T == class) || is(T == interface)) {
+    if (!p)
+        return;
+    static if (is(T == interface)) {
+        version (Windows) {
             import core.sys.windows.unknwn : IUnknown;
-            static assert(!is(T: IUnknown), "COM interfaces can't be destroyed in "
-                ~ __PRETTY_FUNCTION__);
+
+            static assert(!is(T : IUnknown),
+                    "COM interfaces can't be destroyed in " ~ __PRETTY_FUNCTION__);
         }
         auto ob = cast(Object) p;
-    }
-    else
+    } else
         alias ob = p;
     auto support = (cast(void*) ob)[0 .. typeid(ob).initializer.length];
     destroy(p);
@@ -1768,12 +1714,9 @@ if (is(T == class) || is(T == interface))
 }
 
 /// Ditto
-void dispose(A, T)(auto ref A alloc, auto ref T[] array)
-{
-    static if (hasElaborateDestructor!(typeof(array[0])))
-    {
-        foreach (ref e; array)
-        {
+void dispose(A, T)(auto ref A alloc, auto ref T[] array) {
+    static if (hasElaborateDestructor!(typeof(array[0]))) {
+        foreach (ref e; array) {
             destroy(e);
         }
     }
@@ -1782,22 +1725,26 @@ void dispose(A, T)(auto ref A alloc, auto ref T[] array)
         array = null;
 }
 
-@system unittest
-{
+@system unittest {
     static int x;
-    static interface I
-    {
+    static interface I {
         void method();
     }
-    static class A : I
-    {
+
+    static class A : I {
         int y;
-        override void method() { x = 21; }
-        ~this() { x = 42; }
+        override void method() {
+            x = 21;
+        }
+
+        ~this() {
+            x = 42;
+        }
     }
-    static class B : A
-    {
+
+    static class B : A {
     }
+
     auto a = theAllocator.make!A;
     a.method();
     assert(x == 21);
@@ -1820,7 +1767,7 @@ void dispose(A, T)(auto ref A alloc, auto ref T[] array)
     theAllocator.dispose(arr);
 }
 
-@system unittest //bugzilla 16512
+@system unittest  //bugzilla 16512
 {
     import stdx.allocator.mallocator : Mallocator;
 
@@ -1833,20 +1780,23 @@ void dispose(A, T)(auto ref A alloc, auto ref T[] array)
     assert(o is null);
 
     uint* u = Mallocator.instance.make!uint(0);
-    Mallocator.instance.dispose((){return u;}());
+    Mallocator.instance.dispose(() { return u; }());
     assert(u !is null);
 
-    uint[] ua = Mallocator.instance.makeArray!uint([0,1,2]);
+    uint[] ua = Mallocator.instance.makeArray!uint([0, 1, 2]);
     Mallocator.instance.dispose(ua);
     assert(ua is null);
 }
 
-@system unittest //bugzilla 15721
+@system unittest  //bugzilla 15721
 {
     import stdx.allocator.mallocator : Mallocator;
 
-    interface Foo {}
-    class Bar: Foo {}
+    interface Foo {
+    }
+
+    class Bar : Foo {
+    }
 
     Bar bar;
     Foo foo;
@@ -1867,14 +1817,11 @@ lengths = static array containing the size of each dimension
 Returns:
 An N-dimensional array with individual elements of type T.
 */
-auto makeMultidimensionalArray(T, Allocator, size_t N)(auto ref Allocator alloc, size_t[N] lengths...)
-{
-    static if (N == 1)
-    {
+auto makeMultidimensionalArray(T, Allocator, size_t N)(auto ref Allocator alloc,
+        size_t[N] lengths...) {
+    static if (N == 1) {
         return makeArray!T(alloc, lengths[0]);
-    }
-    else
-    {
+    } else {
         alias E = typeof(makeMultidimensionalArray!(T, Allocator, N - 1)(alloc, lengths[1 .. $]));
         auto ret = makeArray!E(alloc, lengths[0]);
         foreach (ref e; ret)
@@ -1884,21 +1831,18 @@ auto makeMultidimensionalArray(T, Allocator, size_t N)(auto ref Allocator alloc,
 }
 
 ///
-@system unittest
-{
+@system unittest {
     import stdx.allocator.mallocator : Mallocator;
 
     auto mArray = Mallocator.instance.makeMultidimensionalArray!int(2, 3, 6);
 
     // deallocate when exiting scope
-    scope(exit)
-    {
+    scope (exit) {
         Mallocator.instance.disposeMultidimensionalArray(mArray);
     }
 
     assert(mArray.length == 2);
-    foreach (lvl2Array; mArray)
-    {
+    foreach (lvl2Array; mArray) {
         assert(lvl2Array.length == 3);
         foreach (lvl3Array; lvl2Array)
             assert(lvl3Array.length == 6);
@@ -1914,10 +1858,8 @@ T = element type of an element of the multidimensional array
 alloc = the allocator used for getting memory
 array = the multidimensional array that is to be deallocated
 */
-void disposeMultidimensionalArray(T, Allocator)(auto ref Allocator alloc, auto ref T[] array)
-{
-    static if (isArray!T)
-    {
+void disposeMultidimensionalArray(T, Allocator)(auto ref Allocator alloc, auto ref T[] array) {
+    static if (isArray!T) {
         foreach (ref e; array)
             disposeMultidimensionalArray(alloc, e);
     }
@@ -1928,17 +1870,14 @@ void disposeMultidimensionalArray(T, Allocator)(auto ref Allocator alloc, auto r
 }
 
 ///
-@system unittest
-{
-    struct TestAllocator
-    {
+@system unittest {
+    struct TestAllocator {
         import stdx.allocator.common : platformAlignment;
         import stdx.allocator.mallocator : Mallocator;
 
         alias allocator = Mallocator.instance;
 
-        private static struct ByteRange
-        {
+        private static struct ByteRange {
             void* ptr;
             size_t length;
         }
@@ -1947,29 +1886,27 @@ void disposeMultidimensionalArray(T, Allocator)(auto ref Allocator alloc, auto r
 
         enum uint alignment = platformAlignment;
 
-        void[] allocate(size_t numBytes)
-        {
-             auto ret = allocator.allocate(numBytes);
-             _allocations ~= ByteRange(ret.ptr, ret.length);
-             return ret;
+        void[] allocate(size_t numBytes) {
+            auto ret = allocator.allocate(numBytes);
+            _allocations ~= ByteRange(ret.ptr, ret.length);
+            return ret;
         }
 
-        bool deallocate(void[] bytes)
-        {
+        bool deallocate(void[] bytes) {
             import std.algorithm.mutation : remove;
             import std.algorithm.searching : canFind;
 
-            bool pred(ByteRange other)
-            { return other.ptr == bytes.ptr && other.length == bytes.length; }
+            bool pred(ByteRange other) {
+                return other.ptr == bytes.ptr && other.length == bytes.length;
+            }
 
             assert(_allocations.canFind!pred);
 
-             _allocations = _allocations.remove!pred;
-             return allocator.deallocate(bytes);
+            _allocations = _allocations.remove!pred;
+            return allocator.deallocate(bytes);
         }
 
-        ~this()
-        {
+        ~this() {
             assert(!_allocations.length);
         }
     }
@@ -2000,66 +1937,64 @@ statically-typed allocator.)
 )
 
 */
-CAllocatorImpl!A allocatorObject(A)(auto ref A a)
-if (!isPointer!A)
-{
+CAllocatorImpl!A allocatorObject(A)(auto ref A a) if (!isPointer!A) {
     import std.conv : emplace;
-    static if (stateSize!A == 0)
-    {
+
+    static if (stateSize!A == 0) {
         enum s = stateSize!(CAllocatorImpl!A).divideRoundUp(ulong.sizeof);
         static __gshared ulong[s] state;
         static __gshared CAllocatorImpl!A result;
-        if (!result)
-        {
+        if (!result) {
             // Don't care about a few races
             result = emplace!(CAllocatorImpl!A)(state[]);
         }
         assert(result);
         return result;
-    }
-    else static if (is(typeof({ A b = a; A c = b; }))) // copyable
+    } else static if (is(typeof({ A b = a; A c = b; }))) // copyable
     {
-        auto state = a.allocate(stateSize!(CAllocatorImpl!A));
-        import std.traits : hasMember;
-        static if (hasMember!(A, "deallocate"))
-        {
-            scope(failure) a.deallocate(state);
+            auto state = a.allocate(stateSize!(CAllocatorImpl!A));
+            import std.traits : hasMember;
+
+            static if (hasMember!(A, "deallocate")) {
+                scope (failure)
+                    a.deallocate(state);
+            }
+            return cast(CAllocatorImpl!A) emplace!(CAllocatorImpl!A)(state);
         }
-        return cast(CAllocatorImpl!A) emplace!(CAllocatorImpl!A)(state);
-    }
     else // the allocator object is not copyable
     {
-        // This is sensitive... create on the stack and then move
-        enum s = stateSize!(CAllocatorImpl!A).divideRoundUp(ulong.sizeof);
-        ulong[s] state;
-        import std.algorithm.mutation : move;
-        emplace!(CAllocatorImpl!A)(state[], move(a));
-        auto dynState = a.allocate(stateSize!(CAllocatorImpl!A));
-        // Bitblast the object in its final destination
-        dynState[] = state[];
-        return cast(CAllocatorImpl!A) dynState.ptr;
-    }
+            // This is sensitive... create on the stack and then move
+            enum s = stateSize!(CAllocatorImpl!A).divideRoundUp(ulong.sizeof);
+            ulong[s] state;
+            import std.algorithm.mutation : move;
+
+            emplace!(CAllocatorImpl!A)(state[], move(a));
+            auto dynState = a.allocate(stateSize!(CAllocatorImpl!A));
+            // Bitblast the object in its final destination
+            dynState[] = state[];
+            return cast(CAllocatorImpl!A) dynState.ptr;
+        }
 }
 
 /// Ditto
-CAllocatorImpl!(A, Yes.indirect) allocatorObject(A)(A* pa)
-{
+CAllocatorImpl!(A, Yes.indirect) allocatorObject(A)(A* pa) {
     assert(pa);
     import std.conv : emplace;
+
     auto state = pa.allocate(stateSize!(CAllocatorImpl!(A, Yes.indirect)));
     import std.traits : hasMember;
-    static if (hasMember!(A, "deallocate"))
-    {
-        scope(failure) pa.deallocate(state);
+
+    static if (hasMember!(A, "deallocate")) {
+        scope (failure)
+            pa.deallocate(state);
     }
-    return emplace!(CAllocatorImpl!(A, Yes.indirect))
-        (state, pa);
+    return emplace!(CAllocatorImpl!(A, Yes.indirect))(state, pa);
 }
 
 ///
-@system unittest
-{
+@system unittest {
     import stdx.allocator.mallocator : Mallocator;
+
     IAllocator a = allocatorObject(Mallocator.instance);
     auto b = a.allocate(100);
     assert(b.length == 100);
@@ -2067,6 +2002,7 @@ CAllocatorImpl!(A, Yes.indirect) allocatorObject(A)(A* pa)
 
     // The in-situ region must be used by pointer
     import stdx.allocator.building_blocks.region : InSituRegion;
+
     auto r = InSituRegion!1024();
     a = allocatorObject(&r);
     b = a.allocate(200);
@@ -2095,53 +2031,51 @@ statically-typed allocator.)
 
 */
 shared(CSharedAllocatorImpl!A) sharedAllocatorObject(A)(auto ref A a)
-if (!isPointer!A)
-{
+        if (!isPointer!A) {
     import std.conv : emplace;
-    static if (stateSize!A == 0)
-    {
+
+    static if (stateSize!A == 0) {
         enum s = stateSize!(CSharedAllocatorImpl!A).divideRoundUp(ulong.sizeof);
         static __gshared ulong[s] state;
         static shared CSharedAllocatorImpl!A result;
-        if (!result)
-        {
+        if (!result) {
             // Don't care about a few races
-            result = cast(shared
-                    CSharedAllocatorImpl!A)(emplace!(CSharedAllocatorImpl!A)(state[]));
+            result = cast(shared CSharedAllocatorImpl!A)(
+                    emplace!(CSharedAllocatorImpl!A)(state[]));
         }
         assert(result);
         return result;
-    }
-    else static if (is(typeof({ shared A b = a; shared A c = b; }))) // copyable
+    } else static if (is(typeof({ shared A b = a; shared A c = b; }))) // copyable
     {
-        auto state = a.allocate(stateSize!(CSharedAllocatorImpl!A));
-        import std.traits : hasMember;
-        static if (hasMember!(A, "deallocate"))
-        {
-            scope(failure) a.deallocate(state);
+            auto state = a.allocate(stateSize!(CSharedAllocatorImpl!A));
+            import std.traits : hasMember;
+
+            static if (hasMember!(A, "deallocate")) {
+                scope (failure)
+                    a.deallocate(state);
+            }
+            return emplace!(shared CSharedAllocatorImpl!A)(state);
         }
-        return emplace!(shared CSharedAllocatorImpl!A)(state);
-    }
     else // the allocator object is not copyable
     {
-        assert(0, "Not yet implemented");
-    }
+            assert(0, "Not yet implemented");
+        }
 }
 
 /// Ditto
-shared(CSharedAllocatorImpl!(A, Yes.indirect)) sharedAllocatorObject(A)(A* pa)
-{
+shared(CSharedAllocatorImpl!(A, Yes.indirect)) sharedAllocatorObject(A)(A* pa) {
     assert(pa);
     import std.conv : emplace;
+
     auto state = pa.allocate(stateSize!(CSharedAllocatorImpl!(A, Yes.indirect)));
     import std.traits : hasMember;
-    static if (hasMember!(A, "deallocate"))
-    {
-        scope(failure) pa.deallocate(state);
+
+    static if (hasMember!(A, "deallocate")) {
+        scope (failure)
+            pa.deallocate(state);
     }
     return emplace!(shared CSharedAllocatorImpl!(A, Yes.indirect))(state, pa);
 }
-
 
 /**
 
@@ -2151,51 +2085,44 @@ non-templated code.
 
 Usually `CAllocatorImpl` is used indirectly by calling $(LREF theAllocator).
 */
-class CAllocatorImpl(Allocator, Flag!"indirect" indirect = No.indirect)
-    : IAllocator
-{
+class CAllocatorImpl(Allocator, Flag!"indirect" indirect = No.indirect) : IAllocator {
     import std.traits : hasMember;
 
     /**
     The implementation is available as a public member.
     */
-    static if (indirect)
-    {
+    static if (indirect) {
         private Allocator* pimpl;
-        ref Allocator impl()
-        {
+        ref Allocator impl() {
             return *pimpl;
         }
-        this(Allocator* pa)
-        {
+
+        this(Allocator* pa) {
             pimpl = pa;
         }
-    }
-    else
-    {
-        static if (stateSize!Allocator) Allocator impl;
-        else alias impl = Allocator.instance;
+    } else {
+        static if (stateSize!Allocator)
+            Allocator impl;
+        else
+            alias impl = Allocator.instance;
     }
 
     /// Returns `impl.alignment`.
-    override @property uint alignment()
-    {
+    override @property uint alignment() {
         return impl.alignment;
     }
 
     /**
     Returns `impl.goodAllocSize(s)`.
     */
-    override size_t goodAllocSize(size_t s)
-    {
+    override size_t goodAllocSize(size_t s) {
         return impl.goodAllocSize(s);
     }
 
     /**
     Returns `impl.allocate(s)`.
     */
-    override void[] allocate(size_t s, TypeInfo ti = null)
-    {
+    override void[] allocate(size_t s, TypeInfo ti = null) {
         return impl.allocate(s);
     }
 
@@ -2203,8 +2130,7 @@ class CAllocatorImpl(Allocator, Flag!"indirect" indirect = No.indirect)
     If `impl.alignedAllocate` exists, calls it and returns the result.
     Otherwise, always returns `null`.
     */
-    override void[] alignedAllocate(size_t s, uint a)
-    {
+    override void[] alignedAllocate(size_t s, uint a) {
         static if (hasMember!(Allocator, "alignedAllocate"))
             return impl.alignedAllocate(s, a);
         else
@@ -2215,15 +2141,15 @@ class CAllocatorImpl(Allocator, Flag!"indirect" indirect = No.indirect)
     If `Allocator` implements `owns`, forwards to it. Otherwise, returns
     `Ternary.unknown`.
     */
-    override Ternary owns(void[] b)
-    {
-        static if (hasMember!(Allocator, "owns")) return impl.owns(b);
-        else return Ternary.unknown;
+    override Ternary owns(void[] b) {
+        static if (hasMember!(Allocator, "owns"))
+            return impl.owns(b);
+        else
+            return Ternary.unknown;
     }
 
     /// Returns $(D impl.expand(b, s)) if defined, `false` otherwise.
-    override bool expand(ref void[] b, size_t s)
-    {
+    override bool expand(ref void[] b, size_t s) {
         static if (hasMember!(Allocator, "expand"))
             return impl.expand(b, s);
         else
@@ -2231,33 +2157,24 @@ class CAllocatorImpl(Allocator, Flag!"indirect" indirect = No.indirect)
     }
 
     /// Returns $(D impl.reallocate(b, s)).
-    override bool reallocate(ref void[] b, size_t s)
-    {
+    override bool reallocate(ref void[] b, size_t s) {
         return impl.reallocate(b, s);
     }
 
     /// Forwards to `impl.alignedReallocate` if defined, `false` otherwise.
-    bool alignedReallocate(ref void[] b, size_t s, uint a)
-    {
-        static if (!hasMember!(Allocator, "alignedAllocate"))
-        {
+    bool alignedReallocate(ref void[] b, size_t s, uint a) {
+        static if (!hasMember!(Allocator, "alignedAllocate")) {
             return false;
-        }
-        else
-        {
+        } else {
             return impl.alignedReallocate(b, s, a);
         }
     }
 
     // Undocumented for now
-    Ternary resolveInternalPointer(const void* p, ref void[] result)
-    {
-        static if (hasMember!(Allocator, "resolveInternalPointer"))
-        {
+    Ternary resolveInternalPointer(const void* p, ref void[] result) {
+        static if (hasMember!(Allocator, "resolveInternalPointer")) {
             return impl.resolveInternalPointer(p, result);
-        }
-        else
-        {
+        } else {
             return Ternary.unknown;
         }
     }
@@ -2266,14 +2183,10 @@ class CAllocatorImpl(Allocator, Flag!"indirect" indirect = No.indirect)
     If `impl.deallocate` is not defined, returns `false`. Otherwise it forwards
     the call.
     */
-    override bool deallocate(void[] b)
-    {
-        static if (hasMember!(Allocator, "deallocate"))
-        {
+    override bool deallocate(void[] b) {
+        static if (hasMember!(Allocator, "deallocate")) {
             return impl.deallocate(b);
-        }
-        else
-        {
+        } else {
             return false;
         }
     }
@@ -2282,14 +2195,10 @@ class CAllocatorImpl(Allocator, Flag!"indirect" indirect = No.indirect)
     Calls `impl.deallocateAll()` and returns the result if defined,
     otherwise returns `false`.
     */
-    override bool deallocateAll()
-    {
-        static if (hasMember!(Allocator, "deallocateAll"))
-        {
+    override bool deallocateAll() {
+        static if (hasMember!(Allocator, "deallocateAll")) {
             return impl.deallocateAll();
-        }
-        else
-        {
+        } else {
             return false;
         }
     }
@@ -2297,14 +2206,10 @@ class CAllocatorImpl(Allocator, Flag!"indirect" indirect = No.indirect)
     /**
     Forwards to `impl.empty()` if defined, otherwise returns `Ternary.unknown`.
     */
-    override Ternary empty()
-    {
-        static if (hasMember!(Allocator, "empty"))
-        {
+    override Ternary empty() {
+        static if (hasMember!(Allocator, "empty")) {
             return Ternary(impl.empty);
-        }
-        else
-        {
+        } else {
             return Ternary.unknown;
         }
     }
@@ -2312,14 +2217,10 @@ class CAllocatorImpl(Allocator, Flag!"indirect" indirect = No.indirect)
     /**
     Returns `impl.allocateAll()` if present, `null` otherwise.
     */
-    override void[] allocateAll()
-    {
-        static if (hasMember!(Allocator, "allocateAll"))
-        {
+    override void[] allocateAll() {
+        static if (hasMember!(Allocator, "allocateAll")) {
             return impl.allocateAll();
-        }
-        else
-        {
+        } else {
             return null;
         }
     }
@@ -2334,51 +2235,44 @@ that is directly usable by non-templated code.
 Usually `CSharedAllocatorImpl` is used indirectly by calling
 $(LREF processAllocator).
 */
-class CSharedAllocatorImpl(Allocator, Flag!"indirect" indirect = No.indirect)
-    : ISharedAllocator
-{
+class CSharedAllocatorImpl(Allocator, Flag!"indirect" indirect = No.indirect) : ISharedAllocator {
     import std.traits : hasMember;
 
     /**
     The implementation is available as a public member.
     */
-    static if (indirect)
-    {
+    static if (indirect) {
         private shared Allocator* pimpl;
-        ref Allocator impl() shared
-        {
+        ref Allocator impl() shared {
             return *pimpl;
         }
-        this(Allocator* pa) shared
-        {
+
+        this(Allocator* pa) shared {
             pimpl = pa;
         }
-    }
-    else
-    {
-        static if (stateSize!Allocator) shared Allocator impl;
-        else alias impl = Allocator.instance;
+    } else {
+        static if (stateSize!Allocator)
+            shared Allocator impl;
+        else
+            alias impl = Allocator.instance;
     }
 
     /// Returns `impl.alignment`.
-    override @property uint alignment() shared
-    {
+    override @property uint alignment() shared {
         return impl.alignment;
     }
 
     /**
     Returns `impl.goodAllocSize(s)`.
     */
-    override size_t goodAllocSize(size_t s) shared
-    {
+    override size_t goodAllocSize(size_t s) shared {
         return impl.goodAllocSize(s);
     }
 
     /**
     Returns `impl.allocate(s)`.
     */
-    override void[] allocate(size_t s, TypeInfo ti = null) shared
-    {
+    override void[] allocate(size_t s, TypeInfo ti = null) shared {
         return impl.allocate(s);
     }
 
@@ -2386,8 +2280,7 @@ class CSharedAllocatorImpl(Allocator, Flag!"indirect" indirect = No.indirect)
     If `impl.alignedAllocate` exists, calls it and returns the result.
     Otherwise, always returns `null`.
     */
-    override void[] alignedAllocate(size_t s, uint a) shared
-    {
+    override void[] alignedAllocate(size_t s, uint a) shared {
         static if (hasMember!(Allocator, "alignedAllocate"))
             return impl.alignedAllocate(s, a);
         else
@@ -2398,15 +2291,15 @@ class CSharedAllocatorImpl(Allocator, Flag!"indirect" indirect = No.indirect)
     If `Allocator` implements `owns`, forwards to it. Otherwise, returns
     `Ternary.unknown`.
     */
-    override Ternary owns(void[] b) shared
-    {
-        static if (hasMember!(Allocator, "owns")) return impl.owns(b);
-        else return Ternary.unknown;
+    override Ternary owns(void[] b) shared {
+        static if (hasMember!(Allocator, "owns"))
+            return impl.owns(b);
+        else
+            return Ternary.unknown;
     }
 
     /// Returns $(D impl.expand(b, s)) if defined, `false` otherwise.
-    override bool expand(ref void[] b, size_t s) shared
-    {
+    override bool expand(ref void[] b, size_t s) shared {
         static if (hasMember!(Allocator, "expand"))
             return impl.expand(b, s);
         else
@@ -2414,33 +2307,24 @@ class CSharedAllocatorImpl(Allocator, Flag!"indirect" indirect = No.indirect)
     }
 
     /// Returns $(D impl.reallocate(b, s)).
-    override bool reallocate(ref void[] b, size_t s) shared
-    {
+    override bool reallocate(ref void[] b, size_t s) shared {
         return impl.reallocate(b, s);
     }
 
     /// Forwards to `impl.alignedReallocate` if defined, `false` otherwise.
-    bool alignedReallocate(ref void[] b, size_t s, uint a) shared
-    {
-        static if (!hasMember!(Allocator, "alignedAllocate"))
-        {
+    bool alignedReallocate(ref void[] b, size_t s, uint a) shared {
+        static if (!hasMember!(Allocator, "alignedAllocate")) {
             return false;
-        }
-        else
-        {
+        } else {
             return impl.alignedReallocate(b, s, a);
         }
     }
 
     // Undocumented for now
-    Ternary resolveInternalPointer(const void* p, ref void[] result) shared
-    {
-        static if (hasMember!(Allocator, "resolveInternalPointer"))
-        {
+    Ternary resolveInternalPointer(const void* p, ref void[] result) shared {
+        static if (hasMember!(Allocator, "resolveInternalPointer")) {
             return impl.resolveInternalPointer(p, result);
-        }
-        else
-        {
+        } else {
             return Ternary.unknown;
         }
     }
@@ -2449,14 +2333,10 @@ class CSharedAllocatorImpl(Allocator, Flag!"indirect" indirect = No.indirect)
     If `impl.deallocate` is not defined, returns `false`. Otherwise it forwards
     the call.
     */
-    override bool deallocate(void[] b) shared
-    {
-        static if (hasMember!(Allocator, "deallocate"))
-        {
+    override bool deallocate(void[] b) shared {
+        static if (hasMember!(Allocator, "deallocate")) {
             return impl.deallocate(b);
-        }
-        else
-        {
+        } else {
             return false;
         }
     }
@@ -2465,14 +2345,10 @@ class CSharedAllocatorImpl(Allocator, Flag!"indirect" indirect = No.indirect)
     Calls `impl.deallocateAll()` and returns the result if defined,
     otherwise returns `false`.
     */
-    override bool deallocateAll() shared
-    {
-        static if (hasMember!(Allocator, "deallocateAll"))
-        {
+    override bool deallocateAll() shared {
+        static if (hasMember!(Allocator, "deallocateAll")) {
             return impl.deallocateAll();
-        }
-        else
-        {
+        } else {
             return false;
         }
     }
@@ -2480,14 +2356,10 @@ class CSharedAllocatorImpl(Allocator, Flag!"indirect" indirect = No.indirect)
     /**
     Forwards to `impl.empty()` if defined, otherwise returns `Ternary.unknown`.
     */
-    override Ternary empty() shared
-    {
-        static if (hasMember!(Allocator, "empty"))
-        {
+    override Ternary empty() shared {
+        static if (hasMember!(Allocator, "empty")) {
             return Ternary(impl.empty);
-        }
-        else
-        {
+        } else {
             return Ternary.unknown;
         }
     }
@@ -2495,23 +2367,17 @@ class CSharedAllocatorImpl(Allocator, Flag!"indirect" indirect = No.indirect)
     /**
     Returns `impl.allocateAll()` if present, `null` otherwise.
     */
-    override void[] allocateAll() shared
-    {
-        static if (hasMember!(Allocator, "allocateAll"))
-        {
+    override void[] allocateAll() shared {
+        static if (hasMember!(Allocator, "allocateAll")) {
             return impl.allocateAll();
-        }
-        else
-        {
+        } else {
             return null;
         }
     }
 }
 
-
 // Example in intro above
-@system unittest
-{
+@system unittest {
     // Allocate an int, initialize it with 42
     int* p = theAllocator.make!int(42);
     assert(*p == 42);
@@ -2543,9 +2409,7 @@ class CSharedAllocatorImpl(Allocator, Flag!"indirect" indirect = No.indirect)
     theAllocator.dispose(arr);
 }
 
-__EOF__
-
-/**
+__EOF__ /**
 
 Stores an allocator object in thread-local storage (i.e. non-$(D shared) D
 global). $(D ThreadLocal!A) is a subtype of $(D A) so it appears to implement
@@ -2557,11 +2421,9 @@ state is not stored as members of $(D Mallocator), but instead is hidden in the
 C library implementation.
 
 */
-struct ThreadLocal(A)
-{
-    static assert(stateSize!A,
-        typeof(A).stringof
-        ~ " does not have state so it cannot be used with ThreadLocal");
+struct ThreadLocal(A) {
+    static assert(stateSize!A, typeof(A)
+            .stringof ~ " does not have state so it cannot be used with ThreadLocal");
 
     /**
     The allocator instance.
@@ -2584,8 +2446,7 @@ struct ThreadLocal(A)
 }
 
 ///
-unittest
-{
+unittest {
     static assert(!is(ThreadLocal!Mallocator));
     static assert(!is(ThreadLocal!GCAllocator));
     alias ThreadLocal!(FreeList!(GCAllocator, 0, 8)) Allocator;
@@ -2604,100 +2465,75 @@ Warning: currently $(D EmbeddedTree) is not using rebalancing, so it may
 degenerate. A red-black tree implementation storing the color with one of the
 pointers is planned for the future.
 */
-private struct EmbeddedTree(T, alias less)
-{
-    static struct Node
-    {
+private struct EmbeddedTree(T, alias less) {
+    static struct Node {
         T payload;
-        Node* left, right;
+        Node * left, right;
     }
 
-    private Node* root;
+    private Node * root;
 
-    private Node* insert(Node* n, ref Node* backref)
-    {
+    private Node * insert(Node * n, ref Node * backref) {
         backref = n;
         n.left = n.right = null;
         return n;
     }
 
-    Node* find(Node* data)
-    {
-        for (auto n = root; n; )
-        {
-            if (less(data, n))
-            {
+    Node * find(Node * data) {
+        for (auto n = root; n;) {
+            if (less(data, n)) {
                 n = n.left;
-            }
-            else if (less(n, data))
-            {
+            } else if (less(n, data)) {
                 n = n.right;
-            }
-            else
-            {
+            } else {
                 return n;
             }
         }
         return null;
     }
 
-    Node* insert(Node* data)
-    {
-        if (!root)
-        {
+    Node * insert(Node * data) {
+        if (!root) {
             root = data;
             data.left = data.right = null;
             return root;
         }
         auto n = root;
-        for (;;)
-        {
-            if (less(data, n))
-            {
-                if (!n.left)
-                {
+        for (;;) {
+            if (less(data, n)) {
+                if (!n.left) {
                     // Found insertion point
                     return insert(data, n.left);
                 }
                 n = n.left;
-            }
-            else if (less(n, data))
-            {
-                if (!n.right)
-                {
+            } else if (less(n, data)) {
+                if (!n.right) {
                     // Found insertion point
                     return insert(data, n.right);
                 }
                 n = n.right;
-            }
-            else
-            {
+            } else {
                 // Found
                 return n;
             }
-            if (!n) return null;
+            if (!n)
+                return null;
         }
     }
 
-    Node* remove(Node* data)
-    {
+    Node * remove(Node * data) {
         auto n = root;
-        Node* parent = null;
-        for (;;)
-        {
-            if (!n) return null;
-            if (less(data, n))
-            {
+        Node * parent = null;
+        for (;;) {
+            if (!n)
+                return null;
+            if (less(data, n)) {
                 parent = n;
                 n = n.left;
-            }
-            else if (less(n, data))
-            {
+            } else if (less(n, data)) {
                 parent = n;
                 n = n.right;
-            }
-            else
-            {
+            } else {
                 // Found
                 remove(n, parent);
                 return n;
@@ -2705,99 +2541,86 @@ private struct EmbeddedTree(T, alias less)
         }
     }
 
-    private void remove(Node* n, Node* parent)
-    {
+    private void remove(Node * n, Node * parent) {
         assert(n);
         assert(!parent || parent.left == n || parent.right == n);
-        Node** referrer = parent
-            ? (parent.left == n ? &parent.left : &parent.right)
-            : &root;
-        if (!n.left)
-        {
-            *referrer = n.right;
-        }
-        else if (!n.right)
-        {
-            *referrer = n.left;
-        }
-        else
-        {
+        Node *  * referrer = parent ? (parent.left == n ?  & parent.left :  & parent.right) :  & root;
+        if (!n.left) {
+             * referrer = n.right;
+        } else if (!n.right) {
+             * referrer = n.left;
+        } else {
             // Find the leftmost child in the right subtree
             auto leftmost = n.right;
-            Node** leftmostReferrer = &n.right;
-            while (leftmost.left)
-            {
-                leftmostReferrer = &leftmost.left;
+            Node *  * leftmostReferrer =  & n.right;
+            while (leftmost.left) {
+                leftmostReferrer =  & leftmost.left;
                 leftmost = leftmost.left;
             }
             // Unlink leftmost from there
-            *leftmostReferrer = leftmost.right;
+             * leftmostReferrer = leftmost.right;
             // Link leftmost in lieu of n
             leftmost.left = n.left;
             leftmost.right = n.right;
-            *referrer = leftmost;
+             * referrer = leftmost;
         }
     }
 
-    Ternary empty() const
-    {
+    Ternary empty() const {
         return Ternary(!root);
     }
 
-    void dump()
-    {
-        writeln(typeid(this), " @ ", cast(void*) &this);
+    void dump() {
+        writeln(typeid(this), " @ ", cast(void * ) & this);
         dump(root, 3);
     }
 
-    void dump(Node* r, uint indent)
-    {
+    void dump(Node * r, uint indent) {
         write(repeat(' ', indent).array);
-        if (!r)
-        {
+        if (!r) {
             writeln("(null)");
             return;
         }
-        writeln(r.payload, " @ ", cast(void*) r);
+        writeln(r.payload, " @ ", cast(void * ) r);
         dump(r.left, indent + 3);
         dump(r.right, indent + 3);
     }
 
-    void assertSane()
-    {
-        static bool isBST(Node* r, Node* lb, Node* ub)
-        {
-            if (!r) return true;
-            if (lb && !less(lb, r)) return false;
-            if (ub && !less(r, ub)) return false;
-            return isBST(r.left, lb, r) &&
-                isBST(r.right, r, ub);
+    void assertSane() {
+        static bool isBST(Node * r, Node * lb, Node * ub) {
+            if (!r)
+                return true;
+            if (lb && !less(lb, r))
+                return false;
+            if (ub && !less(r, ub))
+                return false;
+            return isBST(r.left, lb, r) && isBST(r.right, r, ub);
         }
-        if (isBST(root, null, null)) return;
+        if (isBST(root, null, null))
+            return;
         dump;
         assert(0);
     }
 }
 
-unittest
-{
+unittest {
     alias a = GCAllocator.instance;
     alias Tree = EmbeddedTree!(int, (a, b) => a.payload < b.payload);
     Tree t;
     assert(t.empty);
-    int[] vals = [ 6, 3, 9, 1, 0, 2, 8, 11 ];
-    foreach (v; vals)
-    {
+    int[] vals = [6, 3, 9, 1, 0, 2, 8, 11];
+    foreach (v; vals) {
         auto n = new Tree.Node(v, null, null);
         assert(t.insert(n));
         assert(n);
         t.assertSane;
     }
     assert(!t.empty);
-    foreach (v; vals)
-    {
-        Tree.Node n = { v };
-        assert(t.remove(&n));
+    foreach (v; vals) {
+        Tree.Node n =  {
+            v
+        };
+        assert(t.remove( & n));
         t.assertSane;
     }
     assert(t.empty);
@@ -2814,10 +2637,8 @@ The implementation stores three additional words with each allocation (one for
 the block size and two for search management).
 
 */
-private struct InternalPointersTree(Allocator)
-{
-    alias Tree = EmbeddedTree!(size_t,
-        (a, b) => cast(void*) a + a.payload < cast(void*) b);
+private struct InternalPointersTree(Allocator) {
+    alias Tree = EmbeddedTree!(size_t, (a, b) => cast(void * ) a + a.payload < cast(void * ) b);
     alias Parent = AffixAllocator!(Allocator, Tree.Node);
 
     // Own state
@@ -2828,25 +2649,27 @@ private struct InternalPointersTree(Allocator)
     /**
     The implementation is available as a public member.
     */
-    static if (stateSize!Parent) Parent parent;
-    else alias parent = Parent.instance;
+    static if (stateSize!Parent)
+        Parent parent;
+    else
+        alias parent = Parent.instance;
 
     /// Allocator API.
-    void[] allocate(size_t bytes)
-    {
+    void[] allocate(size_t bytes) {
         auto r = parent.allocate(bytes);
-        if (!r.ptr) return r;
-        Tree.Node* n = &parent.prefix(r);
+        if (!r.ptr)
+            return r;
+        Tree.Node * n =  & parent.prefix(r);
         n.payload = bytes;
         blockMap.insert(n) || assert(0);
         return r;
     }
 
     /// Ditto
-    bool deallocate(void[] b)
-    {
-        if (!b.ptr) return;
-        Tree.Node* n = &parent.prefix(b);
+    bool deallocate(void[] b) {
+        if (!b.ptr)
+            return;
+        Tree.Node * n =  & parent.prefix(b);
         blockMap.remove(n) || assert(false);
         parent.deallocate(b);
         return true;
@@ -2854,58 +2677,46 @@ private struct InternalPointersTree(Allocator)
 
     /// Ditto
     static if (hasMember!(Allocator, "reallocate"))
-    bool reallocate(ref void[] b, size_t s)
-    {
-        auto n = &parent.prefix(b);
-        assert(n.payload == b.length);
-        blockMap.remove(n) || assert(0);
-        if (!parent.reallocate(b, s))
-        {
-            // Failed, must reinsert the same node in the tree
+        bool reallocate(ref void[] b, size_t s) {
+            auto n =  & parent.prefix(b);
             assert(n.payload == b.length);
+            blockMap.remove(n) || assert(0);
+            if (!parent.reallocate(b, s)) {
+                // Failed, must reinsert the same node in the tree
+                assert(n.payload == b.length);
+                blockMap.insert(n) || assert(0);
+                return false;
+            }
+            // Insert the new node
+            n =  & parent.prefix(b);
+            n.payload = s;
             blockMap.insert(n) || assert(0);
-            return false;
+            return true;
         }
-        // Insert the new node
-        n = &parent.prefix(b);
-        n.payload = s;
-        blockMap.insert(n) || assert(0);
-        return true;
-    }
 
     /// Ditto
-    Ternary owns(void[] b)
-    {
+    Ternary owns(void[] b) {
         void[] result;
         return resolveInternalPointer(b.ptr, result);
     }
 
     /// Ditto
-    Ternary empty()
-    {
+    Ternary empty() {
         return Ternary(blockMap.empty);
     }
 
     /** Returns the block inside which $(D p) resides, or $(D null) if the
     pointer does not belong.
     */
-    Ternary resolveInternalPointer(const void* p, ref void[] result)
-    {
+    Ternary resolveInternalPointer(const void * p, ref void[] result) {
         // Must define a custom find
-        Tree.Node* find()
-        {
-            for (auto n = blockMap.root; n; )
-            {
-                if (p < n)
-                {
+        Tree.Node * find() {
+            for (auto n = blockMap.root; n;) {
+                if (p < n) {
                     n = n.left;
-                }
-                else if (p > (cast(void*) (n + 1)) + n.payload)
-                {
+                } else if (p > (cast(void * )(n + 1)) + n.payload) {
                     n = n.right;
-                }
-                else
-                {
+                } else {
                     return n;
                 }
             }
@@ -2913,25 +2724,23 @@ private struct InternalPointersTree(Allocator)
         }
 
         auto n = find();
-        if (!n) return Ternary.no;
-        result = (cast(void*) (n + 1))[0 .. n.payload];
+        if (!n)
+            return Ternary.no;
+        result = (cast(void * )(n + 1))[0 .. n.payload];
         return Ternary.yes;
     }
 }
 
-unittest
-{
+unittest {
     InternalPointersTree!(Mallocator) a;
-    int[] vals = [ 6, 3, 9, 1, 2, 8, 11 ];
+    int[] vals = [6, 3, 9, 1, 2, 8, 11];
     void[][] allox;
-    foreach (v; vals)
-    {
+    foreach (v; vals) {
         allox ~= a.allocate(v);
     }
     a.blockMap.assertSane;
 
-    foreach (b; allox)
-    {
+    foreach (b; allox) {
         void[] p;
         Ternary r = a.resolveInternalPointer(b.ptr, p);
         assert(p.ptr is b.ptr && p.length >= b.length);
@@ -2943,8 +2752,7 @@ unittest
         assert(a.resolveInternalPointer(bogus.ptr, p) == Ternary.no);
     }
 
-    foreach (b; allox.randomCover)
-    {
+    foreach (b; allox.randomCover) {
         a.deallocate(b);
     }
 
@@ -2952,62 +2760,49 @@ unittest
 }
 
 //version (std_allocator_benchmark)
-unittest
-{
-    static void testSpeed(A)()
-    {
-        static if (stateSize!A) A a;
-        else alias a = A.instance;
+unittest {
+    static void testSpeed(A)() {
+        static if (stateSize!A)
+            A a;
+        else
+            alias a = A.instance;
 
         void[][128] bufs;
 
         import std.random;
-        foreach (i; 0 .. 100_000)
-        {
+
+        foreach (i; 0 .. 100_000) {
             auto j = uniform(0, bufs.length);
-            switch (uniform(0, 2))
-            {
-            case 0:
-                a.deallocate(bufs[j]);
+            switch (uniform(0, 2)) {
+            case 0 : a.deallocate(bufs[j]);
                 bufs[j] = a.allocate(uniform(0, 4096));
                 break;
-            case 1:
-                a.deallocate(bufs[j]);
+            case 1 : a.deallocate(bufs[j]);
                 bufs[j] = null;
                 break;
-            default:
-                assert(0);
+            default : assert(0);
             }
         }
     }
 
     alias FList = FreeList!(GCAllocator, 0, unbounded);
-    alias A = Segregator!(
-        8, FreeList!(GCAllocator, 0, 8),
-        128, Bucketizer!(FList, 1, 128, 16),
-        256, Bucketizer!(FList, 129, 256, 32),
-        512, Bucketizer!(FList, 257, 512, 64),
-        1024, Bucketizer!(FList, 513, 1024, 128),
-        2048, Bucketizer!(FList, 1025, 2048, 256),
-        3584, Bucketizer!(FList, 2049, 3584, 512),
-        4072 * 1024, AllocatorList!(
-            (size_t n) => BitmappedBlock!(4096)(GCAllocator.instance.allocate(
-                max(n, 4072 * 1024)))),
-        GCAllocator
-    );
+    alias A = Segregator!(8, FreeList!(GCAllocator, 0, 8), 128,
+            Bucketizer!(FList, 1, 128, 16), 256, Bucketizer!(FList, 129, 256,
+                32), 512, Bucketizer!(FList, 257, 512, 64), 1024,
+            Bucketizer!(FList, 513, 1024, 128), 2048, Bucketizer!(FList, 1025,
+                2048, 256), 3584, Bucketizer!(FList, 2049, 3584, 512),
+            4072 * 1024, AllocatorList!((size_t n) => BitmappedBlock!(4096)(
+                GCAllocator.instance.allocate(max(n, 4072 * 1024)))), GCAllocator);
 
     import std.datetime, stdx.allocator.null_allocator;
-    if (false) writeln(benchmark!(
-        testSpeed!NullAllocator,
-        testSpeed!Mallocator,
-        testSpeed!GCAllocator,
-        testSpeed!(ThreadLocal!A),
-        testSpeed!(A),
-    )(20)[].map!(t => t.to!("seconds", double)));
+
+    if (false)
+        writeln(benchmark!(testSpeed!NullAllocator, testSpeed!Mallocator,
+                testSpeed!GCAllocator, testSpeed!(ThreadLocal!A), testSpeed!(A),)(20)[].map!(
+                t => t.to!("seconds", double)));
 }
 
-unittest
-{
+unittest {
     auto a = allocatorObject(Mallocator.instance);
     auto b = a.allocate(100);
     assert(b.length == 100);
@@ -3025,8 +2820,7 @@ unittest
 }
 
 ///
-unittest
-{
+unittest {
     /// Define an allocator bound to the built-in GC.
     IAllocator alloc = allocatorObject(GCAllocator.instance);
     auto b = alloc.allocate(42);
@@ -3036,21 +2830,13 @@ unittest
     // Define an elaborate allocator and bind it to the class API.
     // Note that the same variable "alloc" is used.
     alias FList = FreeList!(GCAllocator, 0, unbounded);
-    alias A = ThreadLocal!(
-        Segregator!(
-            8, FreeList!(GCAllocator, 0, 8),
-            128, Bucketizer!(FList, 1, 128, 16),
-            256, Bucketizer!(FList, 129, 256, 32),
-            512, Bucketizer!(FList, 257, 512, 64),
-            1024, Bucketizer!(FList, 513, 1024, 128),
-            2048, Bucketizer!(FList, 1025, 2048, 256),
-            3584, Bucketizer!(FList, 2049, 3584, 512),
-            4072 * 1024, AllocatorList!(
-                (n) => BitmappedBlock!(4096)(GCAllocator.instance.allocate(
-                    max(n, 4072 * 1024)))),
-            GCAllocator
-        )
-    );
+    alias A = ThreadLocal!(Segregator!(8, FreeList!(GCAllocator, 0, 8), 128,
+            Bucketizer!(FList, 1, 128, 16), 256, Bucketizer!(FList, 129, 256,
+            32), 512, Bucketizer!(FList, 257, 512, 64), 1024,
+            Bucketizer!(FList, 513, 1024, 128), 2048, Bucketizer!(FList, 1025,
+            2048, 256), 3584, Bucketizer!(FList, 2049, 3584, 512), 4072 * 1024,
+            AllocatorList!((n) => BitmappedBlock!(4096)(GCAllocator.instance.allocate(max(n,
+            4072 * 1024)))), GCAllocator));
 
     auto alloc2 = allocatorObject(A.instance);
     b = alloc.allocate(101);

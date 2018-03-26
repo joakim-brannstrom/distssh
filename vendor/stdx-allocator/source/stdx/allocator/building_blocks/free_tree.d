@@ -47,47 +47,51 @@ appropriate small object allocator.
 
 The following methods are defined if $(D ParentAllocator) defines them, and forward to it: $(D allocateAll), $(D expand), $(D owns), $(D reallocate).
 */
-struct FreeTree(ParentAllocator)
-{
+struct FreeTree(ParentAllocator) {
     static assert(ParentAllocator.alignment % size_t.alignof == 0,
-        "FreeTree must be on top of a word-aligned allocator");
+            "FreeTree must be on top of a word-aligned allocator");
 
     import std.algorithm.comparison : min, max;
     import std.algorithm.mutation : swap;
     import std.traits : hasMember;
 
     // State
-    static if (stateSize!ParentAllocator) private ParentAllocator parent;
-    else private alias parent = ParentAllocator.instance;
+    static if (stateSize!ParentAllocator)
+        private ParentAllocator parent;
+    else
+        private alias parent = ParentAllocator.instance;
     private Node* root; // that's the entire added state
 
-    private struct Node
-    {
+    private struct Node {
         Node*[2] kid;
         Node* sibling;
         size_t size;
-        ref Node* left() { return kid[0]; }
-        ref Node* right() { return kid[1]; }
+        ref Node* left() {
+            return kid[0];
+        }
+
+        ref Node* right() {
+            return kid[1];
+        }
     }
 
     // Removes "which" from the tree, returns the memory it occupied
-    private void[] remove(ref Node* which)
-    {
+    private void[] remove(ref Node* which) {
         assert(which);
         assert(!which.sibling);
         auto result = (cast(ubyte*) which)[0 .. which.size];
-        if (!which.right) which = which.left;
-        else if (!which.left) which = which.right;
-        else
-        {
+        if (!which.right)
+            which = which.left;
+        else if (!which.left)
+            which = which.right;
+        else {
             // result has two kids
             static bool toggler;
             // Crude randomization: alternate left/right choices
             toggler = !toggler;
             auto newRoot = which.kid[toggler], orphan = which.kid[!toggler];
             which = newRoot;
-            for (Node* n = void; (n = newRoot.kid[!toggler]) !is null; )
-            {
+            for (Node* n = void; (n = newRoot.kid[!toggler]) !is null;) {
                 newRoot = n;
             }
             newRoot.kid[!toggler] = orphan;
@@ -95,13 +99,11 @@ struct FreeTree(ParentAllocator)
         return result;
     }
 
-    private void[] findAndRemove(ref Node* n, size_t s)
-    {
-        if (!n) return null;
-        if (s == n.size)
-        {
-            if (auto sis = n.sibling)
-            {
+    private void[] findAndRemove(ref Node* n, size_t s) {
+        if (!n)
+            return null;
+        if (s == n.size) {
+            if (auto sis = n.sibling) {
                 // Nice, give away one from the freelist
                 auto result = (cast(ubyte*) sis)[0 .. sis.size];
                 n.sibling = sis.sibling;
@@ -112,53 +114,48 @@ struct FreeTree(ParentAllocator)
         return findAndRemove(n.kid[s > n.size], s);
     }
 
-    debug(std_experimental_allocator_free_tree)
-    private void dump()
-    {
+    debug (std_experimental_allocator_free_tree) private void dump() {
         import std.stdio : writef, writefln, writeln;
+
         writeln(typeof(this).stringof, "@", &this, " {");
-        scope(exit) writeln("}");
+        scope (exit)
+            writeln("}");
 
-        if (!root) return;
+        if (!root)
+            return;
 
-        static void recurse(Node* n, uint indent = 4)
-        {
-            if (!n)
-            {
+        static void recurse(Node* n, uint indent = 4) {
+            if (!n) {
                 writefln("%*s(null)", indent, "");
                 return;
             }
-            for (auto sis = n; sis; sis = sis.sibling)
-            {
-                writef("%*s%x (%s bytes) ", indent, "",
-                    cast(void*) n, n.size);
+            for (auto sis = n; sis; sis = sis.sibling) {
+                writef("%*s%x (%s bytes) ", indent, "", cast(void*) n, n.size);
             }
             writeln;
-            if (!n.left && !n.right) return;
+            if (!n.left && !n.right)
+                return;
             recurse(n.left, indent + 4);
             recurse(n.right, indent + 4);
         }
+
         recurse(root);
     }
 
-    private string formatSizes()
-    {
+    private string formatSizes() {
         string result = "(";
-        void recurse(Node* n)
-        {
-            if (!n)
-            {
+        void recurse(Node* n) {
+            if (!n) {
                 result ~= "_";
                 return;
             }
             import std.conv : to;
+
             result ~= to!string(n.size);
-            for (auto sis = n.sibling; sis; sis = sis.sibling)
-            {
+            for (auto sis = n.sibling; sis; sis = sis.sibling) {
                 result ~= "+moar";
             }
-            if (n.left || n.right)
-            {
+            if (n.left || n.right) {
                 result ~= " (";
                 recurse(n.left);
                 result ~= ' ';
@@ -166,42 +163,39 @@ struct FreeTree(ParentAllocator)
                 result ~= ")";
             }
         }
+
         recurse(root);
         return result ~= ")";
     }
 
-    private static void rotate(ref Node* parent, bool toRight)
-    {
+    private static void rotate(ref Node* parent, bool toRight) {
         assert(parent);
         auto opposing = parent.kid[!toRight];
-        if (!opposing) return;
+        if (!opposing)
+            return;
         parent.kid[!toRight] = opposing.kid[toRight];
         opposing.kid[toRight] = parent;
         parent = opposing;
     }
 
     // Inserts which into the tree, making it the new root
-    private void insertAsRoot(Node* which)
-    {
+    private void insertAsRoot(Node* which) {
         assert(which);
-        debug(std_experimental_allocator_free_tree)
-        {
+        debug (std_experimental_allocator_free_tree) {
             assertValid;
-            scope(exit) assertValid;
+            scope (exit)
+                assertValid;
         }
 
-        static void recurse(ref Node* where, Node* which)
-        {
-            if (!where)
-            {
+        static void recurse(ref Node* where, Node* which) {
+            if (!where) {
                 where = which;
                 which.left = null;
                 which.right = null;
                 which.sibling = null;
                 return;
             }
-            if (which.size == where.size)
-            {
+            if (which.size == where.size) {
                 // Special handling of duplicates
                 which.sibling = where.sibling;
                 where.sibling = which;
@@ -213,27 +207,26 @@ struct FreeTree(ParentAllocator)
             recurse(where.kid[goRight], which);
             rotate(where, !goRight);
         }
+
         recurse(root, which);
     }
 
-    private void assertValid()
-    {
-        debug(std_experimental_allocator_free_tree)
-        {
-            static bool isBST(Node* n, size_t lb = 0, size_t ub = size_t.max)
-            {
-                if (!n) return true;
-                for (auto sis = n.sibling; sis; sis = sis.sibling)
-                {
+    private void assertValid() {
+        debug (std_experimental_allocator_free_tree) {
+            static bool isBST(Node* n, size_t lb = 0, size_t ub = size_t.max) {
+                if (!n)
+                    return true;
+                for (auto sis = n.sibling; sis; sis = sis.sibling) {
                     assert(n.size == sis.size);
                     assert(sis.left is null);
                     assert(sis.right is null);
                 }
-                return lb < n.size && n.size <= ub
-                    && isBST(n.left, lb, min(ub, n.size))
-                    && isBST(n.right, max(lb, n.size), ub);
+                return lb < n.size && n.size <= ub && isBST(n.left, lb, min(ub,
+                        n.size)) && isBST(n.right, max(lb, n.size), ub);
             }
-            if (isBST(root)) return;
+
+            if (isBST(root))
+                return;
             dump;
             assert(0);
         }
@@ -254,22 +247,19 @@ struct FreeTree(ParentAllocator)
     allocator.
     */
     static if (hasMember!(ParentAllocator, "deallocate"))
-    ~this()
-    {
-        clear;
-    }
+         ~this() {
+            clear;
+        }
 
     /**
     Returns $(D parent.goodAllocSize(max(Node.sizeof, s))).
     */
     static if (stateSize!ParentAllocator)
-        size_t goodAllocSize(size_t s)
-        {
+        size_t goodAllocSize(size_t s) {
             return parent.goodAllocSize(max(Node.sizeof, s));
         }
     else
-        static size_t goodAllocSize(size_t s)
-        {
+        static size_t goodAllocSize(size_t s) {
             return parent.goodAllocSize(max(Node.sizeof, s));
         }
 
@@ -285,45 +275,44 @@ struct FreeTree(ParentAllocator)
     TODO: Splitting and coalescing should be implemented if $(D ParentAllocator) does not defined $(D deallocate).
 
     */
-    void[] allocate(size_t n)
-    {
+    void[] allocate(size_t n) {
         assertValid;
-        if (n == 0) return null;
+        if (n == 0)
+            return null;
 
         immutable s = goodAllocSize(n);
 
         // Consult the free tree.
         auto result = findAndRemove(root, s);
-        if (result.ptr) return result.ptr[0 .. n];
+        if (result.ptr)
+            return result.ptr[0 .. n];
 
         // No block found, try the parent allocator.
         result = parent.allocate(s);
-        if (result.ptr) return result.ptr[0 .. n];
+        if (result.ptr)
+            return result.ptr[0 .. n];
 
         // Parent ran out of juice, desperation mode on
-        static if (hasMember!(ParentAllocator, "deallocate"))
-        {
+        static if (hasMember!(ParentAllocator, "deallocate")) {
             clear;
             // Try parent allocator again.
             result = parent.allocate(s);
-            if (result.ptr) return result.ptr[0 .. n];
+            if (result.ptr)
+                return result.ptr[0 .. n];
             return null;
-        }
-        else
-        {
+        } else {
             // TODO: get smart here
             return null;
         }
     }
 
     // Forwarding methods
-    mixin(forwardToMember("parent",
-        "allocateAll", "expand", "owns", "reallocate"));
+    mixin(forwardToMember("parent", "allocateAll", "expand", "owns", "reallocate"));
 
     /** Places $(D b) into the free tree. */
-    bool deallocate(void[] b)
-    {
-        if (!b.ptr) return true;
+    bool deallocate(void[] b) {
+        if (!b.ptr)
+            return true;
         auto which = cast(Node*) b.ptr;
         which.size = goodAllocSize(b.length);
         // deliberately don't initialize which.left and which.right
@@ -332,9 +321,10 @@ struct FreeTree(ParentAllocator)
         return true;
     }
 
-    @system unittest // test a few simple configurations
+    @system unittest  // test a few simple configurations
     {
         import stdx.allocator.gc_allocator;
+
         FreeTree!GCAllocator a;
         auto b1 = a.allocate(10000);
         auto b2 = a.allocate(20000);
@@ -353,17 +343,19 @@ struct FreeTree(ParentAllocator)
         assert(a.formatSizes == "(_)", a.formatSizes);
     }
 
-    @system unittest // build a complex free tree
+    @system unittest  // build a complex free tree
     {
         import stdx.allocator.gc_allocator, std.range;
+
         FreeTree!GCAllocator a;
-        uint[] sizes = [3008,704,1856,576,1632,672,832,1856,1120,2656,1216,672,
-            448,992,2400,1376,2688,2656,736,1440];
+        uint[] sizes = [
+            3008, 704, 1856, 576, 1632, 672, 832, 1856, 1120, 2656, 1216, 672,
+            448, 992, 2400, 1376, 2688, 2656, 736, 1440
+        ];
         void[][] allocs;
         foreach (s; sizes)
             allocs ~= a.allocate(s);
-        foreach_reverse (b; allocs)
-        {
+        foreach_reverse (b; allocs) {
             assert(b.ptr);
             a.deallocate(b);
         }
@@ -378,18 +370,18 @@ struct FreeTree(ParentAllocator)
     /** Defined if $(D ParentAllocator.deallocate) exists, and returns to it
     all memory held in the free tree. */
     static if (hasMember!(ParentAllocator, "deallocate"))
-    void clear()
-    {
-        void recurse(Node* n)
-        {
-            if (!n) return;
-            recurse(n.left);
-            recurse(n.right);
-            parent.deallocate((cast(ubyte*) n)[0 .. n.size]);
+        void clear() {
+            void recurse(Node* n) {
+                if (!n)
+                    return;
+                recurse(n.left);
+                recurse(n.right);
+                parent.deallocate((cast(ubyte*) n)[0 .. n.size]);
+            }
+
+            recurse(root);
+            root = null;
         }
-        recurse(root);
-        root = null;
-    }
 
     /**
 
@@ -399,28 +391,26 @@ struct FreeTree(ParentAllocator)
 
     */
     static if (hasMember!(ParentAllocator, "deallocateAll"))
-    bool deallocateAll()
-    {
-        // This is easy, just nuke the root and deallocate all from the
-        // parent
-        root = null;
-        return parent.deallocateAll;
-    }
+        bool deallocateAll() {
+            // This is easy, just nuke the root and deallocate all from the
+            // parent
+            root = null;
+            return parent.deallocateAll;
+        }
 }
 
-@system unittest
-{
+@system unittest {
     import stdx.allocator.gc_allocator;
+
     testAllocator!(() => FreeTree!GCAllocator());
 }
 
-@system unittest // issue 16506
+@system unittest  // issue 16506
 {
     import stdx.allocator.gc_allocator : GCAllocator;
     import stdx.allocator.mallocator : Mallocator;
 
-    static void f(ParentAllocator)(size_t sz)
-    {
+    static void f(ParentAllocator)(size_t sz) {
         static FreeTree!ParentAllocator myAlloc;
         byte[] _payload = cast(byte[]) myAlloc.allocate(sz);
         assert(_payload, "_payload is null");
@@ -433,14 +423,21 @@ struct FreeTree(ParentAllocator)
     f!GCAllocator(1);
 }
 
-@system unittest // issue 16507
+@system unittest  // issue 16507
 {
-    static struct MyAllocator
-    {
+    static struct MyAllocator {
         byte dummy;
         static bool alive = true;
-        void[] allocate(size_t s) { return new byte[](s); }
-        bool deallocate(void[] ) { if (alive) assert(false); return true; }
+        void[] allocate(size_t s) {
+            return new byte[](s);
+        }
+
+        bool deallocate(void[]) {
+            if (alive)
+                assert(false);
+            return true;
+        }
+
         enum alignment = size_t.sizeof;
     }
 
@@ -451,25 +448,25 @@ struct FreeTree(ParentAllocator)
     MyAllocator.alive = false;
 }
 
-@system unittest // "desperation mode"
+@system unittest  // "desperation mode"
 {
     uint myDeallocCounter = 0;
 
-    struct MyAllocator
-    {
+    struct MyAllocator {
         byte[] allocation;
-        void[] allocate(size_t s)
-        {
-            if (allocation.ptr) return null;
+        void[] allocate(size_t s) {
+            if (allocation.ptr)
+                return null;
             allocation = new byte[](s);
             return allocation;
         }
-        bool deallocate(void[] )
-        {
+
+        bool deallocate(void[]) {
             ++myDeallocCounter;
             allocation = null;
             return true;
         }
+
         enum alignment = size_t.sizeof;
     }
 
