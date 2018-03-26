@@ -70,14 +70,7 @@ version (unittest) {
 int appMain(const Options opts) nothrow {
     final switch (opts.mode) with (Options.Mode) {
     case exportEnv:
-        try {
-            cli_exportEnv(opts);
-            return 0;
-        }
-        catch (Exception e) {
-            logger.error(e.msg).collectException;
-        }
-        return 1;
+        return cli_exportEnv(opts);
     case install:
         import std.file : symlink;
 
@@ -103,18 +96,34 @@ int appMain(const Options opts) nothrow {
 
 private:
 
-void cli_exportEnv(const Options opts) {
+int cli_exportEnv(const Options opts) nothrow {
     import std.stdio : writeln;
     import core.sys.posix.sys.stat : fchmod, S_IRUSR, S_IWUSR;
+    import std.process : environment;
 
-    auto fout = File(opts.importEnv, "w");
-    fchmod(fout.fileno, S_IRUSR | S_IWUSR);
-
-    foreach (kv; cloneEnv(environ)) {
-        fout.writefln("%s=%s", kv.key, kv.value);
+    string[string] env;
+    try {
+        env = environment.toAA;
+    }
+    catch (Exception e) {
+        logger.warning(e.msg).collectException;
+        return 1;
     }
 
-    writeln("Exported environment to ", opts.importEnv);
+    try {
+        auto fout = File(opts.importEnv, "w");
+        fchmod(fout.fileno, S_IRUSR | S_IWUSR);
+        foreach (kv; env.byKeyValue) {
+            fout.writefln("%s=%s", kv.key, kv.value);
+        }
+        writeln("Exported environment to ", opts.importEnv);
+    }
+    catch (Exception e) {
+        logger.error(e.msg).collectException;
+        return 1;
+    }
+
+    return 0;
 }
 
 @("shall export the environment to the file")
