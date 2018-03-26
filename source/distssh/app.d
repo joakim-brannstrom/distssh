@@ -265,19 +265,6 @@ int executeOnHost(const Options opts, Host host) nothrow {
     import std.file : thisExePath;
     import std.path : absolutePath;
     import std.process : tryWait, Redirect, pipeProcess;
-    import std.stdio : stdout, stderr;
-
-    static void forceFlush() nothrow {
-        try {
-            stdout.flush;
-            stderr.flush;
-        }
-        catch (Exception e) {
-        }
-    }
-
-    scope (exit)
-        forceFlush;
 
     // #SPC-draft_remote_cmd_spec
     try {
@@ -300,9 +287,6 @@ int executeOnHost(const Options opts, Host host) nothrow {
             env = readEnv(opts.importEnv.absolutePath);
         pwriter.pack(env);
 
-        const flush_buffers_interval = 1.dur!"seconds";
-        auto flush_buffers = MonoTime.currTime + flush_buffers_interval;
-
         while (true) {
             try {
                 auto st = p.pid.tryWait;
@@ -312,12 +296,6 @@ int executeOnHost(const Options opts, Host host) nothrow {
                 Watchdog.ping(pwriter);
             }
             catch (Exception e) {
-            }
-
-            // #SPC-flush_buffers
-            if (MonoTime.currTime > flush_buffers) {
-                flush_buffers = MonoTime.currTime + flush_buffers_interval;
-                forceFlush;
             }
 
             Thread.sleep(50.dur!"msecs");
@@ -338,6 +316,17 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
     import std.process : spawnProcess, Config, spawnShell, Pid, tryWait,
         thisProcessID;
     import std.utf : toUTF8;
+
+    static void forceFlush() nothrow {
+        import std.stdio : stdout, stderr;
+
+        try {
+            stdout.flush;
+            stderr.flush;
+        }
+        catch (Exception e) {
+        }
+    }
 
     if (opts.command.length == 0)
         return 0;
@@ -396,12 +385,14 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
 
         const parent_pid = getppid;
         const check_parent_interval = 500.dur!"msecs";
+        const flush_buffers_interval = 1.dur!"seconds";
         const timeout = opts.timeout * 2;
 
         int exit_status = 1;
         bool sigint_cleanup;
 
         auto check_parent = MonoTime.currTime + check_parent_interval;
+        auto flush_buffers = MonoTime.currTime + flush_buffers_interval;
 
         auto wd = Watchdog(pread, timeout);
 
@@ -426,6 +417,11 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
                     sigint_cleanup = true;
                     break;
                 }
+            }
+
+            if (MonoTime.currTime > flush_buffers) {
+                flush_buffers = MonoTime.currTime + flush_buffers_interval;
+                forceFlush;
             }
 
             Thread.sleep(50.dur!"msecs");
@@ -539,6 +535,12 @@ int cli_runOnAll(const Options opts) nothrow {
     bool exit_status = true;
     foreach (a; shosts.sort) {
         stdout.writefln("Connecting to %s.", a).collectException;
+        try {
+            // #SPC-flush_buffers
+            stdout.flush;
+        }
+        catch (Exception e) {
+        }
 
         auto status = executeOnHost(opts, a);
 
