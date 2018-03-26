@@ -19,6 +19,7 @@ targetPath "build"
 targetType "executable"
 
 configuration "application" {
+    targetName "distssh"
 }
 
 configuration "server" {
