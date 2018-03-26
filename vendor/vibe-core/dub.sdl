@@ -1,0 +1,39 @@
+name "vibe-core"
+description "The I/O core library of vibe.d."
+authors "Sönke Ludwig"
+copyright "Copyright © 2016-2018, rejectedsoftware e.K."
+license "MIT"
+
+dependency "distssh:eventcore" version="*"
+dependency "distssh:stdx-allocator" version="*"
+
+targetName "vibe_core"
+
+mainSourceFile "source/vibe/appmain.d"
+
+configuration "winapi" {
+	subConfiguration "eventcore" "winapi"
+}
+configuration "winapi-optlink" {
+	subConfiguration "eventcore" "winapi-optlink"
+}
+configuration "epoll" {
+	subConfiguration "eventcore" "epoll"
+}
+configuration "kqueue" {
+	subConfiguration "eventcore" "kqueue"
+}
+configuration "select" {
+	subConfiguration "eventcore" "select"
+}
+configuration "select-optlink" {
+	subConfiguration "eventcore" "select-optlink"
+}
+configuration "libasync" {
+	subConfiguration "eventcore" "libasync"
+}
+
+buildType "unittest" {
+	buildOptions "unittests" "debugMode" "debugInfo"
+	debugVersions "VibeMutexLog" "VibeAsyncLog"
+}

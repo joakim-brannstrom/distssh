@@ -1,0 +1,3 @@
+name "echo-server"
+description "A simple echo protocol server implementation"
+dependency "vibe-core"  path="../../"

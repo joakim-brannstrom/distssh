@@ -1,0 +1,3 @@
+name "bench-http-server"
+description "Minimal partial HTTP server implementation for baseline performance testing"
+dependency "vibe-core"  path="../../"
