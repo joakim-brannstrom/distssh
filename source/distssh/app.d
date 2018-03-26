@@ -317,17 +317,6 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
         thisProcessID;
     import std.utf : toUTF8;
 
-    static void forceFlush() nothrow {
-        import std.stdio : stdout, stderr;
-
-        try {
-            stdout.flush;
-            stderr.flush;
-        }
-        catch (Exception e) {
-        }
-    }
-
     if (opts.command.length == 0)
         return 0;
 
@@ -385,14 +374,12 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
 
         const parent_pid = getppid;
         const check_parent_interval = 500.dur!"msecs";
-        const flush_buffers_interval = 1.dur!"seconds";
         const timeout = opts.timeout * 2;
 
         int exit_status = 1;
         bool sigint_cleanup;
 
         auto check_parent = MonoTime.currTime + check_parent_interval;
-        auto flush_buffers = MonoTime.currTime + flush_buffers_interval;
 
         auto wd = Watchdog(pread, timeout);
 
@@ -417,11 +404,6 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
                     sigint_cleanup = true;
                     break;
                 }
-            }
-
-            if (MonoTime.currTime > flush_buffers) {
-                flush_buffers = MonoTime.currTime + flush_buffers_interval;
-                forceFlush;
             }
 
             Thread.sleep(50.dur!"msecs");
