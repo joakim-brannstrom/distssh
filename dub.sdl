@@ -6,12 +6,14 @@ license "BSL-1.0"
 
 dependency "distssh:msgpack-ll" version="*"
 
-dependency "distssh:eventcore" version="*"
-subConfiguration "distssh:eventcore" "epoll"
+dependency "distssh:vibe-core" version="*"
+subConfiguration "distssh:vibe-core" "epoll"
 
 subPackage "./vendor/msgpack-ll"
 subPackage "./vendor/eventcore"
 subPackage "./vendor/taggedalgebraic"
+subPackage "./vendor/vibe-core"
+subPackage "./vendor/stdx-allocator"
 
 targetPath "build"
 targetType "executable"
