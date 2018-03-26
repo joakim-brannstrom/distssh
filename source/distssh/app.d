@@ -17,8 +17,6 @@ import logger = std.experimental.logger;
 
 static import std.getopt;
 
-extern extern (C) __gshared char** environ;
-
 immutable globalEnvironemntKey = "DISTSSH_HOSTS";
 immutable distShell = "distshell";
 immutable distCmd = "distcmd";
@@ -70,14 +68,7 @@ version (unittest) {
 int appMain(const Options opts) nothrow {
     final switch (opts.mode) with (Options.Mode) {
     case exportEnv:
-        try {
-            cli_exportEnv(opts);
-            return 0;
-        }
-        catch (Exception e) {
-            logger.error(e.msg).collectException;
-        }
-        return 1;
+        return cli_exportEnv(opts);
     case install:
         import std.file : symlink;
 
@@ -103,18 +94,34 @@ int appMain(const Options opts) nothrow {
 
 private:
 
-void cli_exportEnv(const Options opts) {
+int cli_exportEnv(const Options opts) nothrow {
     import std.stdio : writeln;
     import core.sys.posix.sys.stat : fchmod, S_IRUSR, S_IWUSR;
+    import std.process : environment;
 
-    auto fout = File(opts.importEnv, "w");
-    fchmod(fout.fileno, S_IRUSR | S_IWUSR);
-
-    foreach (kv; cloneEnv(environ)) {
-        fout.writefln("%s=%s", kv.key, kv.value);
+    string[string] env;
+    try {
+        env = environment.toAA;
+    }
+    catch (Exception e) {
+        logger.warning(e.msg).collectException;
+        return 1;
     }
 
-    writeln("Exported environment to ", opts.importEnv);
+    try {
+        auto fout = File(opts.importEnv, "w");
+        fchmod(fout.fileno, S_IRUSR | S_IWUSR);
+        foreach (kv; env.byKeyValue) {
+            fout.writefln("%s=%s", kv.key, kv.value);
+        }
+        writeln("Exported environment to ", opts.importEnv);
+    }
+    catch (Exception e) {
+        logger.error(e.msg).collectException;
+        return 1;
+    }
+
+    return 0;
 }
 
 @("shall export the environment to the file")
@@ -282,7 +289,7 @@ int executeOnHost(const Options opts, Host host) nothrow {
 
         ProtocolEnv env;
         if (opts.cloneEnv)
-            env = cloneEnv(environ);
+            env = cloneEnv;
         else
             env = readEnv(opts.importEnv.absolutePath);
         pwriter.pack(env);
@@ -477,9 +484,8 @@ int cli_measureHosts(const Options opts) nothrow {
  */
 int cli_localLoad(WriterT)(scope WriterT writer) nothrow {
     import std.ascii : newline;
-    import std.algorithm : count;
-    import std.string : startsWith;
     import std.conv : to;
+    import std.parallelism : totalCPUs;
     import std.range : takeOne;
 
     try {
@@ -488,7 +494,7 @@ int cli_localLoad(WriterT)(scope WriterT writer) nothrow {
             loadavg = a.to!double;
         }
 
-        double cores = File("/proc/cpuinfo").byLine.filter!(a => a.startsWith("processor")).count;
+        double cores = totalCPUs;
 
         // make sure the loadavg is on a new line because the last line parsed is expected to contain the loadavg.
         writer(newline);
@@ -959,26 +965,19 @@ struct Env {
  *
  * Returns: a clone of the environment.
  */
-auto cloneEnv(char** env) nothrow {
+auto cloneEnv() nothrow {
     import distssh.protocol : ProtocolEnv, EnvVariable;
-    import std.array : appender;
-    import std.string : fromStringz, indexOf;
-
-    static import core.stdc.stdlib;
+    import std.process : environment;
 
     ProtocolEnv app;
 
-    for (size_t i; env[i]!is null; ++i) {
-        const raw = env[i].fromStringz;
-        const pos = raw.indexOf('=');
-
-        if (pos != -1) {
-            string key = raw[0 .. pos].idup;
-            string value;
-            if (pos < raw.length)
-                value = raw[pos + 1 .. $].idup;
-            app ~= EnvVariable(key, value);
+    try {
+        foreach (const a; environment.toAA.byKeyValue) {
+            app ~= EnvVariable(a.key, a.value);
         }
+    }
+    catch (Exception e) {
+        logger.warning(e.msg).collectException;
     }
 
     return app;
@@ -1213,14 +1212,15 @@ auto readEnv(string filename) nothrow {
 
 Host[] hostsFromEnv() nothrow {
     import std.array : array;
-    import std.string : fromStringz, strip;
+    import std.string : strip;
+    import std.process : environment;
 
     static import core.stdc.stdlib;
 
     typeof(return) rval;
 
     try {
-        string hosts_env = core.stdc.stdlib.getenv(&globalEnvironemntKey[0]).fromStringz.idup;
+        string hosts_env = environment.get(globalEnvironemntKey, "").strip;
         rval = hosts_env.splitter(";").map!(a => a.strip)
             .filter!(a => a.length > 0).map!(a => Host(a)).array;
 
