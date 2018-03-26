@@ -1212,14 +1212,15 @@ auto readEnv(string filename) nothrow {
 
 Host[] hostsFromEnv() nothrow {
     import std.array : array;
-    import std.string : fromStringz, strip;
+    import std.string : strip;
+    import std.process : environment;
 
     static import core.stdc.stdlib;
 
     typeof(return) rval;
 
     try {
-        string hosts_env = core.stdc.stdlib.getenv(&globalEnvironemntKey[0]).fromStringz.idup;
+        string hosts_env = environment.get(globalEnvironemntKey, "").strip;
         rval = hosts_env.splitter(";").map!(a => a.strip)
             .filter!(a => a.length > 0).map!(a => Host(a)).array;
 
