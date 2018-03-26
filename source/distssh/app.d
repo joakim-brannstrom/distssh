@@ -478,6 +478,23 @@ int cli_measureHosts(const Options opts) nothrow {
     return 0;
 }
 
+/**
+DESCRIPTION
+
+     The getloadavg() function returns the number of processes in the system
+     run queue averaged over various periods of time.  Up to nelem samples are
+     retrieved and assigned to successive elements of loadavg[].  The system
+     imposes a maximum of 3 samples, representing averages over the last 1, 5,
+     and 15 minutes, respectively.
+
+
+DIAGNOSTICS
+
+     If the load average was unobtainable, -1 is returned; otherwise, the num-
+     ber of samples actually retrieved is returned.
+ */
+extern (C) int getloadavg(double* loadavg, int nelem);
+
 /** Print the load of localhost.
  *
  * #SPC-measure_local_load
@@ -486,13 +503,13 @@ int cli_localLoad(WriterT)(scope WriterT writer) nothrow {
     import std.ascii : newline;
     import std.conv : to;
     import std.parallelism : totalCPUs;
-    import std.range : takeOne;
 
     try {
-        double loadavg;
-        foreach (a; File("/proc/loadavg").readln.splitter(" ").takeOne) {
-            loadavg = a.to!double;
-        }
+        double[3] loadavg;
+        int samples = getloadavg(&loadavg[0], 3);
+
+        if (samples == -1 || samples == 0)
+            loadavg[0] = totalCPUs > 0 ? totalCPUs : 1;
 
         double cores = totalCPUs;
 
@@ -500,9 +517,9 @@ int cli_localLoad(WriterT)(scope WriterT writer) nothrow {
         writer(newline);
 
         if (cores > 0)
-            writer((loadavg / cores).to!string);
+            writer((loadavg[0] / cores).to!string);
         else
-            writer(loadavg.to!string);
+            writer(loadavg[0].to!string);
     }
     catch (Exception e) {
         logger.trace(e.msg).collectException;
