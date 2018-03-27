@@ -46,6 +46,21 @@ Therefore the user wants to be able to control what *proxy command* is used and 
  * an example is how rsync does it: `rsync -e 'ssh -p22' .....`
    notice the `-e`.
 
+# REQ-uc_autocomplete
+partof: REQ-purpose
+###
+
+The user wants expects autocomplete to work in bash when using distcmd.
+
+## Why?
+
+This gives a pleasent experience because it becomes easy for the user to autocomplete commands *locally*.
+The question that may be left to think about is if it should autocomplete by querying the remote host or doing it locally....
+For now, because it is simple, I do it locally. In the future it should probably be moved to the server.
+
+Doing it on the server side should be pretty easy if there is a daemon running in the background that it is easy to query for a *least loaded host*.
+But until that is implemented it would be slow and expensive because the current implementation queries all the hosts in the cluster.
+
 ## Investigate
 
 Maybe an environment variable should be used too? I think ssh do that. It wouldn't hurt.
