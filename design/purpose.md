@@ -1,6 +1,8 @@
 # REQ-purpose
 
-The purpose of this project is to provide automatic load balanced shells to the user.
+The purpose of this project is to find the least loaded host in a cluster and execute commands on it.
+
+It can alternatively be used to find and run an interactive shell on the least loaded host.
 
 # REQ-uc_shell
 partof: REQ-purpose

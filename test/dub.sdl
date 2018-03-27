@@ -6,7 +6,10 @@ license "BSL-1.0"
 
 dependency "distssh:msgpack-ll" version="*"
 
-subPackage "./vendor/msgpack-ll"
+subPackage "../vendor/msgpack-ll"
 
 targetPath "build"
-targetType "executable"
+
+sourcePaths "../source" "source"
+importPaths "../source" "source"
+excludeSourceFiles "../source/app.d"
