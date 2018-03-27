@@ -20,4 +20,4 @@ branches:
     only:
         - master
 
-script: dub test
+script: ./travis.sh
