@@ -1031,14 +1031,12 @@ Pid[] getShallowChildren(int parent_pid) {
 
 @("shall return the immediate children of the init process")
 unittest {
-    import std.conv;
-
     auto res = getShallowChildren(1);
     //logger.trace(res);
     assert(res.length > 0);
 }
 
-/** Returns: a list of all processes with the top being at the back
+/** Returns: a list of all processes with the leafs being at the back
  */
 Pid[] getDeepChildren(int parent_pid) {
     import std.array : appender;
@@ -1061,8 +1059,6 @@ Pid[] getDeepChildren(int parent_pid) {
 
 @("shall return a list of all children of the init process")
 unittest {
-    import std.conv;
-
     auto direct = getShallowChildren(1);
     auto deep = getDeepChildren(1);
 
@@ -1081,8 +1077,7 @@ struct PidGroup {
  */
 PidGroup[] getPidGroups(const Pid[] pids) {
     import core.sys.posix.unistd : getpgid;
-    import std.array : array;
-    import std.array : appender;
+    import std.array : array, appender;
 
     auto res = appender!(PidGroup[])();
     bool[pid_t] pgroups;
