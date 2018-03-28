@@ -41,3 +41,10 @@ unittest {
     assert(exists(buildPath(buildDir, "distcmd")), "no symlink created)");
     assert(exists(buildPath(buildDir, "distshell")), "no symlink created)");
 }
+
+@("shall export the env and import it")
+unittest {
+    assert(spawnShell(distssh ~ " --export-env").wait == 0, "failed exporting env");
+    assert(spawnShell(distssh ~ " --local-run --import-env=distssh_env.export -- ls")
+            .wait == 0, "failed importing env");
+}
