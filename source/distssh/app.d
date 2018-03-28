@@ -96,7 +96,6 @@ private:
 
 int cli_exportEnv(const Options opts) nothrow {
     import std.stdio : writeln;
-    import core.sys.posix.sys.stat : fchmod, S_IRUSR, S_IWUSR;
     import std.process : environment;
 
     string[string] env;
@@ -109,11 +108,7 @@ int cli_exportEnv(const Options opts) nothrow {
     }
 
     try {
-        auto fout = File(opts.importEnv, "w");
-        fchmod(fout.fileno, S_IRUSR | S_IWUSR);
-        foreach (kv; env.byKeyValue) {
-            fout.writefln("%s=%s", kv.key, kv.value);
-        }
+        writeEnv(opts.importEnv, env);
         writeln("Exported environment to ", opts.importEnv);
     }
     catch (Exception e) {
@@ -1202,7 +1197,7 @@ struct PipeWriter {
 }
 
 auto readEnv(string filename) nothrow {
-    import distssh.protocol : ProtocolEnv, EnvVariable;
+    import distssh.protocol : ProtocolEnv, EnvVariable, Deserialize;
     import std.file : exists;
     import std.stdio : File;
 
@@ -1212,20 +1207,39 @@ auto readEnv(string filename) nothrow {
         return rval;
 
     try {
-        foreach (kv; File(filename).byLine.map!(a => a.splitter("="))) {
-            string k = kv.front.idup;
-            string v;
-            kv.popFront;
-            if (!kv.empty)
-                v = kv.front.idup;
-            rval ~= EnvVariable(k, v);
+        auto fin = File(filename);
+        Deserialize deser;
+
+        ubyte[128] buf;
+        while (!fin.eof) {
+            auto read_ = fin.rawRead(buf[]);
+            deser.put(read_);
         }
+
+        rval = deser.unpack!(ProtocolEnv);
     }
     catch (Exception e) {
-        logger.trace(e.msg).collectException;
+        logger.error(e.msg).collectException;
+        logger.errorf("Unable to import environment from '%s'", filename).collectException;
     }
 
     return rval;
+}
+
+void writeEnv(string filename, string[string] env) {
+    import core.sys.posix.sys.stat : fchmod, S_IRUSR, S_IWUSR;
+    import std.array : array;
+    import std.stdio : File;
+    import distssh.protocol : ProtocolEnv, EnvVariable, Serialize;
+
+    auto fout = File(filename, "w");
+    fchmod(fout.fileno, S_IRUSR | S_IWUSR);
+
+    auto ser = Serialize!(void delegate(const(ubyte)[]))((const(ubyte)[] a) => fout.rawWrite(a));
+
+    auto penv = env.byKeyValue.map!(a => EnvVariable(a.key, a.value)).array.ProtocolEnv;
+
+    ser.pack(penv);
 }
 
 Host[] hostsFromEnv() nothrow {
