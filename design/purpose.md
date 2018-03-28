@@ -166,6 +166,14 @@ One way of speeding up this is to make a copy of the environment variables and "
 
 This probably work well if the host and remote host is similar enough.
 
+# SPC-automatic_env_import
+partof: SPC-fast_env_startup
+###
+
+The program shall import the environment from the default file "distssh_env.export" when the CLI option `--no-import-env` and `--import-env` is not specified by the user.
+
+**Rationale**: The user may have a *distssh_env.export* in a directory where distssh is ran and do not want the program to possibly pollute a new export that is being made. A scenario where this may occur is when the user want to export an environment from a remote host but the underlying NFS is shared between them. It may then be that there exists a *distssh_env.export* in the directory when the user run a distssh command with the remote host.
+
 # SPC-meta_design
 partof: REQ-purpose
 ###

@@ -265,6 +265,10 @@ int cli_cmd(const Options opts) nothrow {
     return executeOnHost(opts, host);
 }
 
+/** Execute a command on a remote host.
+ *
+ * #SPC-automatic_env_import
+ */
 int executeOnHost(const Options opts, Host host) nothrow {
     import distssh.protocol : ProtocolEnv;
     import core.thread : Thread;
@@ -290,7 +294,7 @@ int executeOnHost(const Options opts, Host host) nothrow {
         ProtocolEnv env;
         if (opts.cloneEnv)
             env = cloneEnv;
-        else
+        else if (!opts.noImportEnv)
             env = readEnv(opts.importEnv.absolutePath);
         pwriter.pack(env);
 
@@ -658,6 +662,7 @@ struct Options {
     Mode mode;
 
     bool help;
+    bool noImportEnv;
     bool cloneEnv;
     bool verbose;
     bool stdinMsgPackEnv;
@@ -711,17 +716,18 @@ Options parseUserArgs(string[] args) {
         // dfmt off
         opts.help_info = std.getopt.getopt(args, std.getopt.config.passThrough,
             std.getopt.config.keepEndOfOptions,
-            "clone-env", "clone the current environment to the remote host", &opts.cloneEnv,
+            "clone-env", "clone the current environment to the remote host without an intermediate file", &opts.cloneEnv,
             "export-env", "export the current environment to a file that is used on the remote host", &export_env,
             "install", "install distssh by setting up the correct symlinks", &install,
-            "i|import-env", "import the env from the file", &opts.importEnv,
+            "i|import-env", "import the env from the file (default: " ~ distsshEnvExport ~ ")", &opts.importEnv,
+            "no-import-env", "do not automatically import the environment from " ~ distsshEnvExport, &opts.noImportEnv,
             "measure", "measure the login time and load of all remote hosts", &measure_hosts,
             "local-load", "measure the load on the current host", &local_load,
             "local-run", "import env and run the command locally", &local_run,
             "local-shell", "run the shell locally", &local_shell,
             "run-on-all", "run the command on all remote hosts", &run_on_all,
             "shell", "open an interactive shell on the remote host", &remote_shell,
-            "stdin-msgpack-env", "import env from stdin as a msgpacked stream", &opts.stdinMsgPackEnv,
+            "stdin-msgpack-env", "import env from stdin as a msgpack stream", &opts.stdinMsgPackEnv,
             "timeout", "timeout to use when checking remote hosts", &timeout_s,
             "v|verbose", "verbose logging", &opts.verbose,
             "workdir", "working directory to run the command in", &opts.workDir,
