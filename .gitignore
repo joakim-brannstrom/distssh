@@ -22,3 +22,4 @@ target/
 # python
 *.pyc
 
+distssh_env.export
