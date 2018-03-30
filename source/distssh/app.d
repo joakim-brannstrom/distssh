@@ -348,7 +348,7 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
                 Thread.sleep(10.dur!"msecs");
             }
         } else {
-            readEnv(opts.importEnv);
+            env = readEnv(opts.importEnv);
         }
 
         foreach (kv; env) {
