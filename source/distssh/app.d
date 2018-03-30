@@ -348,7 +348,7 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
                 Thread.sleep(10.dur!"msecs");
             }
         } else {
-            readEnv(opts.importEnv);
+            env = readEnv(opts.importEnv);
         }
 
         foreach (kv; env) {
@@ -1203,8 +1203,11 @@ auto readEnv(string filename) nothrow {
 
     ProtocolEnv rval;
 
-    if (!exists(filename))
+    if (!exists(filename)) {
+        logger.info("File to import the environment from do not exist: ",
+                filename).collectException;
         return rval;
+    }
 
     try {
         auto fin = File(filename);
