@@ -135,7 +135,7 @@ struct Deserialize {
             return peek!(MsgpackType.uint32, uint)(s);
         }();
 
-        logger.trace(tot_size);
+        debug logger.trace("Bytes to unpack: ", tot_size);
 
         if (buf.length < tot_size)
             return typeof(return)();
