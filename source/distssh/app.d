@@ -1203,8 +1203,11 @@ auto readEnv(string filename) nothrow {
 
     ProtocolEnv rval;
 
-    if (!exists(filename))
+    if (!exists(filename)) {
+        logger.info("File to import the environment from do not exist: ",
+                filename).collectException;
         return rval;
+    }
 
     try {
         auto fin = File(filename);
