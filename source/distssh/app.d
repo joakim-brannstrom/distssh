@@ -17,7 +17,8 @@ import logger = std.experimental.logger;
 
 static import std.getopt;
 
-immutable globalEnvironemntKey = "DISTSSH_HOSTS";
+immutable globalEnvHostKey = "DISTSSH_HOSTS";
+immutable globalEnvFileKey = "DISTSSH_IMPORT_ENV";
 immutable distShell = "distshell";
 immutable distCmd = "distcmd";
 immutable distsshEnvExport = "distssh_env.export";
@@ -448,7 +449,7 @@ int cli_measureHosts(const Options opts) nothrow {
     auto hosts = RemoteHostCache.make(opts.timeout);
     hosts.sortByLoad;
 
-    writefln("Configured hosts (%s='%s')", globalEnvironemntKey, hosts.remoteHosts.joiner(";"))
+    writefln("Configured hosts (%s='%s')", globalEnvHostKey, hosts.remoteHosts.joiner(";"))
         .collectException;
 
     string[3] row = ["Host", "Access Time", "Load"];
@@ -518,7 +519,7 @@ int cli_runOnAll(const Options opts) nothrow {
 
     auto shosts = hostsFromEnv;
 
-    writefln("Configured hosts (%s): %(%s|%)", globalEnvironemntKey, shosts).collectException;
+    writefln("Configured hosts (%s): %(%s|%)", globalEnvHostKey, shosts).collectException;
 
     bool exit_status = true;
     foreach (a; shosts.sort) {
@@ -652,11 +653,43 @@ struct Options {
     string selfBinary;
     string selfDir;
 
-    string importEnv = distsshEnvExport;
+    string importEnv;
     string workDir;
     string[] command;
 }
 
+/** Update a Configs object's file to import the environment from.
+ *
+ * This should only be called after all other command line parsing has been
+ * done. It is because this function take into consideration the priority as
+ * specified in the requirement:
+ * #SPC-configure_env_import_file
+ *
+ * Params:
+ *  opts = config to update the file to import the environment from.
+ */
+void configImportEnvFile(ref Options opts) nothrow {
+    import std.process : environment;
+
+    if (opts.noImportEnv) {
+        opts.importEnv = null;
+    } else if (opts.importEnv.length != 0) {
+        // do nothing. the user has specified a file
+    } else {
+        try {
+            opts.importEnv = environment.get(globalEnvFileKey, distsshEnvExport);
+        }
+        catch (Exception e) {
+        }
+    }
+}
+
+/**
+ * #SPC-remote_command_parse
+ *
+ * Params:
+ *  args = the command line arguments to parse.
+ */
 Options parseUserArgs(string[] args) {
     import std.algorithm : among;
     import std.file : thisExePath;
@@ -667,7 +700,6 @@ Options parseUserArgs(string[] args) {
     opts.selfBinary = buildPath(thisExePath.dirName, args[0].baseName);
     opts.selfDir = opts.selfBinary.dirName;
 
-    // #SPC-remote_command_parse
     switch (opts.selfBinary.baseName) {
     case distShell:
         opts.mode = Options.Mode.shell;
@@ -676,12 +708,14 @@ Options parseUserArgs(string[] args) {
         opts.mode = Options.Mode.cmd;
         opts.command = args.length > 1 ? args[1 .. $] : null;
         opts.help = args.length > 1 && args[1].among("-h", "--help");
+        configImportEnvFile(opts);
         return opts;
     default:
     }
 
     try {
         bool export_env;
+        string export_env_file;
         bool remote_shell;
         bool install;
         bool measure_hosts;
@@ -697,6 +731,7 @@ Options parseUserArgs(string[] args) {
             std.getopt.config.keepEndOfOptions,
             "clone-env", "clone the current environment to the remote host without an intermediate file", &opts.cloneEnv,
             "export-env", "export the current environment to a file that is used on the remote host", &export_env,
+            "export-env-file", "export the current environment to the specified file", &export_env_file,
             "install", "install distssh by setting up the correct symlinks", &install,
             "i|import-env", "import the env from the file (default: " ~ distsshEnvExport ~ ")", &opts.importEnv,
             "no-import-env", "do not automatically import the environment from " ~ distsshEnvExport, &opts.noImportEnv,
@@ -721,9 +756,11 @@ Options parseUserArgs(string[] args) {
 
         if (install)
             opts.mode = Options.Mode.install;
-        else if (export_env)
+        else if (export_env) {
             opts.mode = Options.Mode.exportEnv;
-        else if (remote_shell)
+            if (export_env_file.length != 0)
+                opts.importEnv = export_env_file;
+        } else if (remote_shell)
             opts.mode = Options.Mode.shell;
         else if (measure_hosts)
             opts.mode = Options.Mode.measureHosts;
@@ -758,6 +795,8 @@ Options parseUserArgs(string[] args) {
 
     if (opts.mode == Options.Mode.cmd && opts.command.length == 0)
         opts.help = true;
+
+    configImportEnvFile(opts);
 
     return opts;
 }
@@ -1239,12 +1278,12 @@ Host[] hostsFromEnv() nothrow {
     typeof(return) rval;
 
     try {
-        string hosts_env = environment.get(globalEnvironemntKey, "").strip;
+        string hosts_env = environment.get(globalEnvHostKey, "").strip;
         rval = hosts_env.splitter(";").map!(a => a.strip)
             .filter!(a => a.length > 0).map!(a => Host(a)).array;
 
         if (rval.length == 0) {
-            logger.errorf("No remote host configured (%s='%s')", globalEnvironemntKey, hosts_env);
+            logger.errorf("No remote host configured (%s='%s')", globalEnvHostKey, hosts_env);
         }
     }
     catch (Exception e) {

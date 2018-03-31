@@ -148,7 +148,7 @@ partof: REQ-uc_remote_command
 The program shall distribute the command from the user to a *least loaded remote host* when the command is in the environ variable DISTSSH_CMD.
 
 # SPC-fast_env_startup
-partof: REQ-uc_fast_experience
+partof: REQ-fast_experience
 ###
 
 The program shall store the current environment to *env file* when the user CLI is `--export-env`.
@@ -170,9 +170,47 @@ This probably work well if the host and remote host is similar enough.
 partof: SPC-fast_env_startup
 ###
 
-The program shall import the environment from the default file "distssh_env.export" when the CLI option `--no-import-env` and `--import-env` is not specified by the user.
+The program shall import the environment from *env import file*.
 
-**Rationale**: The user may have a *distssh_env.export* in a directory where distssh is ran and do not want the program to possibly pollute a new export that is being made. A scenario where this may occur is when the user want to export an environment from a remote host but the underlying NFS is shared between them. It may then be that there exists a *distssh_env.export* in the directory when the user run a distssh command with the remote host.
+# SPC-configure_env_import_file
+partof: SPC-automatic_env_import
+###
+
+This requirements is for *env import file*.
+
+The following requirement are ordered in priority.
+
+1. The program shell set the *env import file* to null when the CLI option `--no-import-env` is used.
+2. The program shall set the *env import file* to the CLI value when the CLI option is `-i` or `--import-env`.
+3. The program shall set the *env import file* to the value of the environment key `DISTSSH_IMPORT_ENV`.
+4. The program shall set the *env import file* to `distssh_env.export` by default.
+
+## Rationale
+
+1. The user may have a *distssh_env.export* in a directory where distssh is ran and do not want the program to possibly pollute a new export that is being made. A scenario where this may occur is when the user want to export an environment from a remote host but the underlying NFS is shared between them. It may then be that there exists a *distssh_env.export* in the directory when the user run a distssh command with the remote host.
+2. Allows the user to override the default.
+3. Allows the user to specify a default to use from a specific directory. It makes it possible to reuse an environment from one directory while running commands in another. A scenario where this is useful is in a multi-layered build system where some action are performed in subdirectories. This env variable then make it possible to export *once* for the build and then reuse it wherever the user is within the subdirectories.
+4. It is assumed that the user commonly export an env and then run commands in the same directory. This is to make it convenient for the user to use `distcmd`.
+
+# TST-test_configure_env_import_file
+partof: SPC-configure_env_import_file
+###
+
+*Precondition*:
+ * Create an exported environment where the variable SMURF is set to 42.
+ * Create a script `foo.sh` that print the environment variable SMURF
+
+Execute `foo.sh` with distssh using the CLI option `--no-import-env`.
+
+Execute `foo.sh` with distssh using the CLI option -i with a value other than `distssh_env.export`.
+
+Execute `foo.sh` with distssh when the environment `DISTSSH_IMPORT_ENV` is set to some value other than `distssh_env.export`.
+
+Execute `foo.sh` with distssh.
+
+Execute `foo.sh` with distcmd.
+
+Result as expected.
 
 # SPC-meta_design
 partof: REQ-purpose
@@ -205,22 +243,11 @@ The load balance is static after the login. This may be problematic if many user
 partof: REQ-uc_remote_command
 ###
 
-The program shall run the *command* on the *least loaded remote host* by default when the user execute the program.
- * The arguments to use are either:
-     * those left after distssh has parsed the command line
-     * those that are after the `--`
+The program shall store the *CLI arguments* after `--` into *command* when `args[0]` is `distssh`.
+ * **Rationale**: It is because there may exist program which have the same arguments as those used by distssh. If there are no way of avoiding distssh command line parsing these commands could become unusable.
 
-The program shall run the *command* on the *least loaded remote host* when the program name (`args[0]`) is `distcmd`.
- * The arguments to use are `args[1 .. $]`
-
-## Why?
-
-Why the complication with what arguments to use when running on the remote host?
-
-It is because there may exist program which have the same arguments as those used by distssh.
-If there are no way of avoiding distssh command line parsing these commands could become unusable.
-
-By having a dedicated command for just this, `distcmd`, it becomes easy to integrate in scripts.
+The program shall store the *CLI arguments* into *command* when `args[0]` is `distcmd`.
+ * **Rationale**: By having a dedicated command for just this, `distcmd`, it becomes easy to integrate in scripts.
 
 # SPC-draft_remote_cmd_spec
 partof: REQ-purpose
@@ -319,7 +346,7 @@ partof: REQ-uc_shell
 The program shall give the user an interactive shell on the *least loaded remote host* when commanded via CLI
 
 # SPC-sigint_detection
-partof: SPC-uc_remote_command
+partof: REQ-uc_remote_command
 ###
 
 The program shall shutdown the remote end *fast* when a SIGINT is received.
