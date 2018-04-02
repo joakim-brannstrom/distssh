@@ -17,3 +17,13 @@ subPackage "./vendor/stdx-allocator"
 
 targetPath "build"
 targetType "executable"
+
+configuration "application" {
+}
+
+configuration "server" {
+    targetName "distssh_server"
+    sourcePaths "server_source"
+    importPaths "server_source"
+    excludedSourceFiles "source/*"
+}
