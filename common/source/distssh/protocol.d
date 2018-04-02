@@ -16,11 +16,14 @@ enum Kind : ubyte {
     none,
     heartBeat,
     environment,
+    remoteHost,
 }
 
 enum KindSize = DataSize!(MsgpackType.uint8);
 
 struct Serialize(WriterT) {
+@safe:
+
     WriterT w;
 
     void pack(Kind k) {
@@ -36,7 +39,7 @@ struct Serialize(WriterT) {
         // TODO a uint is potentially too big. standard says 2^32-1
         formatType!(MsgpackType.str32)(cast(uint) s.length, hdr);
         put(w, hdr[]);
-        put(w, cast(ubyte[]) s);
+        put(w, cast(const(ubyte)[]) s);
     }
 
     void pack(MsgpackType Type, T)(T v) {
@@ -70,6 +73,11 @@ struct Serialize(WriterT) {
             pack(kv.key);
             pack(kv.value);
         }
+    }
+
+    void pack(const RemoteHost host) {
+        pack(Kind.remoteHost);
+        pack(host.address);
     }
 }
 
@@ -169,6 +177,23 @@ struct Deserialize {
         return typeof(return)(env);
     }
 
+    Nullable!RemoteHost unpack(T)() if (is(T == RemoteHost)) {
+        if (nextKind != Kind.remoteHost)
+            return typeof(return)();
+
+        // strip the kind
+        demux!(MsgpackType.uint8, ubyte);
+
+        try {
+            auto host = RemoteHost(demux!string());
+            return typeof(return)(host);
+        }
+        catch (Exception e) {
+        }
+
+        return typeof(return)();
+    }
+
 private:
     void consume(MsgpackType type)() {
         buf = buf[DataSize!type .. $];
@@ -233,6 +258,10 @@ struct EnvVariable {
 struct ProtocolEnv {
     EnvVariable[] value;
     alias value this;
+}
+
+struct RemoteHost {
+    string address;
 }
 
 @("shall pack and unpack a HeartBeat")
