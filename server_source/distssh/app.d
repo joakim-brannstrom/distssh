@@ -72,7 +72,6 @@ enum PacketKind {
 }
 
 int appMain(const Options opts) nothrow {
-    import core.sys.posix.signal : SIGPIPE;
     import core.time : Duration;
     import std.functional : toDelegate;
     import std.file : tempDir;
@@ -80,11 +79,6 @@ int appMain(const Options opts) nothrow {
     import eventcore.socket;
     import eventcore.internal.utils;
     import std.socket : UnixAddress;
-
-    static void sigPipe(SignalListenID, SignalStatus, int) @safe pure nothrow @nogc {
-    }
-
-    eventDriver.signals.listen(SIGPIPE, toDelegate(&sigPipe));
 
     auto addr = () {
         try {
@@ -114,12 +108,19 @@ int appMain(const Options opts) nothrow {
 
     auto server = eventDriver.sockets.listenStream(addr, &router.onClientConnect);
 
-    print("Listening for requests on port %s", addr);
-    while (eventDriver.core.waiterCount) {
-        eventDriver.core.processEvents(Duration.max);
+    print("Listening for requests on %s", addr);
+
+    import vibe.core.core;
+
+    try {
+        lowerPrivileges();
+        return runEventLoop();
+    }
+    catch (Exception e) {
+        logger.error(e.msg).collectException;
     }
 
-    return 0;
+    return 1;
 }
 
 struct Options {
@@ -134,9 +135,19 @@ Options parseUserArgs(string[] args) {
     import std.path : buildPath, dirName, baseName;
     import std.file : thisExePath;
 
-    Options opts;
+    import vibe.core.args : finalizeCommandLineOptions;
 
+    Options opts;
     opts.selfBinary = buildPath(thisExePath.dirName, args[0].baseName);
+
+    try {
+        string[] local_args;
+        finalizeCommandLineOptions(&local_args);
+    }
+    catch (Exception e) {
+        logger.error(e.msg).collectException;
+        opts.help = true;
+    }
 
     try {
         // dfmt off
@@ -145,6 +156,7 @@ Options parseUserArgs(string[] args) {
             "v|verbose", "verbose logging", &opts.verbose,
             );
         // dfmt on
+        opts.help = opts.help_info.helpWanted;
     }
     catch (Exception e) {
         opts.help = true;
