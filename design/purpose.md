@@ -118,7 +118,7 @@ The program shall print the load of the local host when commanded.
 
 The program shall calculate the load as the *5min loadavg* / *available cores*.
 
-**Rationale**: The guidline is that a loadavg that is greater than the available cores on the server mean the server is overloaded. By normalizing the value the load can be used to compare the *load* of servers where the number of cores are different.
+**Rationale**: The guideline is that a loadavg that is greater than the available cores on the server mean the server is overloaded. By normalizing the value the load can be used to compare the *load* of servers where the number of cores are different.
 
 ## Info
 
@@ -411,10 +411,10 @@ The program shall on a failure to login on the remote host continue with the nex
 # Info
 
 I don't know how to reliably detect that the ssh connection failed because of a remote host that didn't answer without capturing stdout and textually analyze it.
-This would in turn have other bad side effects such an increased computation or possibility for erronious *detection* because the user *printed* something that gets mixed up with ssh's output.
+This would in turn have other bad side effects such an increased computation or possibility for erroneous *detection* because the user *printed* something that gets mixed up with ssh's output.
 
 As a workaround the timeout * 2 is used.
-If the connection isn't interrupted in that timeframe it is assumed it worked OK.
+If the connection isn't interrupted in that time frame it is assumed it worked OK.
 This is also based on the fact that a load check has already been done.
 
 ## Why?
@@ -427,6 +427,12 @@ partof: REQ-uc_remote_command
 
 The program shall force the remote host to emulate a tty when the user run the command via a tty.
 
-**Rationale**: This gives the user pretty coloers when the command is ran in a console.
+**Rationale**: This gives the user pretty colors when the command is ran in a console.
 
 **Rationale**: It improves the feeling of running a remote command is *as if* it ran locally.
+
+# REQ-security
+partof: REQ-purpose
+###
+
+This is a meta-requirement for those related to security concerns.

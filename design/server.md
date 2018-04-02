@@ -94,3 +94,34 @@ Maybe something like this.
 * A timer that scan the most loaded host.
   It is on the assumption that the most loaded will be the least used by all distssh clients and thus when the job on it *finish* it should be *available* fast for use.
 * The timers should be adjusted on the fly depending on how much the server is used.
+
+# REQ-daemon_startup_responsibility
+REQ-purpose
+###
+
+The `distssh --daemon` is responsible for creating a secure unix domain socket to communicate over.
+The `distssh` is responsible for finding a secure unix domain socket to communicate over.
+The `distssh` is reponsible for checking that there is a daemon on the other side of the socket to communicate with.
+The `distssh` is responsible for spinning up a daemon if none is found to be working.
+
+## Rationale
+The frontend to the user is `distssh`.
+By dividing the responsibility as this it simplifies the daemon to just creating a socket.
+
+# REQ-secure_daemon_unix_domain_socket
+partof: REQ-security
+###
+
+The program shall ensure that the created socket is owned and only read/writable by the current user.
+
+## Implementation
+A simple way is to generate use a function to create a secure temporary directory.
+
+# SPC-cleanup_stale_sockets
+partof: REQ-secure_daemon_unix_domain_socket
+###
+
+The program shall check for stale directories and sockets to cleanup when the daemon is started.
+
+## Rationale
+This is to prevent possible junk being accumulated if e.g. the server is running for a long time.
