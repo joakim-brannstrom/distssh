@@ -5,3 +5,5 @@ copyright "Copyright © 2018, Joakim Brännström"
 license "BSL-1.0"
 
 targetPath "build"
+
+dependency "distssh:msgpack-ll" version="*"
