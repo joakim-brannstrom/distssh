@@ -122,26 +122,30 @@ int cli_exportEnv(const Options opts) nothrow {
 
 @("shall export the environment to the file")
 unittest {
+    import std.conv : to;
     import std.algorithm : canFind;
+    import std.string : toStringz;
     import std.file;
 
     immutable remove_me = "remove_me.export";
-    auto fout = File(remove_me, "w");
     scope (exit)
         remove(remove_me);
 
-    auto opts = parseUserArgs(["distssh", "--export-env"]);
+    auto opts = parseUserArgs(["distssh", "--export-env", "--export-env-file", remove_me]);
 
     // make sure there are at least one environment variable
-    import core.sys.posix.stdlib : putenv;
+    import core.sys.posix.stdlib : putenv, unsetenv;
 
-    const env_var = "DISTSSH_ENV_TEST=foo";
-    putenv(cast(char*) env_var.ptr);
+    const env_key = "DISTSSH_ENV_TEST";
+    const env_var = (env_key ~ "=" ~ remove_me).toStringz;
+    putenv(cast(char*) env_var);
+    scope (exit)
+        unsetenv(cast(char*) env_key.ptr);
 
-    cli_exportEnv(opts, fout);
+    cli_exportEnv(opts);
 
-    auto first_line = File(remove_me).byLine.front;
-    assert(first_line.canFind("="), first_line);
+    auto env = readEnv(remove_me);
+    assert(!env.filter!(a => a.key == env_key).empty, env.to!string);
 }
 
 int cli_install(const Options opts, void delegate(string src, string dst) symlink) nothrow {
@@ -1204,7 +1208,7 @@ struct PipeWriter {
     import distssh.protocol : Serialize;
 
     File fout;
-    Serialize!(void delegate(const(ubyte)[])) ser;
+    Serialize!(void delegate(const(ubyte)[]) @safe) ser;
 
     alias ser this;
 
@@ -1213,7 +1217,7 @@ struct PipeWriter {
         this.ser = typeof(ser)(&this.put);
     }
 
-    void put(const(ubyte)[] v) {
+    void put(const(ubyte)[] v) @safe {
         fout.rawWrite(v);
         fout.flush;
     }
@@ -1261,7 +1265,8 @@ void writeEnv(string filename, string[string] env) {
     auto fout = File(filename, "w");
     fchmod(fout.fileno, S_IRUSR | S_IWUSR);
 
-    auto ser = Serialize!(void delegate(const(ubyte)[]))((const(ubyte)[] a) => fout.rawWrite(a));
+    auto ser = Serialize!(void delegate(const(ubyte)[]) @safe)((const(ubyte)[] a) => fout.rawWrite(
+            a));
 
     auto penv = env.byKeyValue.map!(a => EnvVariable(a.key, a.value)).array.ProtocolEnv;
 
