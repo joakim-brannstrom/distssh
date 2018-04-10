@@ -430,3 +430,20 @@ The program shall force the remote host to emulate a tty when the user run the c
 **Rationale**: This gives the user pretty coloers when the command is ran in a console.
 
 **Rationale**: It improves the feeling of running a remote command is *as if* it ran locally.
+
+# SPC-env_export_filter
+partof: SPC-fast_env_startup
+###
+
+The program shall filter out those environment variables whose key matches any of the keys specified in `DISTSSH_ENV_EXPORT_FILTER` when exporting the environment.
+
+## Rationale
+
+There are certain environment variables that shouldn't be exported because they affect how a software is executed. For example there are java application that behave differently when the `DISPLAY` variable is set.
+
+Other examples are that environment variables may leak security credentials.
+
+By using an environment variable to control this it makes it possible to "centrally" enforce it for different projects without requiring an update of the local installation of the tool.
+
+But it should be possible in the future to specify this in a configuration file.
+If so the environment variable `DISTSSH_ENV_EXPORT_FILTER` should probably have higher priority than the configuration file.
