@@ -15,6 +15,8 @@ import std.stdio : File;
 import std.typecons : Nullable, NullableRef;
 import logger = std.experimental.logger;
 
+import distssh.from;
+
 static import std.getopt;
 
 immutable globalEnvHostKey = "DISTSSH_HOSTS";
@@ -95,37 +97,11 @@ private:
 
 /** Export the environment to a file for later import.
 
-    #SPC-env_export_filter
   */
 int cli_exportEnv(const Options opts) nothrow {
-    import std.process : environment;
-    import std.stdio : writeln, writefln;
-    import std.string : strip;
-
-    string[string] env;
     try {
-        env = environment.toAA;
-    }
-    catch (Exception e) {
-        logger.warning(e.msg).collectException;
-        return 1;
-    }
-
-    try {
-        foreach (k; environment.get(globalEnvFilterKey, null)
-                .strip.splitter(';').map!(a => a.strip).filter!(a => a.length != 0)) {
-            if (env.remove(k)) {
-                writefln("Removed '%s' from the exported environment", k);
-            }
-        }
-    }
-    catch (Exception e) {
-        logger.warning(e.msg).collectException;
-    }
-
-    try {
-        writeEnv(opts.importEnv, env);
-        writeln("Exported environment to ", opts.importEnv);
+        writeEnv(opts.importEnv, cloneEnv);
+        logger.info("Exported environment to ", opts.importEnv);
     }
     catch (Exception e) {
         logger.error(e.msg).collectException;
@@ -1039,19 +1015,31 @@ struct Env {
 }
 
 /**
+ * #SPC-env_export_filter
+ *
  * Params:
- *  env = a null terminated array of C strings
+ *  env = a null terminated array of C strings.
  *
  * Returns: a clone of the environment.
  */
 auto cloneEnv() nothrow {
-    import distssh.protocol : ProtocolEnv, EnvVariable;
     import std.process : environment;
+    import std.string : strip;
+    import distssh.protocol : ProtocolEnv, EnvVariable;
 
     ProtocolEnv app;
 
     try {
-        foreach (const a; environment.toAA.byKeyValue) {
+        auto env = environment.toAA;
+
+        foreach (k; environment.get(globalEnvFilterKey, null)
+                .strip.splitter(';').map!(a => a.strip).filter!(a => a.length != 0)) {
+            if (env.remove(k)) {
+                logger.infof("Removed '%s' from the exported environment", k);
+            }
+        }
+
+        foreach (const a; env.byKeyValue) {
             app ~= EnvVariable(a.key, a.value);
         }
     }
@@ -1290,11 +1278,10 @@ auto readEnv(string filename) nothrow {
     return rval;
 }
 
-void writeEnv(string filename, string[string] env) {
+void writeEnv(string filename, from!"distssh.protocol".ProtocolEnv env) {
     import core.sys.posix.sys.stat : fchmod, S_IRUSR, S_IWUSR;
-    import std.array : array;
     import std.stdio : File;
-    import distssh.protocol : ProtocolEnv, EnvVariable, Serialize;
+    import distssh.protocol : Serialize;
 
     auto fout = File(filename, "w");
     fchmod(fout.fileno, S_IRUSR | S_IWUSR);
@@ -1302,9 +1289,7 @@ void writeEnv(string filename, string[string] env) {
     auto ser = Serialize!(void delegate(const(ubyte)[]) @safe)((const(ubyte)[] a) => fout.rawWrite(
             a));
 
-    auto penv = env.byKeyValue.map!(a => EnvVariable(a.key, a.value)).array.ProtocolEnv;
-
-    ser.pack(penv);
+    ser.pack(env);
 }
 
 Host[] hostsFromEnv() nothrow {
