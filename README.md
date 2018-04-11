@@ -78,3 +78,29 @@ It is also possible to clone the current environment without first exporting it 
 ```sh
 distssh --clone-env -- ls
 ```
+
+# Configuration
+
+These environment variables control the behavior of distssh.
+
+ * `DISTSSH_HOSTS`: the hosts to load balance among. Hosts are separated by `;`.
+Example:
+```sh
+export DISTSSH_HOSTS='localhost;some_remove'
+distcmd ls
+```
+
+
+ * `DISTSSH_IMPORT_ENV`: filename to load the environment from.
+Example:
+```sh
+export DISTSSH_IMPORT_ENV="$HOME/foo.export"
+distcmd ls
+```
+
+ * `DISTSSH_ENV_EXPORT_FILTER`: environment keys to remove when creating an export. Keys are separated by `;`.
+Example:
+```sh
+export DISTSSH_ENV_EXPORT_FILTER='PWD;USER;USERNAME;_'
+distssh --export-env
+```
