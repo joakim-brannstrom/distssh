@@ -942,6 +942,7 @@ Load getLoad(Host h, Duration timeout) nothrow {
     import std.process : tryWait, pipeProcess, kill, wait;
     import std.range : takeOne, retro;
     import std.stdio : writeln;
+    import core.thread : Thread;
     import core.time : MonoTime, dur;
     import core.sys.posix.signal : SIGKILL;
 
@@ -956,6 +957,9 @@ Load getLoad(Host h, Duration timeout) nothrow {
     const stop_at = start_at + timeout;
 
     auto elapsed = 3600.dur!"seconds";
+    // 25 because it is at the perception of human "lag" and less than the 100
+    // msecs that is the intention of the average delay.
+    const loop_sleep = 25.dur!"msecs";
     double load = int.max;
 
     try {
@@ -977,6 +981,9 @@ Load getLoad(Host h, Duration timeout) nothrow {
                 res.pid.kill(SIGKILL);
                 break;
             }
+
+            // sleep to avoid massive CPU usage
+            Thread.sleep(loop_sleep);
         }
 
         // must read the exit or a zombie process is left behind
