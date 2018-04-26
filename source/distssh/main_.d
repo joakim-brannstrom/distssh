@@ -465,14 +465,27 @@ int cli_measureHosts(const Options opts) nothrow {
 
     writefln("Configured hosts (%s='%s')", globalEnvHostKey, hosts.remoteHosts.joiner(";"))
         .collectException;
+    writeln("Host is overloaded if Load is >1").collectException;
 
     string[3] row = ["Host", "Access Time", "Load"];
     auto tbl = Table!3(row);
 
+    static string toInternal(Duration d) {
+        import std.format : format;
+
+        int seconds;
+        short msecs;
+        d.split!("seconds", "msecs")(seconds, msecs);
+        if (seconds == 0)
+            return format("%sms", msecs);
+        else
+            return format("%ss %sms", seconds, msecs);
+    }
+
     foreach (a; hosts.remoteByLoad) {
         try {
             row[0] = a[0];
-            row[1] = a[1].accessTime.to!string;
+            row[1] = toInternal(a[1].accessTime);
             row[2] = a[1].loadAvg.to!string;
             tbl.put(row);
             //writefln("%s | %s | %s", a[0], a[1].accessTime.to!string, a[1].loadAvg.to!string);
