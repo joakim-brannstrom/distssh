@@ -465,14 +465,27 @@ int cli_measureHosts(const Options opts) nothrow {
 
     writefln("Configured hosts (%s='%s')", globalEnvHostKey, hosts.remoteHosts.joiner(";"))
         .collectException;
+    writeln("Host is overloaded if Load is >1").collectException;
 
     string[3] row = ["Host", "Access Time", "Load"];
     auto tbl = Table!3(row);
 
+    static string toInternal(Duration d) {
+        import std.format : format;
+
+        int seconds;
+        short msecs;
+        d.split!("seconds", "msecs")(seconds, msecs);
+        if (seconds == 0)
+            return format("%sms", msecs);
+        else
+            return format("%ss %sms", seconds, msecs);
+    }
+
     foreach (a; hosts.remoteByLoad) {
         try {
             row[0] = a[0];
-            row[1] = a[1].accessTime.to!string;
+            row[1] = toInternal(a[1].accessTime);
             row[2] = a[1].loadAvg.to!string;
             tbl.put(row);
             //writefln("%s | %s | %s", a[0], a[1].accessTime.to!string, a[1].loadAvg.to!string);
@@ -942,6 +955,7 @@ Load getLoad(Host h, Duration timeout) nothrow {
     import std.process : tryWait, pipeProcess, kill, wait;
     import std.range : takeOne, retro;
     import std.stdio : writeln;
+    import core.thread : Thread;
     import core.time : MonoTime, dur;
     import core.sys.posix.signal : SIGKILL;
 
@@ -956,6 +970,9 @@ Load getLoad(Host h, Duration timeout) nothrow {
     const stop_at = start_at + timeout;
 
     auto elapsed = 3600.dur!"seconds";
+    // 25 because it is at the perception of human "lag" and less than the 100
+    // msecs that is the intention of the average delay.
+    const loop_sleep = 25.dur!"msecs";
     double load = int.max;
 
     try {
@@ -977,6 +994,9 @@ Load getLoad(Host h, Duration timeout) nothrow {
                 res.pid.kill(SIGKILL);
                 break;
             }
+
+            // sleep to avoid massive CPU usage
+            Thread.sleep(loop_sleep);
         }
 
         // must read the exit or a zombie process is left behind
