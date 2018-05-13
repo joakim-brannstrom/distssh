@@ -13,3 +13,5 @@ subPackage "./vendor/msgpack-ll"
 targetPath "build"
 targetType "executable"
 sourcePath "source"
+
+libs "util"

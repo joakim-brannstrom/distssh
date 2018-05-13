@@ -16,7 +16,7 @@ import std.typecons : Nullable, NullableRef;
 import logger = std.experimental.logger;
 
 import distssh.from;
-import distssh.process : Pid;
+import distssh.process : Pid, Pty;
 
 static import std.getopt;
 
@@ -293,7 +293,10 @@ int executeOnHost(const Options opts, Host host) nothrow {
         import std.file : getcwd;
 
         auto args = ["ssh", "-oStrictHostKeyChecking=no", host, thisExePath,
-            "--local-run", "--workdir", getcwd, "--stdin-msgpack-env", "--"] ~ opts.command;
+            "--local-run", "--workdir", getcwd, "--stdin-msgpack-env"];
+        if (opts.forcePty)
+            args ~= ["--fake-terminal", opts.forcePty ? "yes": "no"];
+        args ~= ["--"] ~ opts.command;
 
         logger.info("Connecting to: ", host);
         logger.info("run: ", args.joiner(" "));
@@ -384,11 +387,36 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
         }
 
         Pid res;
+        Pty pty;
+        bool use_pty = opts.forcePty;
 
-        if (exists(opts.command[0])) {
-            res = spawnProcess(opts.command, env, Config.none, opts.workDir);
+        auto program = opts.command[0].pathToExe;
+        auto args = (opts.command.length > 1 ? opts.command[1 .. $] : null);
+
+        if (!exists(program)) {
+            import std.process : nativeShell;
+
+            program = nativeShell;
+            args = ["-c"] ~ [opts.command.dup.joiner(" ").toUTF8];
+            // bash thing it is an interactive shell therefore forcefully disabling pty emulation
+            use_pty = false;
+        }
+
+        auto cmd = program ~ args;
+
+        if (use_pty) {
+            import distssh.process : spawnProcessInPty;
+
+            try {
+                pty = spawnProcessInPty(cmd, env, opts.workDir);
+                logger.info("pty: ", pty.name);
+            }
+            catch(Exception e) {
+                logger.error(e.msg);
+                return 1;
+            }
         } else {
-            res = spawnShell(opts.command.dup.joiner(" ").toUTF8, env, Config.none, opts.workDir);
+            res = spawnProcess(cmd, env, Config.none, opts.workDir);
         }
 
         import core.time : MonoTime, dur;
@@ -401,6 +429,7 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
 
         int exit_status = 1;
         bool sigint_cleanup;
+        ubyte[4096] pty_buf;
 
         auto check_parent = MonoTime.currTime + check_parent_interval;
         auto flush_stdout = MonoTime.currTime + flush_stdout_interval;
@@ -410,8 +439,18 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
         while (!wd.isTimeout) {
             pread.update;
 
+            if (use_pty) {
+                import std.stdio : stdout;
+
+                auto buf = pty.read(pty_buf[]);
+                if (buf.length != 0) {
+                    stdout.rawWrite(buf);
+                }
+            }
+
             try {
-                auto status = tryWait(res);
+                auto status = () { return opts.forcePty ? pty.tryWait : tryWait(res); }();
+
                 if (status.terminated) {
                     exit_status = status.status;
                     break;
@@ -569,7 +608,13 @@ int cli_runOnAll(const Options opts) nothrow {
         catch (Exception e) {
         }
 
-        auto status = executeOnHost(opts, a);
+        int status;
+        try {
+            status = executeOnHost(opts, a);
+        }
+        catch(Exception e) {
+            status = -1;
+        }
 
         if (status != 0) {
             writeln("Failed, error code: ", status).collectException;
@@ -684,6 +729,7 @@ struct Options {
     bool cloneEnv;
     bool verbose;
     bool stdinMsgPackEnv;
+    bool forcePty;
     std.getopt.GetoptResult help_info;
 
     Duration timeout = defaultTimeout_s.dur!"seconds";
@@ -733,6 +779,10 @@ Options parseUserArgs(string[] args) {
     import std.file : thisExePath;
     import std.path : dirName, baseName, buildPath;
 
+    enum Answer {
+        none, yes, no
+    }
+
     Options opts;
 
     opts.selfBinary = buildPath(thisExePath.dirName, args[0].baseName);
@@ -761,6 +811,7 @@ Options parseUserArgs(string[] args) {
         bool local_run;
         bool local_shell;
         bool run_on_all;
+        Answer forcePty;
         ulong timeout_s;
 
         // alphabetical order
@@ -770,6 +821,7 @@ Options parseUserArgs(string[] args) {
             "clone-env", "clone the current environment to the remote host without an intermediate file", &opts.cloneEnv,
             "export-env", "export the current environment to a file that is used on the remote host", &export_env,
             "export-env-file", "export the current environment to the specified file", &export_env_file,
+            "fake-terminal", "fake running the program in a pseudo-terminal (yes/no)", &forcePty,
             "install", "install distssh by setting up the correct symlinks", &install,
             "i|import-env", "import the env from the file (default: " ~ distsshEnvExport ~ ")", &opts.importEnv,
             "no-import-env", "do not automatically import the environment from " ~ distsshEnvExport, &opts.noImportEnv,
@@ -788,9 +840,16 @@ Options parseUserArgs(string[] args) {
         opts.help = opts.help_info.helpWanted;
 
         import core.time : dur;
+        import core.sys.posix.unistd : isatty;
+        import std.stdio : stdin;
 
         if (timeout_s > 0)
             opts.timeout = timeout_s.dur!"seconds";
+
+        if (forcePty == Answer.none && isatty(stdin.fileno))
+            opts.forcePty = true;
+        else
+            opts.forcePty = forcePty == Answer.yes;
 
         if (install)
             opts.mode = Options.Mode.install;
@@ -1293,9 +1352,8 @@ struct RemoteHostCache {
     }
 }
 
-/**
-  * Searches all dirs on path for exe if required,
-  * or simply calls it if it's a relative or absolute path
+/** Searches all dirs on path for exe if required, or simply calls it if it's a
+ * relative or absolute path
   */
 string pathToExe(string exe) {
     import std.path : dirSeparator, pathSeparator, buildPath;

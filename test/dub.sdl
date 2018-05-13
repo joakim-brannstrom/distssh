@@ -15,3 +15,5 @@ targetPath "build"
 sourcePaths "../source" "source"
 importPaths "../source" "source"
 excludeSourceFiles "../source/app.d"
+
+libs "util"
