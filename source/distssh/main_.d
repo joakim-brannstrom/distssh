@@ -397,11 +397,13 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
         const parent_pid = getppid;
         const check_parent_interval = 500.dur!"msecs";
         const timeout = opts.timeout * 2;
+        const flush_stdout_interval = 1.dur!"seconds";
 
         int exit_status = 1;
         bool sigint_cleanup;
 
         auto check_parent = MonoTime.currTime + check_parent_interval;
+        auto flush_stdout = MonoTime.currTime + flush_stdout_interval;
 
         auto wd = Watchdog(pread, timeout);
 
@@ -426,6 +428,13 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
                     sigint_cleanup = true;
                     break;
                 }
+            }
+
+            if (MonoTime.currTime > flush_stdout) {
+                import std.stdio : stdout;
+
+                stdout.flush;
+                flush_stdout = MonoTime.currTime + flush_stdout_interval;
             }
 
             Thread.sleep(50.dur!"msecs");
