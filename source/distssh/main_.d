@@ -296,6 +296,8 @@ int executeOnHost(const Options opts, Host host) nothrow {
             "--local-run", "--workdir", getcwd, "--stdin-msgpack-env"];
         if (opts.forcePty)
             args ~= ["--fake-terminal", opts.forcePty ? "yes": "no"];
+        if (opts.verbose)
+            args ~= "-v";
         args ~= ["--"] ~ opts.command;
 
         logger.info("Connecting to: ", host);
