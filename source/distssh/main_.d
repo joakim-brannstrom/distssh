@@ -977,7 +977,8 @@ Load getLoad(Host h, Duration timeout) nothrow {
 
     try {
         immutable abs_distssh = thisExePath;
-        auto res = pipeProcess(["ssh", "-q", "-oStrictHostKeyChecking=no", h,
+        // -T ensure that an interactive prompt for the password never happen (NOT VERIFIED)
+        auto res = pipeProcess(["ssh", "-T", "-q", "-oStrictHostKeyChecking=no", h,
                 abs_distssh, "--local-load"]);
 
         while (true) {
