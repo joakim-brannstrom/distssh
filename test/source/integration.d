@@ -24,6 +24,6 @@ unittest {
 unittest {
     prepareDistssh;
     assert(spawnShell(distssh ~ " --export-env").wait == 0, "failed exporting env");
-    assert(spawnShell(distssh ~ " --local-run --import-env=distssh_env.export -- ls")
+    assert(spawnShell(distssh ~ " --fake-terminal=no --local-run --import-env=distssh_env.export -- ls")
             .wait == 0, "failed importing env");
 }
