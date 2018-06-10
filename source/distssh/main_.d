@@ -331,13 +331,13 @@ int executeOnHost(const Options opts, Host host) nothrow {
 
 // #SPC-fast_env_startup
 int cli_cmdWithImportedEnv(const Options opts) nothrow {
-    import core.thread : Thread;
     import core.time : dur;
     import std.stdio : File, stdin;
     import std.file : exists;
     import std.process : spawnProcess, Config, spawnShell, Pid, tryWait,
         thisProcessID;
     import std.utf : toUTF8;
+    import distssh.timer : IntervalSleep, Timer;
 
     if (opts.command.length == 0)
         return 0;
@@ -348,6 +348,7 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
         ProtocolEnv env;
 
         if (opts.stdinMsgPackEnv) {
+            auto loop_sleep = IntervalSleep(10.dur!"msecs");
             while (true) {
                 pread.update;
 
@@ -361,7 +362,7 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
                 catch (Exception e) {
                 }
 
-                Thread.sleep(10.dur!"msecs");
+                loop_sleep.tick;
             }
         } else {
             env = readEnv(opts.importEnv);
@@ -391,28 +392,34 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
             res = spawnShell(opts.command.dup.joiner(" ").toUTF8, env, Config.none, opts.workDir);
         }
 
-        import core.time : MonoTime, dur;
         import core.sys.posix.unistd : getppid;
 
         const parent_pid = getppid;
-        const check_parent_interval = 500.dur!"msecs";
-        const timeout = opts.timeout * 2;
+        bool sigint_cleanup;
+        bool loop_running = true;
+
+        void sigintEvent() {
+            if (getppid != parent_pid) {
+                sigint_cleanup = true;
+                loop_running = false;
+            }
+        }
+        auto check_sigint = Timer(500.dur!"msecs");
+        check_sigint.register(&sigintEvent);
 
         int exit_status = 1;
-        bool sigint_cleanup;
+        auto loop_sleep = IntervalSleep(50.dur!"msecs");
 
-        auto check_parent = MonoTime.currTime + check_parent_interval;
+        auto wd = Watchdog(pread, opts.timeout * 2);
 
-        auto wd = Watchdog(pread, timeout);
-
-        while (!wd.isTimeout) {
+        while (!wd.isTimeout && loop_running) {
             pread.update;
 
             try {
                 auto status = tryWait(res);
                 if (status.terminated) {
                     exit_status = status.status;
-                    break;
+                    loop_running = false;
                 }
                 wd.update;
             }
@@ -420,15 +427,9 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
             }
 
             // #SPC-sigint_detection
-            if (MonoTime.currTime > check_parent) {
-                check_parent = MonoTime.currTime + check_parent_interval;
-                if (getppid != parent_pid) {
-                    sigint_cleanup = true;
-                    break;
-                }
-            }
+            check_sigint.tick;
 
-            Thread.sleep(50.dur!"msecs");
+            loop_sleep.tick;
         }
 
         import core.sys.posix.signal : kill, killpg, SIGKILL;
