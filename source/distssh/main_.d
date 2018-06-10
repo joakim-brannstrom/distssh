@@ -1216,6 +1216,9 @@ struct RemoteHostCache {
         import std.parallelism : TaskPool;
 
         static auto loadHost(T)(T host_timeout) nothrow {
+            import std.concurrency : thisTid;
+
+            logger.trace("load testing thread id: ", thisTid).collectException;
             return HostLoad(host_timeout[0], getLoad(host_timeout[0], host_timeout[1]));
         }
 
@@ -1228,7 +1231,7 @@ struct RemoteHostCache {
 
             // dfmt off
             remoteByLoad =
-                pool.map!loadHost(shosts)
+                pool.amap!(loadHost)(shosts)
                 .array
                 .sort!((a,b) => a[1] < b[1])
                 .array;
