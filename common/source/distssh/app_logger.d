@@ -9,35 +9,37 @@ import std.algorithm : among;
 import std.stdio : writeln, writefln, stderr, stdout;
 
 import logger = std.experimental.logger;
+import std.experimental.logger : LogLevel;
 
 class SimpleLogger : logger.Logger {
-    import std.conv;
-
-    int line = -1;
-    string file = null;
-    string func = null;
-    string prettyFunc = null;
-    string msg = null;
-    logger.LogLevel lvl;
-
-    this(const logger.LogLevel lv = logger.LogLevel.trace) {
-        super(lv);
+    this(const LogLevel lvl = LogLevel.warning) @safe {
+        super(lvl);
     }
 
     override void writeLogMsg(ref LogEntry payload) @trusted {
-        this.line = payload.line;
-        this.file = payload.file;
-        this.func = payload.funcName;
-        this.prettyFunc = payload.prettyFuncName;
-        this.lvl = payload.logLevel;
-        this.msg = payload.msg;
-
         auto out_ = stderr;
 
-        if (payload.logLevel.among(logger.LogLevel.info, logger.LogLevel.trace)) {
+        if (payload.logLevel.among(LogLevel.info, LogLevel.trace)) {
             out_ = stdout;
         }
 
-        out_.writefln("%s: %s", text(this.lvl), this.msg);
+        out_.writefln("%s: %s", payload.logLevel, payload.msg);
+    }
+}
+
+class DebugLogger : logger.Logger {
+    this(const logger.LogLevel lvl = LogLevel.trace) {
+        super(lvl);
+    }
+
+    override void writeLogMsg(ref LogEntry payload) @trusted {
+        auto out_ = stderr;
+
+        if (payload.logLevel.among(LogLevel.info, LogLevel.trace)) {
+            out_ = stdout;
+        }
+
+        out_.writefln("%s: %s [%s:%d]", payload.logLevel, payload.msg,
+                payload.funcName, payload.line);
     }
 }
