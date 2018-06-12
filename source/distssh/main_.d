@@ -30,10 +30,8 @@ immutable ulong defaultTimeout_s = 2;
 
 int rmain(string[] args) nothrow {
     try {
-        import distssh.app_logger;
-
-        auto simple_logger = new SimpleLogger();
-        logger.sharedLog(simple_logger);
+        import distssh.app_logger : SimpleLogger;
+        logger.sharedLog(new SimpleLogger);
     }
     catch (Exception e) {
         logger.warning(e.msg).collectException;
@@ -49,11 +47,7 @@ int rmain(string[] args) nothrow {
     }
 
     try {
-        if (opts.verbose) {
-            logger.globalLogLevel(logger.LogLevel.all);
-        } else {
-            logger.globalLogLevel(logger.LogLevel.warning);
-        }
+        confLogger(opts.verbose);
     }
     catch (Exception e) {
         logger.warning(e.msg).collectException;
@@ -66,6 +60,26 @@ int rmain(string[] args) nothrow {
 
     return appMain(opts);
 }
+
+private void confLogger(Options.VerboseMode mode) {
+    import distssh.app_logger;
+
+    switch (mode) {
+    case Options.VerboseMode.info:
+        logger.globalLogLevel = logger.LogLevel.info;
+        logger.sharedLog = new SimpleLogger(logger.LogLevel.info);
+        break;
+    case Options.VerboseMode.trace:
+        logger.globalLogLevel = logger.LogLevel.all;
+        logger.sharedLog = new DebugLogger(logger.LogLevel.all);
+        logger.info("Debug mode activated");
+        break;
+    default:
+        logger.globalLogLevel = logger.LogLevel.warning;
+        logger.sharedLog = new SimpleLogger(logger.LogLevel.info);
+    }
+}
+
 
 int appMain(const Options opts) nothrow {
     final switch (opts.mode) with (Options.Mode) {
@@ -669,12 +683,23 @@ struct Options {
         exportEnv,
     }
 
+    /// The verbosity level of the logging to use.
+    enum VerboseMode {
+        /// Warning+
+        minimal,
+        /// Info+
+        info,
+        /// Trace+
+        trace
+    }
+
+
     Mode mode;
 
     bool help;
     bool noImportEnv;
     bool cloneEnv;
-    bool verbose;
+    VerboseMode verbose;
     bool stdinMsgPackEnv;
     std.getopt.GetoptResult help_info;
 
@@ -745,14 +770,16 @@ Options parseUserArgs(string[] args) {
 
     try {
         bool export_env;
-        string export_env_file;
-        bool remote_shell;
         bool install;
-        bool measure_hosts;
         bool local_load;
         bool local_run;
         bool local_shell;
+        bool measure_hosts;
+        bool remote_shell;
         bool run_on_all;
+        bool verbose_info;
+        bool verbose_trace;
+        string export_env_file;
         ulong timeout_s;
 
         // alphabetical order
@@ -773,13 +800,22 @@ Options parseUserArgs(string[] args) {
             "shell", "open an interactive shell on the remote host", &remote_shell,
             "stdin-msgpack-env", "import env from stdin as a msgpack stream", &opts.stdinMsgPackEnv,
             "timeout", "timeout to use when checking remote hosts", &timeout_s,
-            "v|verbose", "verbose logging", &opts.verbose,
+            "v|verbose", "verbose logging", &verbose_info,
+            "vverbose", "verbose mode is set to trace", &verbose_trace,
             "workdir", "working directory to run the command in", &opts.workDir,
             );
         // dfmt on
         opts.help = opts.help_info.helpWanted;
 
         import core.time : dur;
+
+        opts.verbose = () {
+            if (verbose_trace)
+                return Options.VerboseMode.trace;
+            if (verbose_info)
+                return Options.VerboseMode.info;
+            return Options.VerboseMode.minimal;
+        }();
 
         if (timeout_s > 0)
             opts.timeout = timeout_s.dur!"seconds";
