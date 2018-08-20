@@ -29,9 +29,10 @@ immutable distsshEnvExport = "distssh_env.export";
 immutable ulong defaultTimeout_s = 2;
 
 int rmain(string[] args) nothrow {
+    import colorlog : confLogger, VerboseMode;
+
     try {
-        import distssh.app_logger : SimpleLogger;
-        logger.sharedLog(new SimpleLogger);
+        confLogger(VerboseMode.info);
     }
     catch (Exception e) {
         logger.warning(e.msg).collectException;
@@ -60,26 +61,6 @@ int rmain(string[] args) nothrow {
 
     return appMain(opts);
 }
-
-private void confLogger(Options.VerboseMode mode) {
-    import distssh.app_logger;
-
-    switch (mode) {
-    case Options.VerboseMode.info:
-        logger.globalLogLevel = logger.LogLevel.info;
-        logger.sharedLog = new SimpleLogger(logger.LogLevel.info);
-        break;
-    case Options.VerboseMode.trace:
-        logger.globalLogLevel = logger.LogLevel.all;
-        logger.sharedLog = new DebugLogger(logger.LogLevel.all);
-        logger.info("Debug mode activated");
-        break;
-    default:
-        logger.globalLogLevel = logger.LogLevel.warning;
-        logger.sharedLog = new SimpleLogger(logger.LogLevel.info);
-    }
-}
-
 
 int appMain(const Options opts) nothrow {
     final switch (opts.mode) with (Options.Mode) {
@@ -670,6 +651,7 @@ unittest {
 
 struct Options {
     import core.time : dur;
+    import colorlog : VerboseMode;
 
     enum Mode {
         shell,
@@ -682,17 +664,6 @@ struct Options {
         localShell,
         exportEnv,
     }
-
-    /// The verbosity level of the logging to use.
-    enum VerboseMode {
-        /// Warning+
-        minimal,
-        /// Info+
-        info,
-        /// Trace+
-        trace
-    }
-
 
     Mode mode;
 
@@ -814,7 +785,7 @@ Options parseUserArgs(string[] args) {
                 return Options.VerboseMode.trace;
             if (verbose_info)
                 return Options.VerboseMode.info;
-            return Options.VerboseMode.minimal;
+            return Options.VerboseMode.warning;
         }();
 
         if (timeout_s > 0)
@@ -945,11 +916,11 @@ struct Load {
     double loadAvg;
     Duration accessTime;
 
-    bool opEquals(const this o) nothrow @safe pure @nogc {
+    bool opEquals(const typeof(this) o) nothrow @safe pure @nogc {
         return loadAvg == o.loadAvg && accessTime == o.accessTime;
     }
 
-    int opCmp(const this o) pure @safe @nogc nothrow {
+    int opCmp(const typeof(this) o) pure @safe @nogc nothrow {
         if (loadAvg < o.loadAvg)
             return  - 1;
         else if (loadAvg > o.loadAvg)
