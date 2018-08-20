@@ -472,7 +472,6 @@ int cli_measureHosts(const Options opts) nothrow {
             row[1] = toInternal(a[1].accessTime);
             row[2] = a[1].loadAvg.to!string;
             tbl.put(row);
-            //writefln("%s | %s | %s", a[0], a[1].accessTime.to!string, a[1].loadAvg.to!string);
         } catch (Exception e) {
             logger.trace(e.msg).collectException;
         }
