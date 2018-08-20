@@ -449,8 +449,6 @@ int cli_measureHosts(const Options opts) nothrow {
     auto hosts = RemoteHostCache.make(opts.timeout);
     hosts.sortByLoad;
 
-    writefln("Configured hosts (%s='%s')", globalEnvHostKey, hosts.remoteHosts.joiner(";"))
-        .collectException;
     writeln("Host is overloaded if Load is >1").collectException;
 
     string[3] row = ["Host", "Access Time", "Load"];
