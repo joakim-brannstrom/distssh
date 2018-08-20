@@ -90,7 +90,6 @@ export DISTSSH_HOSTS='localhost;some_remove'
 distcmd ls
 ```
 
-
  * `DISTSSH_IMPORT_ENV`: filename to load the environment from.
 Example:
 ```sh
