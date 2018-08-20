@@ -33,24 +33,21 @@ int rmain(string[] args) nothrow {
 
     try {
         confLogger(VerboseMode.info);
-    }
-    catch (Exception e) {
+    } catch (Exception e) {
         logger.warning(e.msg).collectException;
     }
 
     Options opts;
     try {
         opts = parseUserArgs(args);
-    }
-    catch (Exception e) {
+    } catch (Exception e) {
         logger.error(e.msg).collectException;
         return 1;
     }
 
     try {
         confLogger(opts.verbose);
-    }
-    catch (Exception e) {
+    } catch (Exception e) {
         logger.warning(e.msg).collectException;
     }
 
@@ -98,8 +95,7 @@ int cli_exportEnv(const Options opts) nothrow {
     try {
         writeEnv(opts.importEnv, cloneEnv);
         logger.info("Exported environment to ", opts.importEnv);
-    }
-    catch (Exception e) {
+    } catch (Exception e) {
         logger.error(e.msg).collectException;
         return 1;
     }
@@ -161,8 +157,7 @@ int cli_install(const Options opts, void delegate(string src, string dst) symlin
         symlink(opts.selfBinary, buildPath(opts.selfDir, distShell));
         symlink(opts.selfBinary, buildPath(opts.selfDir, distCmd));
         return 0;
-    }
-    catch (Exception e) {
+    } catch (Exception e) {
         logger.error(e.msg).collectException;
         return 1;
     }
@@ -226,8 +221,7 @@ int cli_shell(const Options opts) nothrow {
                 logger.warningf("Connection failed to %s. Falling back on next available host",
                         host);
             }
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             logger.error(e.msg).collectException;
         }
     }
@@ -248,8 +242,7 @@ int cli_localShell(const Options opts) nothrow {
             pid = spawnProcess([userShell]);
 
         return pid.wait;
-    }
-    catch (Exception e) {
+    } catch (Exception e) {
         logger.error(e.msg).collectException;
         return 1;
     }
@@ -311,14 +304,12 @@ int executeOnHost(const Options opts, Host host) nothrow {
                     return st.status;
 
                 Watchdog.ping(pwriter);
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
             }
 
             Thread.sleep(50.dur!"msecs");
         }
-    }
-    catch (Exception e) {
+    } catch (Exception e) {
         logger.error(e.msg).collectException;
         return 1;
     }
@@ -353,8 +344,7 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
                         env = tmp;
                         break;
                     }
-                }
-                catch (Exception e) {
+                } catch (Exception e) {
                 }
 
                 loop_sleep.tick;
@@ -374,8 +364,7 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
 
         try {
             updateEnv(opts, pread, env);
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             logger.trace(e.msg).collectException;
         }
 
@@ -399,6 +388,7 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
                 loop_running = false;
             }
         }
+
         auto check_sigint = Timer(500.dur!"msecs");
         check_sigint.register(&sigintEvent);
 
@@ -417,8 +407,7 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
                     loop_running = false;
                 }
                 wd.update;
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
             }
 
             // #SPC-sigint_detection
@@ -445,8 +434,7 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
         }
 
         return exit_status;
-    }
-    catch (Exception e) {
+    } catch (Exception e) {
         logger.error(e.msg).collectException;
         return 1;
     }
@@ -487,16 +475,14 @@ int cli_measureHosts(const Options opts) nothrow {
             row[2] = a[1].loadAvg.to!string;
             tbl.put(row);
             //writefln("%s | %s | %s", a[0], a[1].accessTime.to!string, a[1].loadAvg.to!string);
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             logger.trace(e.msg).collectException;
         }
     }
 
     try {
         writeln(tbl);
-    }
-    catch (Exception e) {
+    } catch (Exception e) {
         logger.error(e.msg).collectException;
     }
 
@@ -529,8 +515,7 @@ int cli_localLoad(WriterT)(scope WriterT writer) nothrow {
             writer((loadavg[0] / cores).to!string);
         else
             writer(loadavg[0].to!string);
-    }
-    catch (Exception e) {
+    } catch (Exception e) {
         logger.trace(e.msg).collectException;
         return -1;
     }
@@ -552,8 +537,7 @@ int cli_runOnAll(const Options opts) nothrow {
         try {
             // #SPC-flush_buffers
             stdout.flush;
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
         }
 
         auto status = executeOnHost(opts, a);
@@ -704,8 +688,7 @@ void configImportEnvFile(ref Options opts) nothrow {
     } else {
         try {
             opts.importEnv = environment.get(globalEnvFileKey, distsshEnvExport);
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
         }
     }
 }
@@ -811,13 +794,11 @@ Options parseUserArgs(string[] args) {
             opts.mode = Options.Mode.localShell;
         else
             opts.mode = Options.Mode.cmd;
-    }
-    catch (std.getopt.GetOptException e) {
+    } catch (std.getopt.GetOptException e) {
         // unknown option
         opts.help = true;
         logger.error(e.msg).collectException;
-    }
-    catch (Exception e) {
+    } catch (Exception e) {
         opts.help = true;
         logger.error(e.msg).collectException;
     }
@@ -900,8 +881,7 @@ void printHelp(const Options opts) nothrow {
 
     try {
         defaultGetoptPrinter(format(help_txt, opts.selfBinary.baseName), opts.help_info.options.dup);
-    }
-    catch (Exception e) {
+    } catch (Exception e) {
         logger.error(e.msg).collectException;
     }
 }
@@ -922,12 +902,12 @@ struct Load {
 
     int opCmp(const typeof(this) o) pure @safe @nogc nothrow {
         if (loadAvg < o.loadAvg)
-            return  - 1;
+            return -1;
         else if (loadAvg > o.loadAvg)
             return 1;
 
         if (accessTime < o.accessTime)
-            return  - 1;
+            return -1;
         else if (accessTime > o.accessTime)
             return 1;
 
@@ -987,8 +967,8 @@ Load getLoad(Host h, Duration timeout) nothrow {
         auto loop_sleep = IntervalSleep(25.dur!"msecs");
 
         immutable abs_distssh = thisExePath;
-        auto res = pipeProcess(["ssh", "-q","-oPasswordAuthentication=no", "-oStrictHostKeyChecking=no", h,
-                abs_distssh, "--local-load"]);
+        auto res = pipeProcess(["ssh", "-q", "-oPasswordAuthentication=no",
+                "-oStrictHostKeyChecking=no", h, abs_distssh, "--local-load"]);
 
         while (exit_code == ExitCode.none) {
             auto st = res.pid.tryWait;
@@ -1021,8 +1001,7 @@ Load getLoad(Host h, Duration timeout) nothrow {
             }
 
             rval = Load(last_line.to!double, sw.peek);
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             logger.trace(res.stdout).collectException;
             logger.trace(res.stderr).collectException;
             logger.trace(e.msg).collectException;
@@ -1035,8 +1014,7 @@ Load getLoad(Host h, Duration timeout) nothrow {
         auto r = measure();
         if (!r.isNull)
             return r.get;
-    }
-    catch(Exception e) {
+    } catch (Exception e) {
         logger.trace(e.msg).collectException;
     }
 
@@ -1068,7 +1046,8 @@ auto cloneEnv() nothrow {
         auto env = environment.toAA;
 
         foreach (k; environment.get(globalEnvFilterKey, null)
-                .strip.splitter(';').map!(a => a.strip).filter!(a => a.length != 0)) {
+                .strip.splitter(';').map!(a => a.strip)
+                .filter!(a => a.length != 0)) {
             if (env.remove(k)) {
                 logger.infof("Removed '%s' from the exported environment", k);
             }
@@ -1077,8 +1056,7 @@ auto cloneEnv() nothrow {
         foreach (const a; env.byKeyValue) {
             app ~= EnvVariable(a.key, a.value);
         }
-    }
-    catch (Exception e) {
+    } catch (Exception e) {
         logger.warning(e.msg).collectException;
     }
 
@@ -1106,8 +1084,7 @@ struct PipeReader {
             nfd.read(s);
             if (s.length > 0)
                 deser.put(s);
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
         }
 
         deser.cleanupUntilKind;
@@ -1157,8 +1134,7 @@ auto readEnv(string filename) nothrow {
         }
 
         rval = deser.unpack!(ProtocolEnv);
-    }
-    catch (Exception e) {
+    } catch (Exception e) {
         logger.error(e.msg).collectException;
         logger.errorf("Unable to import environment from '%s'", filename).collectException;
     }
@@ -1192,13 +1168,14 @@ Host[] hostsFromEnv() nothrow {
     try {
         string hosts_env = environment.get(globalEnvHostKey, "").strip;
         rval = hosts_env.splitter(";").map!(a => a.strip)
-            .filter!(a => a.length > 0).map!(a => Host(a)).array;
+            .filter!(a => a.length > 0)
+            .map!(a => Host(a))
+            .array;
 
         if (rval.length == 0) {
             logger.errorf("No remote host configured (%s='%s')", globalEnvHostKey, hosts_env);
         }
-    }
-    catch (Exception e) {
+    } catch (Exception e) {
         logger.error(e.msg).collectException;
     }
 
@@ -1254,8 +1231,7 @@ struct RemoteHostCache {
                 // this should be very uncommon but may happen.
                 remoteByLoad = remoteHosts.map!(a => HostLoad(a, Load.init)).array;
             }
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             logger.trace(e.msg).collectException;
         }
     }
@@ -1274,8 +1250,7 @@ struct RemoteHostCache {
             auto top3 = remoteByLoad.take(3).array;
             auto ridx = uniform(0, top3.length);
             rval = top3[ridx][0];
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             rval = remoteByLoad[0][0];
         }
 
@@ -1312,7 +1287,7 @@ string pathToExe(string exe) {
     // if it already has a / or . at the start, assume the exe is correct
     if (exe[0 .. 1] == dirSeparator || exe[0 .. 1] == ".")
         return exe;
-    auto matches = environment["PATH"].splitter(pathSeparator)
-        .map!(path => buildPath(path, exe)).filter!(path => exists(path));
+    auto matches = environment["PATH"].splitter(pathSeparator).map!(path => buildPath(path, exe))
+        .filter!(path => exists(path));
     return matches.empty ? exe : matches.front;
 }
