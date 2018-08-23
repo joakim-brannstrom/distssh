@@ -112,7 +112,7 @@ unittest {
     scope (exit)
         remove(remove_me);
 
-    auto opts = parseUserArgs(["distssh", "--export-env", "--export-env-file", remove_me]);
+    auto opts = parseUserArgs(["distssh", "--export-env-file", remove_me]);
 
     // make sure there are at least one environment variable
     import core.sys.posix.stdlib : putenv, unsetenv;
@@ -698,6 +698,7 @@ void configImportEnvFile(ref Options opts) nothrow {
  */
 Options parseUserArgs(string[] args) {
     import std.algorithm : among;
+    import std.array : empty;
     import std.file : thisExePath;
     import std.path : dirName, baseName, buildPath;
 
@@ -773,9 +774,9 @@ Options parseUserArgs(string[] args) {
 
         if (install)
             opts.mode = Options.Mode.install;
-        else if (export_env) {
+        else if (export_env || !export_env_file.empty) {
             opts.mode = Options.Mode.exportEnv;
-            if (export_env_file.length != 0)
+            if (!export_env_file.empty)
                 opts.importEnv = export_env_file;
         } else if (remote_shell)
             opts.mode = Options.Mode.shell;
