@@ -147,4 +147,3 @@ unittest {
 
     assert(groups.length < deep.length);
 }
-

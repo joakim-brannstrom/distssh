@@ -27,3 +27,18 @@ unittest {
     assert(spawnShell(distssh ~ " --local-run --import-env=distssh_env.export -- ls")
             .wait == 0, "failed importing env");
 }
+
+@("shall run the command successfully even though the working directory have a space in the name")
+unittest {
+    prepareDistssh;
+
+    if (environment.get("DISTSSH_HOSTS").length == 0) {
+        writeln("Unable to run the test because DISTSSH_HOSTS is not set. Skipping...");
+        return;
+    }
+
+    auto area = TestArea(__FILE__, __LINE__);
+    const wdir = buildPath(area, "foo bar");
+    mkdirRecurse(wdir);
+    assert(spawnProcess([distssh, "--", "ls"], null, Config.none, wdir).wait == 0, "failed to run ls in directory");
+}

@@ -26,6 +26,8 @@ immutable globalEnvFilterKey = "DISTSSH_ENV_EXPORT_FILTER";
 immutable distShell = "distshell";
 immutable distCmd = "distcmd";
 immutable distsshEnvExport = "distssh_env.export";
+// arguments to ssh that turn off warning that a host key is new or requies a password to login
+immutable sshNoLoginArgs = ["-oStrictHostKeyChecking=no", "-oPasswordAuthentication=no"];
 immutable ulong defaultTimeout_s = 2;
 
 int rmain(string[] args) nothrow {
@@ -50,6 +52,8 @@ int rmain(string[] args) nothrow {
     } catch (Exception e) {
         logger.warning(e.msg).collectException;
     }
+
+    logger.trace(opts).collectException;
 
     if (opts.help) {
         printHelp(opts);
@@ -183,8 +187,8 @@ unittest {
 
 int cli_shell(const Options opts) nothrow {
     import std.datetime.stopwatch : StopWatch, AutoStart;
-    import std.file : thisExePath, getcwd;
-    import std.process : spawnProcess, wait;
+    import std.file : thisExePath;
+    import std.process : spawnProcess, wait, escapeShellFileName;
     import std.stdio : writeln, writefln;
 
     auto hosts = RemoteHostCache.make(opts.timeout);
@@ -210,8 +214,8 @@ int cli_shell(const Options opts) nothrow {
             auto sw = StopWatch(AutoStart.yes);
 
             // two -t forces a tty to be created and used which mean that the remote shell will *think* it is an interactive shell
-            auto exit_status = spawnProcess(["ssh", "-q", "-t", "-t", "-oStrictHostKeyChecking=no",
-                    host, thisExePath, "--local-shell", "--workdir", getcwd]).wait;
+            auto exit_status = spawnProcess(["ssh", "-q", "-t", "-t"] ~ sshNoLoginArgs ~ [
+                    host, thisExePath.escapeShellFileName, "--local-shell", "--workdir", opts.workDir.escapeShellFileName]).wait;
 
             // #SPC-fallback_remote_host
             if (exit_status == 0 || sw.peek > timout_until_considered_successfull_connection) {
@@ -274,17 +278,15 @@ int executeOnHost(const Options opts, Host host) nothrow {
     import core.time : dur, MonoTime;
     import std.file : thisExePath;
     import std.path : absolutePath;
-    import std.process : tryWait, Redirect, pipeProcess;
+    import std.process : tryWait, Redirect, pipeProcess, escapeShellFileName;
 
     // #SPC-draft_remote_cmd_spec
     try {
-        import std.file : getcwd;
-
-        auto args = ["ssh", "-oStrictHostKeyChecking=no", host, thisExePath,
-            "--local-run", "--workdir", getcwd, "--stdin-msgpack-env", "--"] ~ opts.command;
+        auto args = ["ssh"] ~ sshNoLoginArgs ~ [host, thisExePath,
+            "--local-run", "--workdir", opts.workDir.escapeShellFileName, "--stdin-msgpack-env", "--"] ~ opts.command;
 
         logger.info("Connecting to: ", host);
-        logger.info("run: ", args.joiner(" "));
+        logger.trace("run: ", args.joiner(" "));
 
         auto p = pipeProcess(args, Redirect.stdin);
 
@@ -772,6 +774,12 @@ Options parseUserArgs(string[] args) {
         if (timeout_s > 0)
             opts.timeout = timeout_s.dur!"seconds";
 
+        if (opts.workDir.length == 0) {
+            import std.file : getcwd;
+
+            opts.workDir = getcwd;
+        }
+
         if (install)
             opts.mode = Options.Mode.install;
         else if (export_env || !export_env_file.empty) {
@@ -941,7 +949,7 @@ Load getLoad(Host h, Duration timeout) nothrow {
     import std.conv : to;
     import std.datetime.stopwatch : StopWatch, AutoStart;
     import std.file : thisExePath;
-    import std.process : tryWait, pipeProcess, kill, wait;
+    import std.process : tryWait, pipeProcess, kill, wait, escapeShellFileName;
     import std.range : takeOne, retro;
     import std.stdio : writeln;
     import core.time : dur;
@@ -965,8 +973,7 @@ Load getLoad(Host h, Duration timeout) nothrow {
         auto loop_sleep = IntervalSleep(25.dur!"msecs");
 
         immutable abs_distssh = thisExePath;
-        auto res = pipeProcess(["ssh", "-q", "-oPasswordAuthentication=no",
-                "-oStrictHostKeyChecking=no", h, abs_distssh, "--local-load"]);
+        auto res = pipeProcess(["ssh", "-q"] ~ sshNoLoginArgs ~ [h, abs_distssh.escapeShellFileName, "--local-load"]);
 
         while (exit_code == ExitCode.none) {
             auto st = res.pid.tryWait;
