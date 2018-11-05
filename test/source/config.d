@@ -19,10 +19,14 @@ public import std.string;
 public import logger = std.experimental.logger;
 
 immutable buildDir = "../build";
-immutable distssh = "../build/distssh";
 immutable tmpDir = "./build/testdata";
 
 private shared(bool) g_isDistsshPrepared = false;
+
+string distssh() {
+    immutable d = "../build/distssh".absolutePath;
+    return d;
+}
 
 void prepareDistssh() {
     synchronized {
