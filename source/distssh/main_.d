@@ -85,6 +85,8 @@ int appMain(const Options opts) nothrow {
         import std.stdio : writeln;
 
         return cli_localLoad((string s) => writeln(s));
+    case printEnv:
+        return cli_printEnv(opts);
     case runOnAll:
         return cli_runOnAll(opts);
     }
@@ -152,6 +154,23 @@ unittest {
     }
 
     verify2;
+}
+
+int cli_printEnv(const Options opts) nothrow {
+    import std.path : absolutePath;
+    import std.stdio : writeln, writefln;
+
+    try {
+        writeln("Reading ", opts.importEnv);
+        foreach(const kv; readEnv(opts.importEnv.absolutePath))
+            writefln(`%s="%s"`, kv.key, kv.value);
+    }
+    catch(Exception e) {
+        logger.error(e.msg).collectException;
+        return 1;
+    }
+
+    return 0;
 }
 
 int cli_install(const Options opts, void delegate(string src, string dst) symlink) nothrow {
@@ -646,6 +665,7 @@ struct Options {
         runOnAll,
         localShell,
         exportEnv,
+        printEnv,
     }
 
     Mode mode;
@@ -730,6 +750,7 @@ Options parseUserArgs(string[] args) {
         bool local_run;
         bool local_shell;
         bool measure_hosts;
+        bool print_env_file;
         bool remote_shell;
         bool run_on_all;
         bool verbose_info;
@@ -746,17 +767,18 @@ Options parseUserArgs(string[] args) {
             "export-env-file", "export the current environment to the specified file", &export_env_file,
             "install", "install distssh by setting up the correct symlinks", &install,
             "i|import-env", "import the env from the file (default: " ~ distsshEnvExport ~ ")", &opts.importEnv,
-            "no-import-env", "do not automatically import the environment from " ~ distsshEnvExport, &opts.noImportEnv,
-            "measure", "measure the login time and load of all remote hosts", &measure_hosts,
             "local-load", "measure the load on the current host", &local_load,
             "local-run", "import env and run the command locally", &local_run,
             "local-shell", "run the shell locally", &local_shell,
+            "measure", "measure the login time and load of all remote hosts", &measure_hosts,
+            "no-import-env", "do not automatically import the environment from " ~ distsshEnvExport, &opts.noImportEnv,
+            "print-env", "print the content of an exported environment", &print_env_file,
             "run-on-all", "run the command on all remote hosts", &run_on_all,
             "shell", "open an interactive shell on the remote host", &remote_shell,
             "stdin-msgpack-env", "import env from stdin as a msgpack stream", &opts.stdinMsgPackEnv,
             "timeout", "timeout to use when checking remote hosts", &timeout_s,
-            "v|verbose", "verbose logging", &verbose_info,
             "vverbose", "verbose mode is set to trace", &verbose_trace,
+            "v|verbose", "verbose logging", &verbose_info,
             "workdir", "working directory to run the command in", &opts.workDir,
             );
         // dfmt on
@@ -793,6 +815,8 @@ Options parseUserArgs(string[] args) {
             opts.mode = Options.Mode.runOnAll;
         else if (local_shell)
             opts.mode = Options.Mode.localShell;
+        else if (print_env_file)
+            opts.mode = Options.Mode.printEnv;
         else
             opts.mode = Options.Mode.cmd;
     } catch (std.getopt.GetOptException e) {
