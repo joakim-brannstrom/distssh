@@ -24,8 +24,11 @@ immutable tmpDir = "./build/testdata";
 private shared(bool) g_isDistsshPrepared = false;
 
 string distssh() {
-    immutable d = "../build/distssh".absolutePath;
-    return d;
+    return buildPath(buildDir, "distssh").absolutePath;
+}
+
+string distcmd() {
+    return buildPath(buildDir, "distcmd").absolutePath;
 }
 
 void prepareDistssh() {
