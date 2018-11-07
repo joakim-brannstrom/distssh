@@ -701,13 +701,14 @@ void configImportEnvFile(ref Options opts) nothrow {
 Options parseUserArgs(string[] args) {
     import std.algorithm : among;
     import std.array : empty;
-    import std.file : thisExePath;
+    import std.file : thisExePath, getcwd;
     import std.path : dirName, baseName, buildPath;
 
     Options opts;
 
     opts.selfBinary = buildPath(thisExePath.dirName, args[0].baseName);
     opts.selfDir = opts.selfBinary.dirName;
+    opts.workDir = getcwd;
 
     switch (opts.selfBinary.baseName) {
     case distShell:
@@ -773,12 +774,6 @@ Options parseUserArgs(string[] args) {
 
         if (timeout_s > 0)
             opts.timeout = timeout_s.dur!"seconds";
-
-        if (opts.workDir.length == 0) {
-            import std.file : getcwd;
-
-            opts.workDir = getcwd;
-        }
 
         if (install)
             opts.mode = Options.Mode.install;
