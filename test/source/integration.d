@@ -40,5 +40,8 @@ unittest {
     auto area = TestArea(__FILE__, __LINE__);
     const wdir = buildPath(area, "foo bar");
     mkdirRecurse(wdir);
-    assert(spawnProcess([distssh, "--", "ls"], null, Config.none, wdir).wait == 0, "failed to run ls in directory");
+    File(buildPath(wdir, "my_dummy_file.txt"), "w");
+
+    assert(spawnProcess([distssh, "--", "cat", "my_dummy_file.txt"], null, Config.none, wdir).wait == 0, "failed to cat my_dummy_file.txt via distssh --");
+    assert(spawnProcess([distcmd, "cat", "my_dummy_file.txt"], null, Config.none, wdir).wait == 0, "failed to cat my_dummy_file.txt via distcmd");
 }
