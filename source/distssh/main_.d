@@ -722,7 +722,7 @@ Options parseUserArgs(string[] args) {
     import std.algorithm : among;
     import std.array : empty;
     import std.file : thisExePath, getcwd;
-    import std.path : dirName, baseName, buildPath;
+    import std.path : dirName, baseName, buildPath, absolutePath;
 
     Options opts;
 
@@ -785,6 +785,9 @@ Options parseUserArgs(string[] args) {
         opts.help = opts.help_info.helpWanted;
 
         import core.time : dur;
+
+        // must convert e.g. "."
+        opts.workDir = opts.workDir.absolutePath;
 
         opts.verbose = () {
             if (verbose_trace)
@@ -892,6 +895,14 @@ unittest {
 
     opts = parseUserArgs(["distcmd", "--timeout", "10"]);
     assert(opts.timeout == defaultTimeout_s.dur!"seconds");
+}
+
+@("shall convert relative workdirs to absolute when parsing user args")
+unittest {
+    import std.path : isAbsolute;
+
+    auto opts = parseUserArgs(["distssh", "--workdir", "."]);
+    assert(opts.workDir.isAbsolute, "expected an absolute path");
 }
 
 void printHelp(const Options opts) nothrow {
