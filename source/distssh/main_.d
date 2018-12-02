@@ -89,14 +89,14 @@ int appMain(const Options opts) nothrow {
         return cli_printEnv(opts);
     case runOnAll:
         return cli_runOnAll(opts);
+    case modifyEnv:
+        return cli_modifyEnv(opts);
     }
 }
 
 private:
 
-/** Export the environment to a file for later import.
-
-  */
+/// Export the environment to a file for later import.
 int cli_exportEnv(const Options opts) nothrow {
     try {
         writeEnv(opts.importEnv, cloneEnv);
@@ -161,16 +161,19 @@ int cli_printEnv(const Options opts) nothrow {
     import std.stdio : writeln, writefln;
 
     try {
-        writeln("Reading ", opts.importEnv);
-        foreach(const kv; readEnv(opts.importEnv.absolutePath))
+        foreach (const kv; readEnv(opts.importEnv.absolutePath))
             writefln(`%s="%s"`, kv.key, kv.value);
-    }
-    catch(Exception e) {
+    } catch (Exception e) {
         logger.error(e.msg).collectException;
         return 1;
     }
 
     return 0;
+}
+
+@("shall print the env from a file")
+unittest {
+
 }
 
 int cli_install(const Options opts, void delegate(string src, string dst) symlink) nothrow {
@@ -233,8 +236,9 @@ int cli_shell(const Options opts) nothrow {
             auto sw = StopWatch(AutoStart.yes);
 
             // two -t forces a tty to be created and used which mean that the remote shell will *think* it is an interactive shell
-            auto exit_status = spawnProcess(["ssh", "-q", "-t", "-t"] ~ sshNoLoginArgs ~ [
-                    host, thisExePath.escapeShellFileName, "--local-shell", "--workdir", opts.workDir.escapeShellFileName]).wait;
+            auto exit_status = spawnProcess(["ssh", "-q", "-t", "-t"] ~ sshNoLoginArgs ~ [host,
+                    thisExePath.escapeShellFileName, "--local-shell",
+                    "--workdir", opts.workDir.escapeShellFileName]).wait;
 
             // #SPC-fallback_remote_host
             if (exit_status == 0 || sw.peek > timout_until_considered_successfull_connection) {
@@ -301,8 +305,8 @@ int executeOnHost(const Options opts, Host host) nothrow {
 
     // #SPC-draft_remote_cmd_spec
     try {
-        auto args = ["ssh"] ~ sshNoLoginArgs ~ [host, thisExePath,
-            "--local-run", "--workdir", opts.workDir.escapeShellFileName, "--stdin-msgpack-env", "--"] ~ opts.command;
+        auto args = ["ssh"] ~ sshNoLoginArgs ~ [host, thisExePath, "--local-run", "--workdir",
+            opts.workDir.escapeShellFileName, "--stdin-msgpack-env", "--"] ~ opts.command;
 
         logger.info("Connecting to: ", host);
         logger.trace("run: ", args.joiner(" "));
@@ -341,8 +345,7 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
     import core.time : dur;
     import std.stdio : File, stdin;
     import std.file : exists;
-    import std.process : spawnProcess, Config, spawnShell, Pid, tryWait,
-        thisProcessID;
+    import std.process : spawnProcess, Config, spawnShell, Pid, tryWait, thisProcessID;
     import std.utf : toUTF8;
     import distssh.timer : IntervalSleep, Timer;
 
@@ -507,6 +510,88 @@ int cli_measureHosts(const Options opts) nothrow {
     return 0;
 }
 
+// #SPC-modify_env
+int cli_modifyEnv(const Options opts) nothrow {
+    import std.algorithm : map, filter;
+    import std.array : assocArray, empty, array;
+    import std.path : absolutePath;
+    import std.stdio : writeln, writefln;
+    import std.string : split;
+    import std.typecons : tuple;
+    import distssh.protocol : ProtocolEnv, EnvVariable;
+
+    string[string] set_envs;
+    try {
+        set_envs = opts.envSet
+            .map!(a => a.split('='))
+            .filter!(a => !a.empty)
+            .map!(a => tuple(a[0], a[1]))
+            .assocArray;
+    } catch (Exception e) {
+        writeln("Unable to parse supplied envs to modify: ", e.msg).collectException;
+        return 1;
+    }
+
+    try {
+        auto env = readEnv(opts.importEnv.absolutePath).map!(a => tuple(a.key, a.value)).assocArray;
+
+        foreach (k; opts.envDel.filter!(a => a in env)) {
+            writeln("Removing ", k);
+            env.remove(k);
+        }
+
+        foreach (kv; set_envs.byKeyValue) {
+            if (kv.key in env)
+                writefln("Setting %s=%s", kv.key, kv.value);
+            else
+                writefln("Adding %s=%s", kv.key, kv.value);
+            env[kv.key] = kv.value;
+        }
+
+        writeEnv(opts.importEnv,
+                ProtocolEnv(env.byKeyValue.map!(a => EnvVariable(a.key, a.value)).array));
+    } catch (Exception e) {
+        logger.error(e.msg).collectException;
+        return 1;
+    }
+
+    return 0;
+}
+
+@("shall modify the exported env by adding, removing and modifying")
+unittest {
+    import std.array;
+    import std.file;
+    import std.process : environment;
+    import std.stdio;
+    import std.typecons : tuple;
+
+    // arrange
+    immutable remove_me = "remove_me.export";
+    scope (exit)
+        remove(remove_me);
+
+    environment["FOO_DEL"] = "del me";
+    environment["FOO_MOD"] = "mod me";
+    scope (exit) {
+        environment.remove("FOO_DEL");
+        environment.remove("FOO_MOD");
+        environment.remove("FOO_ADD");
+    }
+
+    appMain(parseUserArgs(["distssh", "--export-env-file", remove_me]));
+
+    // act
+    appMain(parseUserArgs(["distssh", "--env-del", "FOO_DEL", "--env-set",
+            "FOO_MOD=42", "--env-set", "FOO_ADD=42", "--export-env-file", remove_me]));
+
+    // assert
+    auto env = readEnv(remove_me).map!(a => tuple(a.key, a.value)).assocArray;
+    assert(env["FOO_MOD"] == "42");
+    assert(env["FOO_ADD"] == "42");
+    assert("FOO_DEL" !in env);
+}
+
 /** Print the load of localhost.
  *
  * #SPC-measure_local_load
@@ -666,6 +751,7 @@ struct Options {
         localShell,
         exportEnv,
         printEnv,
+        modifyEnv,
     }
 
     Mode mode;
@@ -685,6 +771,11 @@ struct Options {
     string importEnv;
     string workDir;
     string[] command;
+
+    /// Env variable to set in the config specified in importEnv.
+    string[] envSet;
+    /// Env variables to remove from the onespecified in importEnv.
+    string[] envDel;
 }
 
 /** Update a Configs object's file to import the environment from.
@@ -763,6 +854,9 @@ Options parseUserArgs(string[] args) {
         opts.help_info = std.getopt.getopt(args, std.getopt.config.passThrough,
             std.getopt.config.keepEndOfOptions,
             "clone-env", "clone the current environment to the remote host without an intermediate file", &opts.cloneEnv,
+            "env-del", "remove a variable from the exported environment", &opts.envDel,
+            "env-print", "print the content of an exported environment", &print_env_file,
+            "env-set", "set a variable in the exported environment. Example: FOO=42", &opts.envSet,
             "export-env", "export the current environment to a file that is used on the remote host", &export_env,
             "export-env-file", "export the current environment to the specified file", &export_env_file,
             "install", "install distssh by setting up the correct symlinks", &install,
@@ -772,7 +866,6 @@ Options parseUserArgs(string[] args) {
             "local-shell", "run the shell locally", &local_shell,
             "measure", "measure the login time and load of all remote hosts", &measure_hosts,
             "no-import-env", "do not automatically import the environment from " ~ distsshEnvExport, &opts.noImportEnv,
-            "print-env", "print the content of an exported environment", &print_env_file,
             "run-on-all", "run the command on all remote hosts", &run_on_all,
             "shell", "open an interactive shell on the remote host", &remote_shell,
             "stdin-msgpack-env", "import env from stdin as a msgpack stream", &opts.stdinMsgPackEnv,
@@ -800,13 +893,14 @@ Options parseUserArgs(string[] args) {
         if (timeout_s > 0)
             opts.timeout = timeout_s.dur!"seconds";
 
+        if (!export_env_file.empty)
+            opts.importEnv = export_env_file;
+
         if (install)
             opts.mode = Options.Mode.install;
-        else if (export_env || !export_env_file.empty) {
+        else if (export_env)
             opts.mode = Options.Mode.exportEnv;
-            if (!export_env_file.empty)
-                opts.importEnv = export_env_file;
-        } else if (remote_shell)
+        else if (remote_shell)
             opts.mode = Options.Mode.shell;
         else if (measure_hosts)
             opts.mode = Options.Mode.measureHosts;
@@ -820,6 +914,8 @@ Options parseUserArgs(string[] args) {
             opts.mode = Options.Mode.localShell;
         else if (print_env_file)
             opts.mode = Options.Mode.printEnv;
+        else if (!opts.envSet.empty || !opts.envDel.empty)
+            opts.mode = Options.Mode.modifyEnv;
         else
             opts.mode = Options.Mode.cmd;
     } catch (std.getopt.GetOptException e) {
@@ -1003,7 +1099,8 @@ Load getLoad(Host h, Duration timeout) nothrow {
         auto loop_sleep = IntervalSleep(25.dur!"msecs");
 
         immutable abs_distssh = thisExePath;
-        auto res = pipeProcess(["ssh", "-q"] ~ sshNoLoginArgs ~ [h, abs_distssh.escapeShellFileName, "--local-load"]);
+        auto res = pipeProcess(["ssh", "-q"] ~ sshNoLoginArgs ~ [h,
+                abs_distssh.escapeShellFileName, "--local-load"]);
 
         while (exit_code == ExitCode.none) {
             auto st = res.pid.tryWait;
@@ -1145,7 +1242,7 @@ struct PipeWriter {
     }
 }
 
-auto readEnv(string filename) nothrow {
+from!"distssh.protocol".ProtocolEnv readEnv(string filename) nothrow {
     import distssh.protocol : ProtocolEnv, EnvVariable, Deserialize;
     import std.file : exists;
     import std.stdio : File;

@@ -87,6 +87,23 @@ It is important that the edit-compile-execute cycle is kept fast and efficient.
 
 I chose the number because after 2s I myself become annoyed. This may need further investigation.
 
+# REQ-uc_modify_env
+partof: REQ-purpose
+###
+
+The user wants to be able to modify the saved environment without having to redo the export.
+Modifying mean adding or removing environment variables.
+
+## Rationale
+
+The user think it is convenient to have a saved environment that "just works". It is possible to start working right away. But there may be a env variable or two that needs to be modified. By directly being able to modify the env it is easier for the user to "work". They do not need to remember at that moment "how" the env where created.
+
+# SPC-modify_env
+partof: REQ-uc_modify_env
+###
+
+See REQ.
+
 # SPC-best_remote_host
 partof: REQ-purpose
 ###

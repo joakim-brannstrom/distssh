@@ -78,7 +78,9 @@ struct Table(int columnsNr) {
         import std.utf : byCodeUnit;
         import std.typecons : tuple;
 
-        foreach (a; r[].enumerate.map!(a => tuple(a.index, a.value.byCodeUnit.count)).filter!(a => a[1] > columnWidth[a[0]])) {
+        foreach (a; r[].enumerate
+                .map!(a => tuple(a.index, a.value.byCodeUnit.count))
+                .filter!(a => a[1] > columnWidth[a[0]])) {
             columnWidth[a[0]] = a[1];
         }
     }

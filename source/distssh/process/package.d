@@ -26,8 +26,7 @@ Pid[] getShallowChildren(int parent_pid) {
             parent_pid.to!string, "children")).readln.splitter(" ").filter!(a => a.length > 0)) {
         try {
             children.put(p.to!pid_t.Pid);
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             logger.trace(e.msg).collectException;
         }
     }
@@ -83,7 +82,8 @@ PidGroup[] getPidGroups(const Pid[] pids) {
     auto res = appender!(PidGroup[])();
     bool[pid_t] pgroups;
 
-    foreach (const p; pids.map!(a => getpgid(a)).filter!(a => a != -1)) {
+    foreach (const p; pids.map!(a => getpgid(a))
+            .filter!(a => a != -1)) {
         if (p !in pgroups) {
             pgroups[p] = true;
             res.put(PidGroup(p));
@@ -124,8 +124,7 @@ pid_t cleanupProcess(KillT, KillPgT)(Pid parent_pid, KillT kill, KillPgT killpg)
         foreach (const p; children_groups.filter!(a => a != this_gid)) {
             killpg(p);
         }
-    }
-    catch (Exception e) {
+    } catch (Exception e) {
         logger.trace(e.msg).collectException;
     }
 
