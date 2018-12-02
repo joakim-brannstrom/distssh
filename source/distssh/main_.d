@@ -111,29 +111,25 @@ int cli_exportEnv(const Options opts) nothrow {
 
 unittest {
     import std.conv : to;
-    import std.string : toStringz;
     import std.file;
+    import std.process : environment;
 
+    // arrange
     immutable remove_me = "remove_me.export";
     scope (exit)
         remove(remove_me);
 
-    auto opts = parseUserArgs(["distssh", "--export-env-file", remove_me]);
-
-    // make sure there are at least one environment variable
-    import core.sys.posix.stdlib : putenv, unsetenv;
+    auto opts = parseUserArgs(["distssh", "--export-env", "--env-file", remove_me]);
 
     const env_key = "DISTSSH_ENV_TEST";
-    const env_var = (env_key ~ "=" ~ remove_me).toStringz;
-    putenv(cast(char*) env_var);
+    environment[env_key] = env_key ~ remove_me;
     scope (exit)
-        unsetenv(cast(char*) env_key.ptr);
+        environment.remove(env_key);
 
     // shall export the environment to the file
     void verify1() {
         // test normal export
-        cli_exportEnv(opts);
-
+        appMain(opts);
         auto env = readEnv(remove_me);
         assert(!env.filter!(a => a.key == env_key).empty, env.to!string);
     }
@@ -141,14 +137,12 @@ unittest {
     verify1;
 
     // shall filter out specified env before exporting to the file
-    const env_filter_var = (globalEnvFilterKey ~ "=DISTSSH_ENV_TEST;junk ").toStringz;
-    putenv(cast(char*) env_filter_var);
+    environment[globalEnvFilterKey] = "DISTSSH_ENV_TEST;junk ";
     scope (exit)
-        unsetenv(cast(char*) globalEnvFilterKey.ptr);
+        environment.remove(globalEnvFilterKey);
 
     void verify2() {
-        cli_exportEnv(opts);
-
+        appMain(opts);
         auto env = readEnv(remove_me);
         assert(env.filter!(a => a.key == env_key).empty, env.to!string);
     }
