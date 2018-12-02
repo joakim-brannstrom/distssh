@@ -74,8 +74,8 @@ unittest {
     // action
     auto fake_env = ["SMURF" : "43"];
     const env_file = buildPath(area, "myenv.export");
-    assert(spawnShell(distssh ~ " --export-env --export-env-file " ~ env_file,
-            stdin, stdout, stderr, fake_env).wait == 0, "failed to export env");
+    assert(spawnShell(distssh ~ " --export-env --env-file " ~ env_file, stdin,
+            stdout, stderr, fake_env).wait == 0, "failed to export env");
     auto res = executeShell(format(distssh ~ " -i %s --local-run -- bash " ~ script_file, env_file));
 
     // assert
@@ -92,8 +92,8 @@ unittest {
     // action
     const env_file = buildPath(area, "myenv.export");
     auto fake_env = ["SMURF" : "43"];
-    assert(spawnShell(distssh ~ " --export-env --export-env-file " ~ env_file,
-            stdin, stdout, stderr, fake_env).wait == 0, "failed to export env");
+    assert(spawnShell(distssh ~ " --export-env --env-file " ~ env_file, stdin,
+            stdout, stderr, fake_env).wait == 0, "failed to export env");
 
     fake_env = ["DISTSSH_IMPORT_ENV" : env_file];
     auto res = executeShell(distssh ~ " --local-run -- bash " ~ script_file, fake_env);

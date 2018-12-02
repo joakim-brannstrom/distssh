@@ -42,8 +42,10 @@ unittest {
     mkdirRecurse(wdir);
     File(buildPath(wdir, "my_dummy_file.txt"), "w");
 
-    assert(spawnProcess([distssh, "--", "cat", "my_dummy_file.txt"], null, Config.none, wdir).wait == 0, "failed to cat my_dummy_file.txt via distssh --");
-    assert(spawnProcess([distcmd, "cat", "my_dummy_file.txt"], null, Config.none, wdir).wait == 0, "failed to cat my_dummy_file.txt via distcmd");
+    assert(spawnProcess([distssh, "--", "cat", "my_dummy_file.txt"], null,
+            Config.none, wdir).wait == 0, "failed to cat my_dummy_file.txt via distssh --");
+    assert(spawnProcess([distcmd, "cat", "my_dummy_file.txt"], null, Config.none,
+            wdir).wait == 0, "failed to cat my_dummy_file.txt via distcmd");
 }
 
 @("shall print the environment")
@@ -57,8 +59,9 @@ unittest {
 
     auto area = TestArea(__FILE__, __LINE__);
 
-    assert(spawnProcess([distssh, "--export-env"], null, Config.none, area).wait == 0, "failed to export the environment");
-    auto res = execute([distssh, "--print-env"], null, Config.none, size_t.max, area);
+    assert(spawnProcess([distssh, "--export-env"], null, Config.none, area)
+            .wait == 0, "failed to export the environment");
+    auto res = execute([distssh, "--env-print"], null, Config.none, size_t.max, area);
     assert(res.status == 0);
     assert(res.output.canFind("PWD"), "failed to print the environment");
 }
