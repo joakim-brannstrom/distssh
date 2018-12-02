@@ -58,7 +58,7 @@ unittest {
     auto area = TestArea(__FILE__, __LINE__);
 
     assert(spawnProcess([distssh, "--export-env"], null, Config.none, area).wait == 0, "failed to export the environment");
-    auto res = execute([distssh, "--print-env"], null, Config.none, size_t.max, area);
+    auto res = execute([distssh, "--env-print"], null, Config.none, size_t.max, area);
     assert(res.status == 0);
     assert(res.output.canFind("PWD"), "failed to print the environment");
 }
