@@ -573,11 +573,11 @@ unittest {
         environment.remove("FOO_ADD");
     }
 
-    appMain(parseUserArgs(["distssh", "--export-env-file", remove_me]));
+    appMain(parseUserArgs(["distssh", "--export-env", "--env-file", remove_me]));
 
     // act
     appMain(parseUserArgs(["distssh", "--env-del", "FOO_DEL", "--env-set",
-            "FOO_MOD=42", "--env-set", "FOO_ADD=42", "--export-env-file", remove_me]));
+            "FOO_MOD=42", "--env-set", "FOO_ADD=42", "--env-file", remove_me]));
 
     // assert
     auto env = readEnv(remove_me).map!(a => tuple(a.key, a.value)).assocArray;
