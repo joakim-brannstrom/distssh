@@ -27,7 +27,9 @@ immutable distShell = "distshell";
 immutable distCmd = "distcmd";
 immutable distsshEnvExport = "distssh_env.export";
 // arguments to ssh that turn off warning that a host key is new or requies a password to login
-immutable sshNoLoginArgs = ["-oStrictHostKeyChecking=no", "-oPasswordAuthentication=no"];
+immutable sshNoLoginArgs = [
+    "-oStrictHostKeyChecking=no", "-oPasswordAuthentication=no"
+];
 immutable ulong defaultTimeout_s = 2;
 
 int rmain(string[] args) nothrow {
@@ -56,7 +58,7 @@ int rmain(string[] args) nothrow {
     logger.trace(opts).collectException;
 
     if (opts.help) {
-        printHelp(opts);
+        opts.printHelp();
         return 0;
     }
 
@@ -64,34 +66,50 @@ int rmain(string[] args) nothrow {
 }
 
 int appMain(const Options opts) nothrow {
-    final switch (opts.mode) with (Options.Mode) {
-    case exportEnv:
-        return cli_exportEnv(opts);
-    case install:
-        import std.file : symlink;
+    import distssh.server;
+    import std.functional : toDelegate;
 
-        return cli_install(opts, (string src, string dst) => symlink(src, dst));
-    case shell:
-        return cli_shell(opts);
-    case localShell:
-        return cli_localShell(opts);
-    case cmd:
-        return cli_cmd(opts);
-    case importEnvCmd:
-        return cli_cmdWithImportedEnv(opts);
-    case measureHosts:
-        return cli_measureHosts(opts);
-    case localLoad:
-        import std.stdio : writeln;
+    int defaultGroup(const Options opts) nothrow {
+        final switch (opts.mode) with (Options.Mode) {
+        case exportEnv:
+            return cli_exportEnv(opts);
+        case install:
+            import std.file : symlink;
 
-        return cli_localLoad((string s) => writeln(s));
-    case printEnv:
-        return cli_printEnv(opts);
-    case runOnAll:
-        return cli_runOnAll(opts);
-    case modifyEnv:
-        return cli_modifyEnv(opts);
+            return cli_install(opts, (string src, string dst) => symlink(src, dst));
+        case shell:
+            return cli_shell(opts);
+        case localShell:
+            return cli_localShell(opts);
+        case cmd:
+            return cli_cmd(opts);
+        case importEnvCmd:
+            return cli_cmdWithImportedEnv(opts);
+        case measureHosts:
+            return cli_measureHosts(opts);
+        case localLoad:
+            import std.stdio : writeln;
+
+            return cli_localLoad((string s) => writeln(s));
+        case printEnv:
+            return cli_printEnv(opts);
+        case runOnAll:
+            return cli_runOnAll(opts);
+        case modifyEnv:
+            return cli_modifyEnv(opts);
+        }
     }
+
+    alias Group = int delegate(const Options) nothrow;
+    Group[Options.Group] groups;
+    groups[Options.Group.default_] = &defaultGroup;
+    groups[Options.Group.server] = toDelegate(&serverGroup);
+
+    if (auto g = opts.group in groups) {
+        return (*g)(opts);
+    }
+
+    assert(0, "this should not happen");
 }
 
 private:
@@ -119,7 +137,9 @@ unittest {
     scope (exit)
         remove(remove_me);
 
-    auto opts = parseUserArgs(["distssh", "--export-env", "--env-file", remove_me]);
+    auto opts = parseUserArgs([
+            "distssh", "--export-env", "--env-file", remove_me
+            ]);
 
     const env_key = "DISTSSH_ENV_TEST";
     environment[env_key] = env_key ~ remove_me;
@@ -230,9 +250,10 @@ int cli_shell(const Options opts) nothrow {
             auto sw = StopWatch(AutoStart.yes);
 
             // two -t forces a tty to be created and used which mean that the remote shell will *think* it is an interactive shell
-            auto exit_status = spawnProcess(["ssh", "-q", "-t", "-t"] ~ sshNoLoginArgs ~ [host,
-                    thisExePath.escapeShellFileName, "--local-shell",
-                    "--workdir", opts.workDir.escapeShellFileName]).wait;
+            auto exit_status = spawnProcess(["ssh", "-q", "-t", "-t"] ~ sshNoLoginArgs ~ [
+                    host, thisExePath.escapeShellFileName, "--local-shell",
+                    "--workdir", opts.workDir.escapeShellFileName
+                    ]).wait;
 
             // #SPC-fallback_remote_host
             if (exit_status == 0 || sw.peek > timout_until_considered_successfull_connection) {
@@ -299,8 +320,10 @@ int executeOnHost(const Options opts, Host host) nothrow {
 
     // #SPC-draft_remote_cmd_spec
     try {
-        auto args = ["ssh"] ~ sshNoLoginArgs ~ [host, thisExePath, "--local-run", "--workdir",
-            opts.workDir.escapeShellFileName, "--stdin-msgpack-env", "--"] ~ opts.command;
+        auto args = ["ssh"] ~ sshNoLoginArgs ~ [
+            host, thisExePath, "--local-run", "--workdir",
+            opts.workDir.escapeShellFileName, "--stdin-msgpack-env", "--"
+        ] ~ opts.command;
 
         logger.info("Connecting to: ", host);
         logger.trace("run: ", args.joiner(" "));
@@ -576,8 +599,10 @@ unittest {
     appMain(parseUserArgs(["distssh", "--export-env", "--env-file", remove_me]));
 
     // act
-    appMain(parseUserArgs(["distssh", "--env-del", "FOO_DEL", "--env-set",
-            "FOO_MOD=42", "--env-set", "FOO_ADD=42", "--env-file", remove_me]));
+    appMain(parseUserArgs([
+                "distssh", "--env-del", "FOO_DEL", "--env-set", "FOO_MOD=42",
+                "--env-set", "FOO_ADD=42", "--env-file", remove_me
+            ]));
 
     // assert
     auto env = readEnv(remove_me).map!(a => tuple(a.key, a.value)).assocArray;
@@ -730,9 +755,16 @@ unittest {
     assert(load.length > 0, load);
 }
 
-struct Options {
+public struct Options {
     import core.time : dur;
     import colorlog : VerboseMode;
+
+    enum Group {
+        default_,
+        server,
+    }
+
+    Group group;
 
     enum Mode {
         shell,
@@ -770,6 +802,27 @@ struct Options {
     string[] envSet;
     /// Env variables to remove from the onespecified in importEnv.
     string[] envDel;
+
+    void printHelp() nothrow {
+        import std.format : format;
+        import std.getopt : defaultGetoptPrinter;
+        import std.path : baseName;
+        import std.stdio : writeln, writefln;
+        import std.traits : EnumMembers;
+
+        auto help_txt = "usage: %s [options] -- [COMMAND]\n";
+        if (selfBinary.baseName == distCmd) {
+            help_txt = "usage: %s [COMMAND]\n";
+        }
+
+        try {
+            defaultGetoptPrinter(format(help_txt, selfBinary.baseName), help_info.options.dup);
+            writeln("Commands:");
+            writefln("%(  %s\n%)", [EnumMembers!(Options.Group)]);
+        } catch (Exception e) {
+            logger.error(e.msg).collectException;
+        }
+    }
 }
 
 /** Update a Configs object's file to import the environment from.
@@ -806,6 +859,7 @@ void configImportEnvFile(ref Options opts) nothrow {
 Options parseUserArgs(string[] args) {
     import std.algorithm : among;
     import std.array : empty;
+    import std.conv : to;
     import std.file : thisExePath, getcwd;
     import std.path : dirName, baseName, buildPath, absolutePath;
 
@@ -828,113 +882,131 @@ Options parseUserArgs(string[] args) {
     default:
     }
 
-    try {
-        bool export_env;
-        bool install;
-        bool local_load;
-        bool local_run;
-        bool local_shell;
-        bool measure_hosts;
-        bool print_env_file;
-        bool remote_shell;
-        bool run_on_all;
-        bool verbose_info;
-        bool verbose_trace;
-        string export_env_file;
-        ulong timeout_s;
-
-        // alphabetical order
-        // dfmt off
-        opts.help_info = std.getopt.getopt(args, std.getopt.config.passThrough,
-            std.getopt.config.keepEndOfOptions,
-            "clone-env", "clone the current environment to the remote host without an intermediate file", &opts.cloneEnv,
-            "env-del", "remove a variable from the exported environment", &opts.envDel,
-            "env-file", "file to load the environment from", &export_env_file,
-            "env-print", "print the content of an exported environment", &print_env_file,
-            "env-set", "set a variable in the exported environment. Example: FOO=42", &opts.envSet,
-            "export-env", "export the current environment to a file that is used on the remote host", &export_env,
-            "install", "install distssh by setting up the correct symlinks", &install,
-            "i|import-env", "import the env from the file (default: " ~ distsshEnvExport ~ ")", &opts.importEnv,
-            "local-load", "measure the load on the current host", &local_load,
-            "local-run", "import env and run the command locally", &local_run,
-            "local-shell", "run the shell locally", &local_shell,
-            "measure", "measure the login time and load of all remote hosts", &measure_hosts,
-            "no-import-env", "do not automatically import the environment from " ~ distsshEnvExport, &opts.noImportEnv,
-            "run-on-all", "run the command on all remote hosts", &run_on_all,
-            "shell", "open an interactive shell on the remote host", &remote_shell,
-            "stdin-msgpack-env", "import env from stdin as a msgpack stream", &opts.stdinMsgPackEnv,
-            "timeout", "timeout to use when checking remote hosts", &timeout_s,
-            "vverbose", "verbose mode is set to trace", &verbose_trace,
-            "v|verbose", "verbose logging", &verbose_info,
-            "workdir", "working directory to run the command in", &opts.workDir,
-            );
-        // dfmt on
-        opts.help = opts.help_info.helpWanted;
-
-        import core.time : dur;
-
-        // must convert e.g. "."
-        opts.workDir = opts.workDir.absolutePath;
-
-        opts.verbose = () {
-            if (verbose_trace)
-                return Options.VerboseMode.trace;
-            if (verbose_info)
-                return Options.VerboseMode.info;
-            return Options.VerboseMode.warning;
-        }();
-
-        if (timeout_s > 0)
-            opts.timeout = timeout_s.dur!"seconds";
-
-        if (!export_env_file.empty)
-            opts.importEnv = export_env_file;
-
-        if (install)
-            opts.mode = Options.Mode.install;
-        else if (export_env)
-            opts.mode = Options.Mode.exportEnv;
-        else if (remote_shell)
-            opts.mode = Options.Mode.shell;
-        else if (measure_hosts)
-            opts.mode = Options.Mode.measureHosts;
-        else if (local_load)
-            opts.mode = Options.Mode.localLoad;
-        else if (local_run)
-            opts.mode = Options.Mode.importEnvCmd;
-        else if (run_on_all)
-            opts.mode = Options.Mode.runOnAll;
-        else if (local_shell)
-            opts.mode = Options.Mode.localShell;
-        else if (print_env_file)
-            opts.mode = Options.Mode.printEnv;
-        else if (!opts.envSet.empty || !opts.envDel.empty)
-            opts.mode = Options.Mode.modifyEnv;
-        else
-            opts.mode = Options.Mode.cmd;
-    } catch (std.getopt.GetOptException e) {
-        // unknown option
-        opts.help = true;
-        logger.error(e.msg).collectException;
-    } catch (Exception e) {
-        opts.help = true;
-        logger.error(e.msg).collectException;
+    Options parseServer(string[] args) {
+        opts.group = Options.Group.server;
+        return opts;
     }
 
-    if (args.length > 1) {
-        import std.algorithm : find;
-        import std.range : drop;
-        import std.array : array;
+    Options parseDefault(string[] args) {
+        try {
+            bool export_env;
+            bool install;
+            bool local_load;
+            bool local_run;
+            bool local_shell;
+            bool measure_hosts;
+            bool print_env_file;
+            bool remote_shell;
+            bool run_on_all;
+            bool verbose_info;
+            bool verbose_trace;
+            string export_env_file;
+            ulong timeout_s;
 
-        opts.command = args.find("--").drop(1).array();
+            // alphabetical order
+            // dfmt off
+            opts.help_info = std.getopt.getopt(args, std.getopt.config.passThrough,
+                std.getopt.config.keepEndOfOptions,
+                "clone-env", "clone the current environment to the remote host without an intermediate file", &opts.cloneEnv,
+                "env-del", "remove a variable from the exported environment", &opts.envDel,
+                "env-file", "file to load the environment from", &export_env_file,
+                "env-print", "print the content of an exported environment", &print_env_file,
+                "env-set", "set a variable in the exported environment. Example: FOO=42", &opts.envSet,
+                "export-env", "export the current environment to a file that is used on the remote host", &export_env,
+                "install", "install distssh by setting up the correct symlinks", &install,
+                "i|import-env", "import the env from the file (default: " ~ distsshEnvExport ~ ")", &opts.importEnv,
+                "local-load", "measure the load on the current host", &local_load,
+                "local-run", "import env and run the command locally", &local_run,
+                "local-shell", "run the shell locally", &local_shell,
+                "measure", "measure the login time and load of all remote hosts", &measure_hosts,
+                "no-import-env", "do not automatically import the environment from " ~ distsshEnvExport, &opts.noImportEnv,
+                "run-on-all", "run the command on all remote hosts", &run_on_all,
+                "shell", "open an interactive shell on the remote host", &remote_shell,
+                "stdin-msgpack-env", "import env from stdin as a msgpack stream", &opts.stdinMsgPackEnv,
+                "timeout", "timeout to use when checking remote hosts", &timeout_s,
+                "vverbose", "verbose mode is set to trace", &verbose_trace,
+                "v|verbose", "verbose logging", &verbose_info,
+                "workdir", "working directory to run the command in", &opts.workDir,
+                );
+            // dfmt on
+            opts.help = opts.help_info.helpWanted;
+
+            import core.time : dur;
+
+            // must convert e.g. "."
+            opts.workDir = opts.workDir.absolutePath;
+
+            opts.verbose = () {
+                if (verbose_trace)
+                    return Options.VerboseMode.trace;
+                if (verbose_info)
+                    return Options.VerboseMode.info;
+                return Options.VerboseMode.warning;
+            }();
+
+            if (timeout_s > 0)
+                opts.timeout = timeout_s.dur!"seconds";
+
+            if (!export_env_file.empty)
+                opts.importEnv = export_env_file;
+
+            if (install)
+                opts.mode = Options.Mode.install;
+            else if (export_env)
+                opts.mode = Options.Mode.exportEnv;
+            else if (remote_shell)
+                opts.mode = Options.Mode.shell;
+            else if (measure_hosts)
+                opts.mode = Options.Mode.measureHosts;
+            else if (local_load)
+                opts.mode = Options.Mode.localLoad;
+            else if (local_run)
+                opts.mode = Options.Mode.importEnvCmd;
+            else if (run_on_all)
+                opts.mode = Options.Mode.runOnAll;
+            else if (local_shell)
+                opts.mode = Options.Mode.localShell;
+            else if (print_env_file)
+                opts.mode = Options.Mode.printEnv;
+            else if (!opts.envSet.empty || !opts.envDel.empty)
+                opts.mode = Options.Mode.modifyEnv;
+            else
+                opts.mode = Options.Mode.cmd;
+        } catch (std.getopt.GetOptException e) {
+            // unknown option
+            opts.help = true;
+            logger.error(e.msg).collectException;
+        } catch (Exception e) {
+            opts.help = true;
+            logger.error(e.msg).collectException;
+        }
+
+        if (args.length > 1) {
+            import std.algorithm : find;
+            import std.range : drop;
+            import std.array : array;
+
+            opts.command = args.find("--").drop(1).array();
+        }
+
+        if (opts.mode == Options.Mode.cmd && opts.command.length == 0)
+            opts.help = true;
+
+        configImportEnvFile(opts);
+        return opts;
     }
 
-    if (opts.mode == Options.Mode.cmd && opts.command.length == 0)
-        opts.help = true;
+    alias GroupParser = Options delegate(string[] args);
+    GroupParser[string] parsers;
+    parsers[Options.Group.default_.to!string] = &parseDefault;
+    parsers[Options.Group.server.to!string] = &parseServer;
 
-    configImportEnvFile(opts);
+    auto cmd = (args.length > 1) ? args[1] : "default";
+    if (auto p = cmd in parsers) {
+        return (*p)(args);
+    }
 
-    return opts;
+    return parseDefault(args);
 }
 
 @("shall determine the absolute path of self")
@@ -993,23 +1065,6 @@ unittest {
 
     auto opts = parseUserArgs(["distssh", "--workdir", "."]);
     assert(opts.workDir.isAbsolute, "expected an absolute path");
-}
-
-void printHelp(const Options opts) nothrow {
-    import std.getopt : defaultGetoptPrinter;
-    import std.format : format;
-    import std.path : baseName;
-
-    auto help_txt = "usage: %s [options] -- [COMMAND]\n";
-    if (opts.selfBinary.baseName == distCmd) {
-        help_txt = "usage: %s [COMMAND]\n";
-    }
-
-    try {
-        defaultGetoptPrinter(format(help_txt, opts.selfBinary.baseName), opts.help_info.options.dup);
-    } catch (Exception e) {
-        logger.error(e.msg).collectException;
-    }
 }
 
 struct Host {
@@ -1093,8 +1148,9 @@ Load getLoad(Host h, Duration timeout) nothrow {
         auto loop_sleep = IntervalSleep(25.dur!"msecs");
 
         immutable abs_distssh = thisExePath;
-        auto res = pipeProcess(["ssh", "-q"] ~ sshNoLoginArgs ~ [h,
-                abs_distssh.escapeShellFileName, "--local-load"]);
+        auto res = pipeProcess(["ssh", "-q"] ~ sshNoLoginArgs ~ [
+                h, abs_distssh.escapeShellFileName, "--local-load"
+                ]);
 
         while (exit_code == ExitCode.none) {
             auto st = res.pid.tryWait;
