@@ -16,6 +16,9 @@ subPackage "./vendor/colorlog"
 dependency "distssh:iz" version="*"
 subPackage "./vendor/iz"
 
+// needed by iz.ipc
+versions "single_module"
+
 targetPath "build"
 targetType "executable"
 sourcePath "source"

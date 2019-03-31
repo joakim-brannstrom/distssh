@@ -13,6 +13,9 @@ subPackage "../common"
 dependency "distssh:colorlog" version="*"
 subPackage "../vendor/colorlog"
 
+dependency "distssh:iz" version="*"
+subPackage "../vendor/iz"
+
 targetPath "build"
 
 sourcePaths "../source" "source"
