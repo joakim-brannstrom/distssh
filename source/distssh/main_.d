@@ -27,7 +27,9 @@ immutable distShell = "distshell";
 immutable distCmd = "distcmd";
 immutable distsshEnvExport = "distssh_env.export";
 // arguments to ssh that turn off warning that a host key is new or requies a password to login
-immutable sshNoLoginArgs = ["-oStrictHostKeyChecking=no", "-oPasswordAuthentication=no"];
+immutable sshNoLoginArgs = [
+    "-oStrictHostKeyChecking=no", "-oPasswordAuthentication=no"
+];
 immutable ulong defaultTimeout_s = 2;
 
 int rmain(string[] args) nothrow {
@@ -119,7 +121,9 @@ unittest {
     scope (exit)
         remove(remove_me);
 
-    auto opts = parseUserArgs(["distssh", "--export-env", "--env-file", remove_me]);
+    auto opts = parseUserArgs([
+            "distssh", "--export-env", "--env-file", remove_me
+            ]);
 
     const env_key = "DISTSSH_ENV_TEST";
     environment[env_key] = env_key ~ remove_me;
@@ -220,19 +224,15 @@ int cli_shell(const Options opts) nothrow {
         auto host = hosts.randomAndPop;
 
         try {
-            if (host.isNull) {
-                logger.error("No remote host online");
-                return 1;
-            }
-
             writeln("Connecting to ", host);
 
             auto sw = StopWatch(AutoStart.yes);
 
             // two -t forces a tty to be created and used which mean that the remote shell will *think* it is an interactive shell
-            auto exit_status = spawnProcess(["ssh", "-q", "-t", "-t"] ~ sshNoLoginArgs ~ [host,
-                    thisExePath.escapeShellFileName, "--local-shell",
-                    "--workdir", opts.workDir.escapeShellFileName]).wait;
+            auto exit_status = spawnProcess(["ssh", "-q", "-t", "-t"] ~ sshNoLoginArgs ~ [
+                    host, thisExePath.escapeShellFileName, "--local-shell",
+                    "--workdir", opts.workDir.escapeShellFileName
+                    ]).wait;
 
             // #SPC-fallback_remote_host
             if (exit_status == 0 || sw.peek > timout_until_considered_successfull_connection) {
@@ -247,6 +247,7 @@ int cli_shell(const Options opts) nothrow {
         }
     }
 
+    logger.error("No remote host online").collectException;
     return 1;
 }
 
@@ -278,11 +279,7 @@ int cli_cmd(const Options opts) nothrow {
         return 1;
     }
 
-    auto host = hosts.randomAndPop;
-    if (host.isNull)
-        return 1;
-
-    return executeOnHost(opts, host);
+    return executeOnHost(opts, hosts.randomAndPop);
 }
 
 /** Execute a command on a remote host.
@@ -299,8 +296,10 @@ int executeOnHost(const Options opts, Host host) nothrow {
 
     // #SPC-draft_remote_cmd_spec
     try {
-        auto args = ["ssh"] ~ sshNoLoginArgs ~ [host, thisExePath, "--local-run", "--workdir",
-            opts.workDir.escapeShellFileName, "--stdin-msgpack-env", "--"] ~ opts.command;
+        auto args = ["ssh"] ~ sshNoLoginArgs ~ [
+            host, thisExePath, "--local-run", "--workdir",
+            opts.workDir.escapeShellFileName, "--stdin-msgpack-env", "--"
+        ] ~ opts.command;
 
         logger.info("Connecting to: ", host);
         logger.trace("run: ", args.joiner(" "));
@@ -576,8 +575,10 @@ unittest {
     appMain(parseUserArgs(["distssh", "--export-env", "--env-file", remove_me]));
 
     // act
-    appMain(parseUserArgs(["distssh", "--env-del", "FOO_DEL", "--env-set",
-            "FOO_MOD=42", "--env-set", "FOO_ADD=42", "--env-file", remove_me]));
+    appMain(parseUserArgs([
+                "distssh", "--env-del", "FOO_DEL", "--env-set", "FOO_MOD=42",
+                "--env-set", "FOO_ADD=42", "--env-file", remove_me
+            ]));
 
     // assert
     auto env = readEnv(remove_me).map!(a => tuple(a.key, a.value)).assocArray;
@@ -1021,12 +1022,22 @@ struct Host {
 struct Load {
     double loadAvg;
     Duration accessTime;
+    bool unknown;
 
     bool opEquals(const typeof(this) o) nothrow @safe pure @nogc {
+        if (unknown && o.unknown)
+            return true;
         return loadAvg == o.loadAvg && accessTime == o.accessTime;
     }
 
     int opCmp(const typeof(this) o) pure @safe @nogc nothrow {
+        if (unknown && o.unknown)
+            return 0;
+        else if (unknown)
+            return 1;
+        else if (o.unknown)
+            return -1;
+
         if (loadAvg < o.loadAvg)
             return -1;
         else if (loadAvg > o.loadAvg)
@@ -1093,8 +1104,9 @@ Load getLoad(Host h, Duration timeout) nothrow {
         auto loop_sleep = IntervalSleep(25.dur!"msecs");
 
         immutable abs_distssh = thisExePath;
-        auto res = pipeProcess(["ssh", "-q"] ~ sshNoLoginArgs ~ [h,
-                abs_distssh.escapeShellFileName, "--local-load"]);
+        auto res = pipeProcess(["ssh", "-q"] ~ sshNoLoginArgs ~ [
+                h, abs_distssh.escapeShellFileName, "--local-load"
+                ]);
 
         while (exit_code == ExitCode.none) {
             auto st = res.pid.tryWait;
@@ -1144,7 +1156,7 @@ Load getLoad(Host h, Duration timeout) nothrow {
         logger.trace(e.msg).collectException;
     }
 
-    return Load(int.max, 3600.dur!"seconds");
+    return Load(int.max, 3600.dur!"seconds", true);
 }
 
 /// Mirror of an environment.
@@ -1357,27 +1369,34 @@ struct RemoteHostCache {
                 // this should be very uncommon but may happen.
                 remoteByLoad = remoteHosts.map!(a => HostLoad(a, Load.init)).array;
             }
+
+            logger.trace("Hosts ", remoteByLoad);
         } catch (Exception e) {
             logger.trace(e.msg).collectException;
         }
+
     }
 
     /// Returns: the lowest loaded server.
-    Nullable!Host randomAndPop() @safe nothrow {
+    Host randomAndPop() @safe nothrow {
         import std.range : take;
-        import std.random : uniform;
+        import std.random : randomSample;
 
-        typeof(return) rval;
+        assert(!empty, "should never happen");
 
-        if (empty)
-            return rval;
+        auto rval = remoteByLoad[0][0];
 
         try {
-            auto top3 = remoteByLoad.take(3).array;
-            auto ridx = uniform(0, top3.length);
-            rval = top3[ridx][0];
+            auto topX = remoteByLoad.filter!(a => !a[1].unknown).array;
+            if (topX.length == 0) {
+                rval = remoteByLoad[0][0];
+            } else if (topX.length < 3) {
+                rval = topX[0][0];
+            } else {
+                rval = topX.take(3).randomSample(1).front[0];
+            }
         } catch (Exception e) {
-            rval = remoteByLoad[0][0];
+            logger.trace(e.msg).collectException;
         }
 
         remoteByLoad = remoteByLoad.filter!(a => a[0] != rval).array;
