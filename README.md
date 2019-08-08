@@ -1,5 +1,5 @@
 # distssh
-[![Build Status](https://dev.azure.com/wikodes/wikodes/_apis/build/status/joakim-brannstrom.distssh?branchName=master)](https://dev.azure.com/wikodes/wikodes/_build/latest?definitionId=3&branchName=master)
+[![Build Status](https://dev.azure.com/wikodes/wikodes/_apis/build/status/joakim-brannstrom.distssh?branchName=master)](https://dev.azure.com/wikodes/wikodes/_build/latest?definitionId=4&branchName=master)
 
 **distssh** is a frontend to ssh that find the least loaded host in a cluster and execute commands on it.
 
