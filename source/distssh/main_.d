@@ -15,7 +15,7 @@ import std.stdio : File;
 import std.typecons : Nullable, NullableRef;
 import logger = std.experimental.logger;
 
-import distssh.from;
+import from_;
 import distssh.process : Pid;
 
 static import std.getopt;
@@ -1248,7 +1248,7 @@ struct PipeWriter {
     }
 }
 
-from!"distssh.protocol".ProtocolEnv readEnv(string filename) nothrow {
+from.distssh.protocol.ProtocolEnv readEnv(string filename) nothrow {
     import distssh.protocol : ProtocolEnv, EnvVariable, Deserialize;
     import std.file : exists;
     import std.stdio : File;
@@ -1280,7 +1280,7 @@ from!"distssh.protocol".ProtocolEnv readEnv(string filename) nothrow {
     return rval;
 }
 
-void writeEnv(string filename, from!"distssh.protocol".ProtocolEnv env) {
+void writeEnv(string filename, from.distssh.protocol.ProtocolEnv env) {
     import core.sys.posix.sys.stat : fchmod, S_IRUSR, S_IWUSR;
     import std.stdio : File;
     import distssh.protocol : Serialize;
