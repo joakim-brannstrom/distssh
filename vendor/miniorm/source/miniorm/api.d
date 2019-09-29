@@ -52,7 +52,7 @@ struct Miniorm {
     }
 
     /// Start a RAII handled transaction.
-    Transaction begin() {
+    Transaction transaction() {
         return Transaction(this);
     }
 
@@ -455,9 +455,9 @@ string toSqliteDateTime(SysTime ts) {
             ts.fracSecs.total!"msecs");
 }
 
-@safe class SpinSqlTimeout : Exception {
-    this() {
-        super(null);
+class SpinSqlTimeout : Exception {
+    this(string msg, string file = __FILE__, int line = __LINE__) @safe pure nothrow {
+        super(msg, file, line);
     }
 }
 
@@ -484,7 +484,7 @@ auto spinSql(alias query, alias logFn = logger.warning)(Duration timeout) {
         }
     }
 
-    throw new SpinSqlTimeout();
+    throw new SpinSqlTimeout(null);
 }
 
 auto spinSql(alias query, alias logFn = logger.warning)() nothrow {
