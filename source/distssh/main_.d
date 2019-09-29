@@ -18,13 +18,17 @@ import logger = std.experimental.logger;
 import colorlog;
 
 import from_;
+
+import distssh.config;
+import distssh.metric;
 import distssh.process : Pid;
 import distssh.types;
-import distssh.config;
 
 static import std.getopt;
 
 int rmain(string[] args) {
+    import distssh.daemon;
+
     confLogger(VerboseMode.info);
 
     auto conf = parseUserArgs(args);
@@ -51,7 +55,8 @@ int rmain(string[] args) {
           (Config.LocalLoad a) => cli(a, (string s) => writeln(s)),
           (Config.RunOnAll a) => cli(conf, a),
           (Config.LocalShell a) => cli(conf, a),
-          (Config.Env a) =>  cli(conf, a),
+          (Config.Env a) => cli(conf, a),
+          (Config.Daemon a) => distssh.daemon.cli(conf, a),
     );
     // dfmt on
 }
@@ -69,8 +74,7 @@ int cli(const Config fconf, Config.Shell conf) nothrow {
     import std.process : spawnProcess, wait, escapeShellFileName;
     import std.stdio : writeln, writefln;
 
-    auto hosts = RemoteHostCache.make(fconf.global.timeout);
-    hosts.sortByLoad;
+    auto hosts = RemoteHostCache.make(fconf.global.dbPath);
 
     if (hosts.empty) {
         logger.errorf("No remote host online").collectException;
@@ -112,8 +116,7 @@ int cli(const Config fconf, Config.Shell conf) nothrow {
 
 // #SPC-fast_env_startup
 int cli(const Config fconf, Config.Cmd conf) {
-    auto hosts = RemoteHostCache.make(fconf.global.timeout);
-    hosts.sortByLoad;
+    auto hosts = RemoteHostCache.make(fconf.global.dbPath);
 
     if (hosts.empty) {
         logger.errorf("No remote host online").collectException;
@@ -270,8 +273,7 @@ int cli(const Config fconf, Config.MeasureHosts conf) nothrow {
     import std.stdio : writefln, writeln;
     import distssh.table;
 
-    auto hosts = RemoteHostCache.make(fconf.global.timeout);
-    hosts.sortByLoad;
+    auto hosts = RemoteHostCache.make(fconf.global.dbPath);
 
     writeln("Host is overloaded if Load is >1").collectException;
 
@@ -693,102 +695,6 @@ unittest {
     assert(load.length > 0, load);
 }
 
-/** Login on host and measure its load.
- *
- * Params:
- *  h = remote host to check
- *
- * Returns: the Load of the remote host
- */
-Load getLoad(Host h, Duration timeout) nothrow {
-    import std.conv : to;
-    import std.datetime.stopwatch : StopWatch, AutoStart;
-    import std.file : thisExePath;
-    import std.process : tryWait, pipeProcess, kill, wait, escapeShellFileName;
-    import std.range : takeOne, retro;
-    import std.stdio : writeln;
-    import core.time : dur;
-    import core.sys.posix.signal : SIGKILL;
-    import distssh.timer : IntervalSleep;
-
-    enum ExitCode {
-        none,
-        error,
-        timeout,
-        ok,
-    }
-
-    ExitCode exit_code;
-
-    Nullable!Load measure() {
-        auto sw = StopWatch(AutoStart.yes);
-
-        // 25 because it is at the perception of human "lag" and less than the 100
-        // msecs that is the intention of the average delay.
-        auto loop_sleep = IntervalSleep(25.dur!"msecs");
-
-        immutable abs_distssh = thisExePath;
-        auto res = pipeProcess(["ssh", "-q"] ~ sshNoLoginArgs ~ [
-                h, abs_distssh.escapeShellFileName, "localload"
-                ]);
-
-        while (exit_code == ExitCode.none) {
-            auto st = res.pid.tryWait;
-
-            if (st.terminated && st.status == 0) {
-                exit_code = ExitCode.ok;
-            } else if (st.terminated && st.status != 0) {
-                exit_code = ExitCode.error;
-            } else if (sw.peek >= timeout) {
-                exit_code = ExitCode.timeout;
-                res.pid.kill(SIGKILL);
-                // must read the exit or a zombie process is left behind
-                res.pid.wait;
-            } else {
-                // sleep to avoid massive CPU usage
-                loop_sleep.tick;
-            }
-        }
-        sw.stop;
-
-        Nullable!Load rval;
-
-        if (exit_code != ExitCode.ok)
-            return rval;
-
-        try {
-            string last_line;
-            foreach (a; res.stdout.byLineCopy) {
-                last_line = a;
-            }
-
-            rval = Load(last_line.to!double, sw.peek);
-        } catch (Exception e) {
-            logger.trace(res.stdout).collectException;
-            logger.trace(res.stderr).collectException;
-            logger.trace(e.msg).collectException;
-        }
-
-        return rval;
-    }
-
-    try {
-        auto r = measure();
-        if (!r.isNull)
-            return r.get;
-    } catch (Exception e) {
-        logger.trace(e.msg).collectException;
-    }
-
-    return Load(int.max, 3600.dur!"seconds", true);
-}
-
-/// Mirror of an environment.
-struct Env {
-    string[string] payload;
-    alias payload this;
-}
-
 /**
  * #SPC-env_export_filter
  *
@@ -916,128 +822,6 @@ void writeEnv(string filename, from.distssh.protocol.ProtocolEnv env) {
             a));
 
     ser.pack(env);
-}
-
-Host[] hostsFromEnv() nothrow {
-    import std.array : array;
-    import std.string : strip;
-    import std.process : environment;
-
-    static import core.stdc.stdlib;
-
-    typeof(return) rval;
-
-    try {
-        string hosts_env = environment.get(globalEnvHostKey, "").strip;
-        rval = hosts_env.splitter(";").map!(a => a.strip)
-            .filter!(a => a.length > 0)
-            .map!(a => Host(a))
-            .array;
-
-        if (rval.length == 0) {
-            logger.errorf("No remote host configured (%s='%s')", globalEnvHostKey, hosts_env);
-        }
-    } catch (Exception e) {
-        logger.error(e.msg).collectException;
-    }
-
-    return rval;
-}
-
-/**
- * #SPC-load_balance
- * #SPC-best_remote_host
- */
-struct RemoteHostCache {
-    import std.array : array;
-
-    Duration timeout;
-    Host[] remoteHosts;
-    HostLoad[] remoteByLoad;
-
-    static auto make(Duration timeout) nothrow {
-        return RemoteHostCache(timeout, hostsFromEnv);
-    }
-
-    /// Measure and sort the remote hosts.
-    void sortByLoad() nothrow {
-        import std.algorithm : sort;
-        import std.parallelism : TaskPool;
-
-        static auto loadHost(T)(T host_timeout) nothrow {
-            import std.concurrency : thisTid;
-
-            logger.trace("load testing thread id: ", thisTid).collectException;
-            return HostLoad(host_timeout[0], getLoad(host_timeout[0], host_timeout[1]));
-        }
-
-        auto shosts = remoteHosts.map!(a => tuple(a, timeout)).array;
-
-        try {
-            auto pool = new TaskPool(shosts.length + 1);
-            scope (exit)
-                pool.stop;
-
-            // dfmt off
-            remoteByLoad =
-                pool.amap!(loadHost)(shosts)
-                .array
-                .sort!((a,b) => a[1] < b[1])
-                .array;
-            // dfmt on
-
-            if (remoteByLoad.length == 0) {
-                // this should be very uncommon but may happen.
-                remoteByLoad = remoteHosts.map!(a => HostLoad(a, Load.init)).array;
-            }
-
-            logger.trace("Hosts ", remoteByLoad);
-        } catch (Exception e) {
-            logger.trace(e.msg).collectException;
-        }
-
-    }
-
-    /// Returns: the lowest loaded server.
-    Host randomAndPop() @safe nothrow {
-        import std.range : take;
-        import std.random : randomSample;
-
-        assert(!empty, "should never happen");
-
-        auto rval = remoteByLoad[0][0];
-
-        try {
-            auto topX = remoteByLoad.filter!(a => !a[1].unknown).array;
-            if (topX.length == 0) {
-                rval = remoteByLoad[0][0];
-            } else if (topX.length < 3) {
-                rval = topX[0][0];
-            } else {
-                rval = topX.take(3).randomSample(1).front[0];
-            }
-        } catch (Exception e) {
-            logger.trace(e.msg).collectException;
-        }
-
-        remoteByLoad = remoteByLoad.filter!(a => a[0] != rval).array;
-
-        return rval;
-    }
-
-    Host front() @safe pure nothrow {
-        assert(!empty);
-        return remoteByLoad[0][0];
-    }
-
-    void popFront() @safe pure nothrow {
-        assert(!empty);
-        remoteByLoad = remoteByLoad[1 .. $];
-    }
-
-    bool empty() @safe pure nothrow {
-        return remoteByLoad.length == 0;
-    }
 }
 
 /**

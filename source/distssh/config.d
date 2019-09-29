@@ -49,6 +49,8 @@ struct Config {
         string importEnv;
         string workDir;
         string[] command;
+
+        string dbPath = "distssh.sqlite3";
     }
 
     struct Shell {
@@ -104,8 +106,14 @@ struct Config {
         bool exportEnv;
     }
 
+    struct Daemon {
+        std.getopt.GetoptResult helpInfo;
+        static string helpDescription = "daemon mode";
+        Duration timeout = 30.dur!"minutes";
+    }
+
     alias Type = Algebraic!(Help, Shell, Cmd, LocalRun, Install, MeasureHosts,
-            LocalLoad, RunOnAll, LocalShell, Env);
+            LocalLoad, RunOnAll, LocalShell, Env, Daemon);
     Type data;
 
     Global global;
@@ -264,6 +272,10 @@ Config parseUserArgs(string[] args) {
 
         void localshellParse() {
             conf.data = Config.LocalShell.init;
+        }
+
+        void daemonParse() {
+            conf.data = Config.Daemon.init;
         }
 
         alias ParseFn = void delegate();

@@ -7,7 +7,7 @@ module distssh.database;
 
 import logger = std.experimental.logger;
 import std.algorithm : map;
-import std.array : array;
+import std.array : array, empty;
 import std.datetime;
 import std.exception : collectException, ifThrown;
 import std.meta : AliasSeq;
@@ -34,8 +34,8 @@ struct ServerTbl {
     bool unknown;
 }
 
-/// The updater beats ones per minute.
-struct UpdaterBeat {
+/// The daemon beats ones per minute.
+struct DaemonBeat {
     ulong id;
     SysTime beat;
 }
@@ -56,35 +56,46 @@ Miniorm openDatabase(string dbFile) nothrow {
                 return VersionTbl(0);
             }().ifThrown(VersionTbl(0));
 
-            alias Schema = AliasSeq!(VersionTbl, ServerTbl, UpdaterBeat, ClientBeat);
+            alias Schema = AliasSeq!(VersionTbl, ServerTbl, DaemonBeat, ClientBeat);
 
             if (schemaVersion.version_ < SchemaVersion) {
                 db.begin;
                 static foreach (tbl; Schema)
                     db.run("DROP TABLE " ~ tbl.stringof).collectException;
+                db.run(buildSchema!Schema);
+                db.run(insert!VersionTbl, VersionTbl(SchemaVersion));
                 db.commit;
             }
-            db.run(buildSchema!Schema);
-            db.run(insert!VersionTbl, VersionTbl(SchemaVersion));
             return db;
         } catch (Exception e) {
-            logger.warningf("Trying to open/create database %s: %s", dbFile,
-                    e.msg).collectException;
+            logger.tracef("Trying to open/create database %s: %s", dbFile, e.msg).collectException;
         }
 
-        rndSleep(10.dur!"msecs", 20);
+        rndSleep(10.dur!"msecs", 200);
     }
 }
 
-/// Get all servers.
+/** Get all servers.
+ *
+ * Waiting for up to 10s for servers to be added. This handles the case where a
+ * daemon have been spawned in the background.
+ */
 HostLoad[] getServerLoads(ref Miniorm db) nothrow {
+    import std.datetime : Clock, dur;
+
     auto getData() {
         return db.run(select!ServerTbl).map!(a => HostLoad(Host(a.address),
                 Load(a.loadAvg, a.accessTime.dur!"msecs", a.unknown))).array;
     }
 
     try {
-        return spinSql!getData(timeout);
+        auto stopAt = Clock.currTime + timeout;
+        while (Clock.currTime < stopAt) {
+            auto a = spinSql!(getData, logger.trace)(timeout);
+            if (!a.empty)
+                return a;
+            rndSleep(500.dur!"msecs", 1000);
+        }
     } catch (Exception e) {
         logger.warning("Failed reading from the database: ", e.msg).collectException;
     }
@@ -106,18 +117,18 @@ void updateServer(ref Miniorm db, HostLoad a) nothrow {
     }
 }
 
-void updaterBeat(ref Miniorm db) nothrow {
+void daemonBeat(ref Miniorm db) nothrow {
     spinSql!(() {
-        db.run(insertOrReplace!UpdaterBeat, UpdaterBeat(0, Clock.currTime));
+        db.run(insertOrReplace!DaemonBeat, DaemonBeat(0, Clock.currTime));
     });
 }
 
-/// The heartbeat when updater was last executed.
-SysTime getUpdaterBeat(ref Miniorm db) nothrow {
+/// The heartbeat when daemon was last executed.
+Duration getDaemonBeat(ref Miniorm db) nothrow {
     return spinSql!(() {
-        foreach (a; db.run(select!UpdaterBeat.where("id = ", 0)))
-            return a.beat;
-        return SysTime.min;
+        foreach (a; db.run(select!DaemonBeat.where("id = ", 0)))
+            return Clock.currTime - a.beat;
+        return Duration.max;
     });
 }
 
@@ -127,11 +138,11 @@ void clientBeat(ref Miniorm db) nothrow {
     });
 }
 
-SysTime getClientBeat(ref Miniorm db) nothrow {
+Duration getClientBeat(ref Miniorm db) nothrow {
     return spinSql!(() {
         foreach (a; db.run(select!ClientBeat.where("id = ", 0)))
-            return a.beat;
-        return SysTime.min;
+            return Clock.currTime - a.beat;
+        return Duration.max;
     });
 }
 

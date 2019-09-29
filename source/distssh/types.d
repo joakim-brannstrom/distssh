@@ -78,3 +78,9 @@ unittest {
         assert(raw[0].accessTime == 500.dur!"msecs");
     }
 }
+
+/// Mirror of an environment.
+struct Env {
+    string[string] payload;
+    alias payload this;
+}
