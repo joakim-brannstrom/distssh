@@ -7,20 +7,20 @@ license "MIT"
 targetPath "build"
 targetType "library"
 
-dependency "d2sqlite3" version="~>0.18.3"
-dependency "sumtype" version="~>0.8.13"
-dependency "unit-threaded" version="~>0.10.3"
+dependency "distssh:d2sqlite3" version="*"
+dependency "distssh:sumtype" version="*"
+dependency "distssh:unit-threaded" version="*"
 
 configuration "with-lib" {
-    subConfiguration "d2sqlite3" "with-lib"
+    subConfiguration "distssh:d2sqlite3" "with-lib"
 }
 
 configuration "all-included" {
-    subConfiguration "d2sqlite3" "all-included"
+    subConfiguration "distssh:d2sqlite3" "all-included"
 }
 
 configuration "without-lib" {
-    subConfiguration "d2sqlite3" "without-lib"
+    subConfiguration "distssh:d2sqlite3" "without-lib"
 }
 
 configuration "unittest" {

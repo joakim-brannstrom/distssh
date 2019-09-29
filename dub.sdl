@@ -6,6 +6,7 @@ license "BSL-1.0"
 
 subPackage "./common"
 subPackage "./vendor/colorlog"
+subPackage "./vendor/d2sqlite3"
 subPackage "./vendor/miniorm"
 subPackage "./vendor/msgpack-ll"
 subPackage "./vendor/sumtype"
@@ -16,6 +17,9 @@ dependency "distssh:distssh_common" version="*"
 dependency "distssh:miniorm" version="*"
 dependency "distssh:msgpack-ll" version="*"
 dependency "distssh:sumtype" version="*"
+dependency "distssh:d2sqlite3" version="*"
+
+subConfiguration "distssh:miniorm" "all-included"
 
 targetPath "build"
 targetType "executable"
