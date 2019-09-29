@@ -15,210 +15,72 @@ import std.stdio : File;
 import std.typecons : Nullable, NullableRef;
 import logger = std.experimental.logger;
 
-import distssh.from;
+import colorlog;
+
+import from_;
+
+import distssh.config;
+import distssh.metric;
 import distssh.process : Pid;
+import distssh.types;
 
 static import std.getopt;
 
-immutable globalEnvHostKey = "DISTSSH_HOSTS";
-immutable globalEnvFileKey = "DISTSSH_IMPORT_ENV";
-immutable globalEnvFilterKey = "DISTSSH_ENV_EXPORT_FILTER";
-immutable distShell = "distshell";
-immutable distCmd = "distcmd";
-immutable distsshEnvExport = "distssh_env.export";
-// arguments to ssh that turn off warning that a host key is new or requies a password to login
-immutable sshNoLoginArgs = [
-    "-oStrictHostKeyChecking=no", "-oPasswordAuthentication=no"
-];
-immutable ulong defaultTimeout_s = 2;
+int rmain(string[] args) {
+    import distssh.daemon;
 
-int rmain(string[] args) nothrow {
-    import colorlog : confLogger, VerboseMode;
+    confLogger(VerboseMode.info);
 
-    try {
-        confLogger(VerboseMode.info);
-    } catch (Exception e) {
-        logger.warning(e.msg).collectException;
+    auto conf = parseUserArgs(args);
+
+    if (conf.global.helpInfo.helpWanted) {
+        return cli(conf);
     }
 
-    Options opts;
-    try {
-        opts = parseUserArgs(args);
-    } catch (Exception e) {
-        logger.error(e.msg).collectException;
-        return 1;
-    }
+    confLogger(conf.global.verbosity);
+    logger.trace(conf);
 
-    try {
-        confLogger(opts.verbose);
-    } catch (Exception e) {
-        logger.warning(e.msg).collectException;
-    }
+    import std.file : symlink;
+    import std.stdio : writeln;
+    import std.variant : visit;
 
-    logger.trace(opts).collectException;
-
-    if (opts.help) {
-        printHelp(opts);
-        return 0;
-    }
-
-    return appMain(opts);
-}
-
-int appMain(const Options opts) nothrow {
-    final switch (opts.mode) with (Options.Mode) {
-    case exportEnv:
-        return cli_exportEnv(opts);
-    case install:
-        import std.file : symlink;
-
-        return cli_install(opts, (string src, string dst) => symlink(src, dst));
-    case shell:
-        return cli_shell(opts);
-    case localShell:
-        return cli_localShell(opts);
-    case cmd:
-        return cli_cmd(opts);
-    case importEnvCmd:
-        return cli_cmdWithImportedEnv(opts);
-    case measureHosts:
-        return cli_measureHosts(opts);
-    case localLoad:
-        import std.stdio : writeln;
-
-        return cli_localLoad((string s) => writeln(s));
-    case printEnv:
-        return cli_printEnv(opts);
-    case runOnAll:
-        return cli_runOnAll(opts);
-    case modifyEnv:
-        return cli_modifyEnv(opts);
-    }
+    // dfmt off
+    return conf.data.visit!(
+          (Config.Help a) => cli(conf),
+          (Config.Shell a) => cli(conf, a),
+          (Config.Cmd a) => cli(conf, a),
+          (Config.LocalRun a) => cli(conf, a),
+          (Config.Install a) => cli(conf, a, (string src, string dst) => symlink(src, dst)),
+          (Config.MeasureHosts a) => cli(conf, a),
+          (Config.LocalLoad a) => cli(a, (string s) => writeln(s)),
+          (Config.RunOnAll a) => cli(conf, a),
+          (Config.LocalShell a) => cli(conf, a),
+          (Config.Env a) => cli(conf, a),
+          (Config.Daemon a) => distssh.daemon.cli(conf, a),
+    );
+    // dfmt on
 }
 
 private:
 
-/// Export the environment to a file for later import.
-int cli_exportEnv(const Options opts) nothrow {
-    try {
-        writeEnv(opts.importEnv, cloneEnv);
-        logger.info("Exported environment to ", opts.importEnv);
-    } catch (Exception e) {
-        logger.error(e.msg).collectException;
-        return 1;
-    }
-
+int cli(Config conf) {
+    conf.printHelp;
     return 0;
 }
 
-unittest {
-    import std.conv : to;
-    import std.file;
-    import std.process : environment;
-
-    // arrange
-    immutable remove_me = "remove_me.export";
-    scope (exit)
-        remove(remove_me);
-
-    auto opts = parseUserArgs([
-            "distssh", "--export-env", "--env-file", remove_me
-            ]);
-
-    const env_key = "DISTSSH_ENV_TEST";
-    environment[env_key] = env_key ~ remove_me;
-    scope (exit)
-        environment.remove(env_key);
-
-    // shall export the environment to the file
-    void verify1() {
-        // test normal export
-        appMain(opts);
-        auto env = readEnv(remove_me);
-        assert(!env.filter!(a => a.key == env_key).empty, env.to!string);
-    }
-
-    verify1;
-
-    // shall filter out specified env before exporting to the file
-    environment[globalEnvFilterKey] = "DISTSSH_ENV_TEST;junk ";
-    scope (exit)
-        environment.remove(globalEnvFilterKey);
-
-    void verify2() {
-        appMain(opts);
-        auto env = readEnv(remove_me);
-        assert(env.filter!(a => a.key == env_key).empty, env.to!string);
-    }
-
-    verify2;
-}
-
-int cli_printEnv(const Options opts) nothrow {
-    import std.path : absolutePath;
-    import std.stdio : writeln, writefln;
-
-    try {
-        foreach (const kv; readEnv(opts.importEnv.absolutePath))
-            writefln(`%s="%s"`, kv.key, kv.value);
-    } catch (Exception e) {
-        logger.error(e.msg).collectException;
-        return 1;
-    }
-
-    return 0;
-}
-
-@("shall print the env from a file")
-unittest {
-
-}
-
-int cli_install(const Options opts, void delegate(string src, string dst) symlink) nothrow {
-    import std.path : buildPath;
-
-    try {
-        symlink(opts.selfBinary, buildPath(opts.selfDir, distShell));
-        symlink(opts.selfBinary, buildPath(opts.selfDir, distCmd));
-        return 0;
-    } catch (Exception e) {
-        logger.error(e.msg).collectException;
-        return 1;
-    }
-}
-
-@("shall create symlinks to self")
-unittest {
-    string[2][] symlinks;
-    void fakeSymlink(string src, string dst) {
-        string[2] v = [src, dst];
-        symlinks ~= v;
-    }
-
-    Options opts;
-    opts.selfBinary = "/foo/src";
-    opts.selfDir = "/bar";
-
-    cli_install(opts, &fakeSymlink);
-
-    assert(symlinks[0] == ["/foo/src", "/bar/distshell"]);
-    assert(symlinks[1] == ["/foo/src", "/bar/distcmd"]);
-}
-
-int cli_shell(const Options opts) nothrow {
+int cli(const Config fconf, Config.Shell conf) nothrow {
     import std.datetime.stopwatch : StopWatch, AutoStart;
     import std.file : thisExePath;
     import std.process : spawnProcess, wait, escapeShellFileName;
     import std.stdio : writeln, writefln;
 
-    auto hosts = RemoteHostCache.make(opts.timeout);
-    hosts.sortByLoad;
+    auto hosts = RemoteHostCache.make(fconf.global.dbPath);
 
     if (hosts.empty) {
         logger.errorf("No remote host online").collectException;
     }
 
-    const timout_until_considered_successfull_connection = opts.timeout * 2;
+    const timout_until_considered_successfull_connection = fconf.global.timeout * 2;
 
     while (!hosts.empty) {
         auto host = hosts.randomAndPop;
@@ -229,9 +91,10 @@ int cli_shell(const Options opts) nothrow {
             auto sw = StopWatch(AutoStart.yes);
 
             // two -t forces a tty to be created and used which mean that the remote shell will *think* it is an interactive shell
-            auto exit_status = spawnProcess(["ssh", "-q", "-t", "-t"] ~ sshNoLoginArgs ~ [
-                    host, thisExePath.escapeShellFileName, "--local-shell",
-                    "--workdir", opts.workDir.escapeShellFileName
+            auto exit_status = spawnProcess(["ssh", "-q", "-t",
+                    "-t"] ~ sshNoLoginArgs ~ [
+                    host, thisExePath.escapeShellFileName, "localshell",
+                    "--workdir", fconf.global.workDir.escapeShellFileName
                     ]).wait;
 
             // #SPC-fallback_remote_host
@@ -251,106 +114,37 @@ int cli_shell(const Options opts) nothrow {
     return 1;
 }
 
-// #SPC-shell_current_dir
-int cli_localShell(const Options opts) nothrow {
-    import std.file : exists;
-    import std.process : spawnProcess, wait, userShell, Config, Pid;
-
-    try {
-        Pid pid;
-        if (exists(opts.workDir))
-            pid = spawnProcess([userShell], null, Config.none, opts.workDir);
-        else
-            pid = spawnProcess([userShell]);
-
-        return pid.wait;
-    } catch (Exception e) {
-        logger.error(e.msg).collectException;
-        return 1;
-    }
-}
-
-int cli_cmd(const Options opts) nothrow {
-    auto hosts = RemoteHostCache.make(opts.timeout);
-    hosts.sortByLoad;
+// #SPC-fast_env_startup
+int cli(const Config fconf, Config.Cmd conf) {
+    auto hosts = RemoteHostCache.make(fconf.global.dbPath);
 
     if (hosts.empty) {
         logger.errorf("No remote host online").collectException;
         return 1;
     }
 
-    return executeOnHost(opts, hosts.randomAndPop);
-}
-
-/** Execute a command on a remote host.
- *
- * #SPC-automatic_env_import
- */
-int executeOnHost(const Options opts, Host host) nothrow {
-    import distssh.protocol : ProtocolEnv;
-    import core.thread : Thread;
-    import core.time : dur, MonoTime;
-    import std.file : thisExePath;
-    import std.path : absolutePath;
-    import std.process : tryWait, Redirect, pipeProcess, escapeShellFileName;
-
-    // #SPC-draft_remote_cmd_spec
-    try {
-        auto args = ["ssh"] ~ sshNoLoginArgs ~ [
-            host, thisExePath, "--local-run", "--workdir",
-            opts.workDir.escapeShellFileName, "--stdin-msgpack-env", "--"
-        ] ~ opts.command;
-
-        logger.info("Connecting to: ", host);
-        logger.trace("run: ", args.joiner(" "));
-
-        auto p = pipeProcess(args, Redirect.stdin);
-
-        auto pwriter = PipeWriter(p.stdin);
-
-        ProtocolEnv env;
-        if (opts.cloneEnv)
-            env = cloneEnv;
-        else if (!opts.noImportEnv)
-            env = readEnv(opts.importEnv.absolutePath);
-        pwriter.pack(env);
-
-        while (true) {
-            try {
-                auto st = p.pid.tryWait;
-                if (st.terminated)
-                    return st.status;
-
-                Watchdog.ping(pwriter);
-            } catch (Exception e) {
-            }
-
-            Thread.sleep(50.dur!"msecs");
-        }
-    } catch (Exception e) {
-        logger.error(e.msg).collectException;
-        return 1;
-    }
+    return executeOnHost(fconf, hosts.randomAndPop);
 }
 
 // #SPC-fast_env_startup
-int cli_cmdWithImportedEnv(const Options opts) nothrow {
+int cli(const Config fconf, Config.LocalRun conf) {
     import core.time : dur;
     import std.stdio : File, stdin;
     import std.file : exists;
-    import std.process : spawnProcess, Config, spawnShell, Pid, tryWait, thisProcessID;
+    import std.process : spawnProcess, spawnShell, Pid, tryWait, thisProcessID;
+    import std.process : PConfig = Config;
     import std.utf : toUTF8;
     import distssh.timer : IntervalSleep, Timer;
 
-    if (opts.command.length == 0)
+    if (fconf.global.command.length == 0)
         return 0;
 
-    static auto updateEnv(const Options opts, ref PipeReader pread, ref string[string] out_env) {
+    static auto updateEnv(const Config fconf, ref PipeReader pread, ref string[string] out_env) {
         import distssh.protocol : ProtocolEnv;
 
         ProtocolEnv env;
 
-        if (opts.stdinMsgPackEnv) {
+        if (fconf.global.stdinMsgPackEnv) {
             auto loop_sleep = IntervalSleep(10.dur!"msecs");
             while (true) {
                 pread.update;
@@ -367,7 +161,7 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
                 loop_sleep.tick;
             }
         } else {
-            env = readEnv(opts.importEnv);
+            env = readEnv(fconf.global.importEnv);
         }
 
         foreach (kv; env) {
@@ -380,17 +174,18 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
         auto pread = PipeReader(stdin.fileno);
 
         try {
-            updateEnv(opts, pread, env);
+            updateEnv(fconf, pread, env);
         } catch (Exception e) {
             logger.trace(e.msg).collectException;
         }
 
         Pid res;
 
-        if (exists(opts.command[0])) {
-            res = spawnProcess(opts.command, env, Config.none, opts.workDir);
+        if (exists(fconf.global.command[0])) {
+            res = spawnProcess(fconf.global.command, env, PConfig.none, fconf.global.workDir);
         } else {
-            res = spawnShell(opts.command.dup.joiner(" ").toUTF8, env, Config.none, opts.workDir);
+            res = spawnShell(fconf.global.command.dup.joiner(" ").toUTF8, env,
+                    PConfig.none, fconf.global.workDir);
         }
 
         import core.sys.posix.unistd : getppid;
@@ -412,7 +207,7 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
         int exit_status = 1;
         auto loop_sleep = IntervalSleep(50.dur!"msecs");
 
-        auto wd = Watchdog(pread, opts.timeout * 2);
+        auto wd = Watchdog(pread, fconf.global.timeout * 2);
 
         while (!wd.isTimeout && loop_running) {
             pread.update;
@@ -453,18 +248,32 @@ int cli_cmdWithImportedEnv(const Options opts) nothrow {
         return exit_status;
     } catch (Exception e) {
         logger.error(e.msg).collectException;
-        return 1;
     }
+
+    return 1;
+}
+
+int cli(const Config fconf, Config.Install conf, void delegate(string src, string dst) symlink) nothrow {
+    import std.path : buildPath;
+
+    try {
+        symlink(fconf.global.selfBinary, buildPath(fconf.global.selfDir, distShell));
+        symlink(fconf.global.selfBinary, buildPath(fconf.global.selfDir, distCmd));
+        return 0;
+    } catch (Exception e) {
+        logger.error(e.msg).collectException;
+    }
+
+    return 1;
 }
 
 // #SPC-measure_remote_hosts
-int cli_measureHosts(const Options opts) nothrow {
+int cli(const Config fconf, Config.MeasureHosts conf) nothrow {
     import std.conv : to;
     import std.stdio : writefln, writeln;
     import distssh.table;
 
-    auto hosts = RemoteHostCache.make(opts.timeout);
-    hosts.sortByLoad;
+    auto hosts = RemoteHostCache.make(fconf.global.dbPath);
 
     writeln("Host is overloaded if Load is >1").collectException;
 
@@ -503,95 +312,11 @@ int cli_measureHosts(const Options opts) nothrow {
     return 0;
 }
 
-// #SPC-modify_env
-int cli_modifyEnv(const Options opts) nothrow {
-    import std.algorithm : map, filter;
-    import std.array : assocArray, empty, array;
-    import std.path : absolutePath;
-    import std.stdio : writeln, writefln;
-    import std.string : split;
-    import std.typecons : tuple;
-    import distssh.protocol : ProtocolEnv, EnvVariable;
-
-    string[string] set_envs;
-    try {
-        set_envs = opts.envSet
-            .map!(a => a.split('='))
-            .filter!(a => !a.empty)
-            .map!(a => tuple(a[0], a[1]))
-            .assocArray;
-    } catch (Exception e) {
-        writeln("Unable to parse supplied envs to modify: ", e.msg).collectException;
-        return 1;
-    }
-
-    try {
-        auto env = readEnv(opts.importEnv.absolutePath).map!(a => tuple(a.key, a.value)).assocArray;
-
-        foreach (k; opts.envDel.filter!(a => a in env)) {
-            writeln("Removing ", k);
-            env.remove(k);
-        }
-
-        foreach (kv; set_envs.byKeyValue) {
-            if (kv.key in env)
-                writefln("Setting %s=%s", kv.key, kv.value);
-            else
-                writefln("Adding %s=%s", kv.key, kv.value);
-            env[kv.key] = kv.value;
-        }
-
-        writeEnv(opts.importEnv,
-                ProtocolEnv(env.byKeyValue.map!(a => EnvVariable(a.key, a.value)).array));
-    } catch (Exception e) {
-        logger.error(e.msg).collectException;
-        return 1;
-    }
-
-    return 0;
-}
-
-@("shall modify the exported env by adding, removing and modifying")
-unittest {
-    import std.array;
-    import std.file;
-    import std.process : environment;
-    import std.stdio;
-    import std.typecons : tuple;
-
-    // arrange
-    immutable remove_me = "remove_me.export";
-    scope (exit)
-        remove(remove_me);
-
-    environment["FOO_DEL"] = "del me";
-    environment["FOO_MOD"] = "mod me";
-    scope (exit) {
-        environment.remove("FOO_DEL");
-        environment.remove("FOO_MOD");
-        environment.remove("FOO_ADD");
-    }
-
-    appMain(parseUserArgs(["distssh", "--export-env", "--env-file", remove_me]));
-
-    // act
-    appMain(parseUserArgs([
-                "distssh", "--env-del", "FOO_DEL", "--env-set", "FOO_MOD=42",
-                "--env-set", "FOO_ADD=42", "--env-file", remove_me
-            ]));
-
-    // assert
-    auto env = readEnv(remove_me).map!(a => tuple(a.key, a.value)).assocArray;
-    assert(env["FOO_MOD"] == "42");
-    assert(env["FOO_ADD"] == "42");
-    assert("FOO_DEL" !in env);
-}
-
 /** Print the load of localhost.
  *
  * #SPC-measure_local_load
  */
-int cli_localLoad(WriterT)(scope WriterT writer) nothrow {
+int cli(WriterT)(Config.LocalLoad conf, scope WriterT writer) {
     import std.ascii : newline;
     import std.conv : to;
     import std.parallelism : totalCPUs;
@@ -621,7 +346,7 @@ int cli_localLoad(WriterT)(scope WriterT writer) nothrow {
     return 0;
 }
 
-int cli_runOnAll(const Options opts) nothrow {
+int cli(const Config fconf, Config.RunOnAll conf) nothrow {
     import std.algorithm : sort;
     import std.stdio : writefln, writeln, stdout;
 
@@ -638,7 +363,7 @@ int cli_runOnAll(const Options opts) nothrow {
         } catch (Exception e) {
         }
 
-        auto status = executeOnHost(opts, a);
+        auto status = executeOnHost(fconf, a);
 
         if (status != 0) {
             writeln("Failed, error code: ", status).collectException;
@@ -649,6 +374,245 @@ int cli_runOnAll(const Options opts) nothrow {
     }
 
     return exit_status ? 0 : 1;
+}
+
+// #SPC-shell_current_dir
+int cli(const Config fconf, Config.LocalShell conf) {
+    import std.file : exists;
+    import std.process : spawnProcess, wait, userShell, Config, Pid;
+
+    try {
+        Pid pid;
+        if (exists(fconf.global.workDir))
+            pid = spawnProcess([userShell], null, Config.none, fconf.global.workDir);
+        else
+            pid = spawnProcess([userShell]);
+
+        return pid.wait;
+    } catch (Exception e) {
+        logger.error(e.msg).collectException;
+        return 1;
+    }
+}
+
+// #SPC-modify_env
+int cli(const Config fconf, Config.Env conf) {
+    import std.algorithm : map, filter;
+    import std.array : assocArray, empty, array;
+    import std.path : absolutePath;
+    import std.stdio : writeln, writefln;
+    import std.string : split;
+    import std.typecons : tuple;
+    import distssh.protocol : ProtocolEnv, EnvVariable;
+
+    if (conf.exportEnv) {
+        try {
+            writeEnv(fconf.global.importEnv, cloneEnv);
+            logger.info("Exported environment to ", fconf.global.importEnv);
+        } catch (Exception e) {
+            logger.error(e.msg).collectException;
+            return 1;
+        }
+
+        return 0;
+    }
+
+    string[string] set_envs;
+    try {
+        set_envs = conf.envSet
+            .map!(a => a.split('='))
+            .filter!(a => !a.empty)
+            .map!(a => tuple(a[0], a[1]))
+            .assocArray;
+    } catch (Exception e) {
+        writeln("Unable to parse supplied envs to modify: ", e.msg).collectException;
+        return 1;
+    }
+
+    try {
+        auto env = readEnv(fconf.global.importEnv.absolutePath).map!(a => tuple(a.key,
+                a.value)).assocArray;
+
+        foreach (k; conf.envDel.filter!(a => a in env)) {
+            writeln("Removing ", k);
+            env.remove(k);
+        }
+
+        foreach (kv; set_envs.byKeyValue) {
+            if (kv.key in env)
+                writefln("Setting %s=%s", kv.key, kv.value);
+            else
+                writefln("Adding %s=%s", kv.key, kv.value);
+            env[kv.key] = kv.value;
+        }
+
+        if (conf.print) {
+            foreach (const kv; env.byKeyValue)
+                writefln(`%s="%s"`, kv.key, kv.value);
+        }
+
+        writeEnv(fconf.global.importEnv,
+                ProtocolEnv(env.byKeyValue.map!(a => EnvVariable(a.key, a.value)).array));
+    } catch (Exception e) {
+        logger.error(e.msg).collectException;
+        return 1;
+    }
+
+    return 0;
+}
+
+@("shall export the environment")
+unittest {
+    import std.conv : to;
+    import std.file;
+    import std.process : environment;
+    import std.variant : tryVisit;
+
+    // arrange
+    immutable remove_me = "remove_me.export";
+    scope (exit)
+        remove(remove_me);
+
+    auto opts = parseUserArgs(["distssh", "env", "-e", "--env-file", remove_me]);
+    auto envConf = opts.data.tryVisit!((Config.Env a) => a, () => Config.Env.init);
+
+    const env_key = "DISTSSH_ENV_TEST";
+    environment[env_key] = env_key ~ remove_me;
+    scope (exit)
+        environment.remove(env_key);
+
+    // shall export the environment to the file
+    void verify1() {
+        // test normal export
+        cli(opts, envConf);
+        auto env = readEnv(remove_me);
+        assert(!env.filter!(a => a.key == env_key).empty, env.to!string);
+    }
+
+    verify1;
+
+    // shall filter out specified env before exporting to the file
+    environment[globalEnvFilterKey] = "DISTSSH_ENV_TEST;junk ";
+    scope (exit)
+        environment.remove(globalEnvFilterKey);
+
+    void verify2() {
+        cli(opts, envConf);
+        auto env = readEnv(remove_me);
+        assert(env.filter!(a => a.key == env_key).empty, env.to!string);
+    }
+
+    verify2;
+}
+
+@("shall create symlinks to self")
+unittest {
+    string[2][] symlinks;
+    void fakeSymlink(string src, string dst) {
+        string[2] v = [src, dst];
+        symlinks ~= v;
+    }
+
+    Config conf;
+    conf.global.selfBinary = "/foo/src";
+    conf.global.selfDir = "/bar";
+
+    cli(conf, Config.Install.init, &fakeSymlink);
+
+    assert(symlinks[0] == ["/foo/src", "/bar/distshell"]);
+    assert(symlinks[1] == ["/foo/src", "/bar/distcmd"]);
+}
+
+/** Execute a command on a remote host.
+ *
+ * #SPC-automatic_env_import
+ */
+int executeOnHost(const Config conf, Host host) nothrow {
+    import distssh.protocol : ProtocolEnv;
+    import core.thread : Thread;
+    import core.time : dur, MonoTime;
+    import std.file : thisExePath;
+    import std.path : absolutePath;
+    import std.process : tryWait, Redirect, pipeProcess, escapeShellFileName;
+
+    // #SPC-draft_remote_cmd_spec
+    try {
+        auto args = ["ssh"] ~ sshNoLoginArgs ~ [
+            host, thisExePath, "localrun", "--workdir",
+            conf.global.workDir.escapeShellFileName, "--stdin-msgpack-env", "--"
+        ] ~ conf.global.command;
+
+        logger.info("Connecting to: ", host);
+        logger.trace("run: ", args.joiner(" "));
+
+        auto p = pipeProcess(args, Redirect.stdin);
+
+        auto pwriter = PipeWriter(p.stdin);
+
+        ProtocolEnv env;
+        if (conf.global.cloneEnv)
+            env = cloneEnv;
+        else if (!conf.global.noImportEnv)
+            env = readEnv(conf.global.importEnv.absolutePath);
+        pwriter.pack(env);
+
+        while (true) {
+            try {
+                auto st = p.pid.tryWait;
+                if (st.terminated)
+                    return st.status;
+
+                Watchdog.ping(pwriter);
+            } catch (Exception e) {
+            }
+
+            Thread.sleep(50.dur!"msecs");
+        }
+    } catch (Exception e) {
+        logger.error(e.msg).collectException;
+        return 1;
+    }
+}
+
+@("shall modify the exported env by adding, removing and modifying")
+unittest {
+    import std.array;
+    import std.file;
+    import std.process : environment;
+    import std.stdio;
+    import std.typecons : tuple;
+    import std.variant : tryVisit;
+
+    // arrange
+    immutable remove_me = "remove_me.export";
+    scope (exit)
+        remove(remove_me);
+
+    environment["FOO_DEL"] = "del me";
+    environment["FOO_MOD"] = "mod me";
+    scope (exit) {
+        environment.remove("FOO_DEL");
+        environment.remove("FOO_MOD");
+        environment.remove("FOO_ADD");
+    }
+
+    auto conf = parseUserArgs(["distssh", "env", "-e", "--env-file", remove_me]);
+    auto envConf = conf.data.tryVisit!((Config.Env a) => a, () => Config.Env.init);
+    cli(conf, envConf);
+
+    // act
+    conf = parseUserArgs([
+            "distssh", "env", "-d", "FOO_DEL", "-s", "FOO_MOD=42", "--set",
+            "FOO_ADD=42", "--env-file", remove_me
+            ]);
+    envConf = conf.data.tryVisit!((Config.Env a) => a, () => Config.Env.init);
+    cli(conf, envConf);
+
+    // assert
+    auto env = readEnv(remove_me).map!(a => tuple(a.key, a.value)).assocArray;
+    assert(env["FOO_MOD"] == "42");
+    assert(env["FOO_ADD"] == "42");
+    assert("FOO_DEL" !in env);
 }
 
 struct NonblockingFd {
@@ -726,443 +690,9 @@ struct Watchdog {
 @("shall print the load of the localhost")
 unittest {
     string load;
-    auto exit_status = cli_localLoad((string s) => load = s);
+    auto exit_status = cli(Config.LocalLoad.init, (string s) => load = s);
     assert(exit_status == 0);
     assert(load.length > 0, load);
-}
-
-struct Options {
-    import core.time : dur;
-    import colorlog : VerboseMode;
-
-    enum Mode {
-        shell,
-        cmd,
-        importEnvCmd,
-        install,
-        measureHosts,
-        localLoad,
-        runOnAll,
-        localShell,
-        exportEnv,
-        printEnv,
-        modifyEnv,
-    }
-
-    Mode mode;
-
-    bool help;
-    bool noImportEnv;
-    bool cloneEnv;
-    VerboseMode verbose;
-    bool stdinMsgPackEnv;
-    std.getopt.GetoptResult help_info;
-
-    Duration timeout = defaultTimeout_s.dur!"seconds";
-
-    string selfBinary;
-    string selfDir;
-
-    string importEnv;
-    string workDir;
-    string[] command;
-
-    /// Env variable to set in the config specified in importEnv.
-    string[] envSet;
-    /// Env variables to remove from the onespecified in importEnv.
-    string[] envDel;
-}
-
-/** Update a Configs object's file to import the environment from.
- *
- * This should only be called after all other command line parsing has been
- * done. It is because this function take into consideration the priority as
- * specified in the requirement:
- * #SPC-configure_env_import_file
- *
- * Params:
- *  opts = config to update the file to import the environment from.
- */
-void configImportEnvFile(ref Options opts) nothrow {
-    import std.process : environment;
-
-    if (opts.noImportEnv) {
-        opts.importEnv = null;
-    } else if (opts.importEnv.length != 0) {
-        // do nothing. the user has specified a file
-    } else {
-        try {
-            opts.importEnv = environment.get(globalEnvFileKey, distsshEnvExport);
-        } catch (Exception e) {
-        }
-    }
-}
-
-/**
- * #SPC-remote_command_parse
- *
- * Params:
- *  args = the command line arguments to parse.
- */
-Options parseUserArgs(string[] args) {
-    import std.algorithm : among;
-    import std.array : empty;
-    import std.file : thisExePath, getcwd;
-    import std.path : dirName, baseName, buildPath, absolutePath;
-
-    Options opts;
-
-    opts.selfBinary = buildPath(thisExePath.dirName, args[0].baseName);
-    opts.selfDir = opts.selfBinary.dirName;
-    opts.workDir = getcwd;
-
-    switch (opts.selfBinary.baseName) {
-    case distShell:
-        opts.mode = Options.Mode.shell;
-        return opts;
-    case distCmd:
-        opts.mode = Options.Mode.cmd;
-        opts.command = args.length > 1 ? args[1 .. $] : null;
-        opts.help = args.length > 1 && args[1].among("-h", "--help");
-        configImportEnvFile(opts);
-        return opts;
-    default:
-    }
-
-    try {
-        bool export_env;
-        bool install;
-        bool local_load;
-        bool local_run;
-        bool local_shell;
-        bool measure_hosts;
-        bool print_env_file;
-        bool remote_shell;
-        bool run_on_all;
-        bool verbose_info;
-        bool verbose_trace;
-        string export_env_file;
-        ulong timeout_s;
-
-        // alphabetical order
-        // dfmt off
-        opts.help_info = std.getopt.getopt(args, std.getopt.config.passThrough,
-            std.getopt.config.keepEndOfOptions,
-            "clone-env", "clone the current environment to the remote host without an intermediate file", &opts.cloneEnv,
-            "env-del", "remove a variable from the exported environment", &opts.envDel,
-            "env-file", "file to load the environment from", &export_env_file,
-            "env-print", "print the content of an exported environment", &print_env_file,
-            "env-set", "set a variable in the exported environment. Example: FOO=42", &opts.envSet,
-            "export-env", "export the current environment to a file that is used on the remote host", &export_env,
-            "install", "install distssh by setting up the correct symlinks", &install,
-            "i|import-env", "import the env from the file (default: " ~ distsshEnvExport ~ ")", &opts.importEnv,
-            "local-load", "measure the load on the current host", &local_load,
-            "local-run", "import env and run the command locally", &local_run,
-            "local-shell", "run the shell locally", &local_shell,
-            "measure", "measure the login time and load of all remote hosts", &measure_hosts,
-            "no-import-env", "do not automatically import the environment from " ~ distsshEnvExport, &opts.noImportEnv,
-            "run-on-all", "run the command on all remote hosts", &run_on_all,
-            "shell", "open an interactive shell on the remote host", &remote_shell,
-            "stdin-msgpack-env", "import env from stdin as a msgpack stream", &opts.stdinMsgPackEnv,
-            "timeout", "timeout to use when checking remote hosts", &timeout_s,
-            "vverbose", "verbose mode is set to trace", &verbose_trace,
-            "v|verbose", "verbose logging", &verbose_info,
-            "workdir", "working directory to run the command in", &opts.workDir,
-            );
-        // dfmt on
-        opts.help = opts.help_info.helpWanted;
-
-        import core.time : dur;
-
-        // must convert e.g. "."
-        opts.workDir = opts.workDir.absolutePath;
-
-        opts.verbose = () {
-            if (verbose_trace)
-                return Options.VerboseMode.trace;
-            if (verbose_info)
-                return Options.VerboseMode.info;
-            return Options.VerboseMode.warning;
-        }();
-
-        if (timeout_s > 0)
-            opts.timeout = timeout_s.dur!"seconds";
-
-        if (!export_env_file.empty)
-            opts.importEnv = export_env_file;
-
-        if (install)
-            opts.mode = Options.Mode.install;
-        else if (export_env)
-            opts.mode = Options.Mode.exportEnv;
-        else if (remote_shell)
-            opts.mode = Options.Mode.shell;
-        else if (measure_hosts)
-            opts.mode = Options.Mode.measureHosts;
-        else if (local_load)
-            opts.mode = Options.Mode.localLoad;
-        else if (local_run)
-            opts.mode = Options.Mode.importEnvCmd;
-        else if (run_on_all)
-            opts.mode = Options.Mode.runOnAll;
-        else if (local_shell)
-            opts.mode = Options.Mode.localShell;
-        else if (print_env_file)
-            opts.mode = Options.Mode.printEnv;
-        else if (!opts.envSet.empty || !opts.envDel.empty)
-            opts.mode = Options.Mode.modifyEnv;
-        else
-            opts.mode = Options.Mode.cmd;
-    } catch (std.getopt.GetOptException e) {
-        // unknown option
-        opts.help = true;
-        logger.error(e.msg).collectException;
-    } catch (Exception e) {
-        opts.help = true;
-        logger.error(e.msg).collectException;
-    }
-
-    if (args.length > 1) {
-        import std.algorithm : find;
-        import std.range : drop;
-        import std.array : array;
-
-        opts.command = args.find("--").drop(1).array();
-    }
-
-    if (opts.mode == Options.Mode.cmd && opts.command.length == 0)
-        opts.help = true;
-
-    configImportEnvFile(opts);
-
-    return opts;
-}
-
-@("shall determine the absolute path of self")
-unittest {
-    import std.path;
-    import std.file;
-
-    auto opts = parseUserArgs(["distssh", "ls"]);
-    assert(opts.selfBinary[0] == '/');
-    assert(opts.selfBinary.baseName == "distssh");
-
-    opts = parseUserArgs(["distshell"]);
-    assert(opts.selfBinary[0] == '/');
-    assert(opts.selfBinary.baseName == "distshell");
-
-    opts = parseUserArgs(["distcmd"]);
-    assert(opts.selfBinary[0] == '/');
-    assert(opts.selfBinary.baseName == "distcmd");
-
-    opts = parseUserArgs(["distcmd_recv", getcwd, distsshEnvExport]);
-    assert(opts.selfBinary[0] == '/');
-    assert(opts.selfBinary.baseName == "distcmd_recv");
-}
-
-@("shall either return the default timeout or the user specified timeout")
-unittest {
-    import core.time : dur;
-    import std.conv;
-
-    auto opts = parseUserArgs(["distssh", "ls"]);
-    assert(opts.timeout == defaultTimeout_s.dur!"seconds");
-    opts = parseUserArgs(["distssh", "--timeout", "10", "ls"]);
-    assert(opts.timeout == 10.dur!"seconds");
-
-    opts = parseUserArgs(["distshell"]);
-    assert(opts.timeout == defaultTimeout_s.dur!"seconds", opts.timeout.to!string);
-    opts = parseUserArgs(["distshell", "--timeout", "10"]);
-    assert(opts.timeout == defaultTimeout_s.dur!"seconds");
-}
-
-@("shall only be the default timeout because --timeout should be passed on to the command")
-unittest {
-    import core.time : dur;
-    import std.conv;
-
-    auto opts = parseUserArgs(["distcmd", "ls"]);
-    assert(opts.timeout == defaultTimeout_s.dur!"seconds");
-
-    opts = parseUserArgs(["distcmd", "--timeout", "10"]);
-    assert(opts.timeout == defaultTimeout_s.dur!"seconds");
-}
-
-@("shall convert relative workdirs to absolute when parsing user args")
-unittest {
-    import std.path : isAbsolute;
-
-    auto opts = parseUserArgs(["distssh", "--workdir", "."]);
-    assert(opts.workDir.isAbsolute, "expected an absolute path");
-}
-
-void printHelp(const Options opts) nothrow {
-    import std.getopt : defaultGetoptPrinter;
-    import std.format : format;
-    import std.path : baseName;
-
-    auto help_txt = "usage: %s [options] -- [COMMAND]\n";
-    if (opts.selfBinary.baseName == distCmd) {
-        help_txt = "usage: %s [COMMAND]\n";
-    }
-
-    try {
-        defaultGetoptPrinter(format(help_txt, opts.selfBinary.baseName), opts.help_info.options.dup);
-    } catch (Exception e) {
-        logger.error(e.msg).collectException;
-    }
-}
-
-struct Host {
-    string payload;
-    alias payload this;
-}
-
-/// The load of a host.
-struct Load {
-    double loadAvg;
-    Duration accessTime;
-    bool unknown;
-
-    bool opEquals(const typeof(this) o) nothrow @safe pure @nogc {
-        if (unknown && o.unknown)
-            return true;
-        return loadAvg == o.loadAvg && accessTime == o.accessTime;
-    }
-
-    int opCmp(const typeof(this) o) pure @safe @nogc nothrow {
-        if (unknown && o.unknown)
-            return 0;
-        else if (unknown)
-            return 1;
-        else if (o.unknown)
-            return -1;
-
-        if (loadAvg < o.loadAvg)
-            return -1;
-        else if (loadAvg > o.loadAvg)
-            return 1;
-
-        if (accessTime < o.accessTime)
-            return -1;
-        else if (accessTime > o.accessTime)
-            return 1;
-
-        return this == o ? 0 : 1;
-    }
-}
-
-@("shall sort the loads")
-unittest {
-    import std.algorithm : sort;
-    import std.array : array;
-    import core.time : dur;
-
-    {
-        auto raw = [Load(0.6, 500.dur!"msecs"), Load(0.5, 500.dur!"msecs")].sort.array;
-        assert(raw[0].loadAvg == 0.5);
-    }
-
-    {
-        auto raw = [Load(0.5, 600.dur!"msecs"), Load(0.5, 500.dur!"msecs")].sort.array;
-        assert(raw[0].accessTime == 500.dur!"msecs");
-    }
-}
-
-/** Login on host and measure its load.
- *
- * Params:
- *  h = remote host to check
- *
- * Returns: the Load of the remote host
- */
-Load getLoad(Host h, Duration timeout) nothrow {
-    import std.conv : to;
-    import std.datetime.stopwatch : StopWatch, AutoStart;
-    import std.file : thisExePath;
-    import std.process : tryWait, pipeProcess, kill, wait, escapeShellFileName;
-    import std.range : takeOne, retro;
-    import std.stdio : writeln;
-    import core.time : dur;
-    import core.sys.posix.signal : SIGKILL;
-    import distssh.timer : IntervalSleep;
-
-    enum ExitCode {
-        none,
-        error,
-        timeout,
-        ok,
-    }
-
-    ExitCode exit_code;
-
-    Nullable!Load measure() {
-        auto sw = StopWatch(AutoStart.yes);
-
-        // 25 because it is at the perception of human "lag" and less than the 100
-        // msecs that is the intention of the average delay.
-        auto loop_sleep = IntervalSleep(25.dur!"msecs");
-
-        immutable abs_distssh = thisExePath;
-        auto res = pipeProcess(["ssh", "-q"] ~ sshNoLoginArgs ~ [
-                h, abs_distssh.escapeShellFileName, "--local-load"
-                ]);
-
-        while (exit_code == ExitCode.none) {
-            auto st = res.pid.tryWait;
-
-            if (st.terminated && st.status == 0) {
-                exit_code = ExitCode.ok;
-            } else if (st.terminated && st.status != 0) {
-                exit_code = ExitCode.error;
-            } else if (sw.peek >= timeout) {
-                exit_code = ExitCode.timeout;
-                res.pid.kill(SIGKILL);
-                // must read the exit or a zombie process is left behind
-                res.pid.wait;
-            } else {
-                // sleep to avoid massive CPU usage
-                loop_sleep.tick;
-            }
-        }
-        sw.stop;
-
-        Nullable!Load rval;
-
-        if (exit_code != ExitCode.ok)
-            return rval;
-
-        try {
-            string last_line;
-            foreach (a; res.stdout.byLineCopy) {
-                last_line = a;
-            }
-
-            rval = Load(last_line.to!double, sw.peek);
-        } catch (Exception e) {
-            logger.trace(res.stdout).collectException;
-            logger.trace(res.stderr).collectException;
-            logger.trace(e.msg).collectException;
-        }
-
-        return rval;
-    }
-
-    try {
-        auto r = measure();
-        if (!r.isNull)
-            return r.get;
-    } catch (Exception e) {
-        logger.trace(e.msg).collectException;
-    }
-
-    return Load(int.max, 3600.dur!"seconds", true);
-}
-
-/// Mirror of an environment.
-struct Env {
-    string[string] payload;
-    alias payload this;
 }
 
 /**
@@ -1248,7 +778,7 @@ struct PipeWriter {
     }
 }
 
-from!"distssh.protocol".ProtocolEnv readEnv(string filename) nothrow {
+from.distssh.protocol.ProtocolEnv readEnv(string filename) nothrow {
     import distssh.protocol : ProtocolEnv, EnvVariable, Deserialize;
     import std.file : exists;
     import std.stdio : File;
@@ -1280,7 +810,7 @@ from!"distssh.protocol".ProtocolEnv readEnv(string filename) nothrow {
     return rval;
 }
 
-void writeEnv(string filename, from!"distssh.protocol".ProtocolEnv env) {
+void writeEnv(string filename, from.distssh.protocol.ProtocolEnv env) {
     import core.sys.posix.sys.stat : fchmod, S_IRUSR, S_IWUSR;
     import std.stdio : File;
     import distssh.protocol : Serialize;
@@ -1292,131 +822,6 @@ void writeEnv(string filename, from!"distssh.protocol".ProtocolEnv env) {
             a));
 
     ser.pack(env);
-}
-
-Host[] hostsFromEnv() nothrow {
-    import std.array : array;
-    import std.string : strip;
-    import std.process : environment;
-
-    static import core.stdc.stdlib;
-
-    typeof(return) rval;
-
-    try {
-        string hosts_env = environment.get(globalEnvHostKey, "").strip;
-        rval = hosts_env.splitter(";").map!(a => a.strip)
-            .filter!(a => a.length > 0)
-            .map!(a => Host(a))
-            .array;
-
-        if (rval.length == 0) {
-            logger.errorf("No remote host configured (%s='%s')", globalEnvHostKey, hosts_env);
-        }
-    } catch (Exception e) {
-        logger.error(e.msg).collectException;
-    }
-
-    return rval;
-}
-
-/**
- * #SPC-load_balance
- * #SPC-best_remote_host
- */
-struct RemoteHostCache {
-    import std.array : array;
-    import std.typecons : Tuple, tuple;
-
-    alias HostLoad = Tuple!(Host, Load);
-
-    Duration timeout;
-    Host[] remoteHosts;
-    HostLoad[] remoteByLoad;
-
-    static auto make(Duration timeout) nothrow {
-        return RemoteHostCache(timeout, hostsFromEnv);
-    }
-
-    /// Measure and sort the remote hosts.
-    void sortByLoad() nothrow {
-        import std.algorithm : sort;
-        import std.parallelism : TaskPool;
-
-        static auto loadHost(T)(T host_timeout) nothrow {
-            import std.concurrency : thisTid;
-
-            logger.trace("load testing thread id: ", thisTid).collectException;
-            return HostLoad(host_timeout[0], getLoad(host_timeout[0], host_timeout[1]));
-        }
-
-        auto shosts = remoteHosts.map!(a => tuple(a, timeout)).array;
-
-        try {
-            auto pool = new TaskPool(shosts.length + 1);
-            scope (exit)
-                pool.stop;
-
-            // dfmt off
-            remoteByLoad =
-                pool.amap!(loadHost)(shosts)
-                .array
-                .sort!((a,b) => a[1] < b[1])
-                .array;
-            // dfmt on
-
-            if (remoteByLoad.length == 0) {
-                // this should be very uncommon but may happen.
-                remoteByLoad = remoteHosts.map!(a => HostLoad(a, Load.init)).array;
-            }
-
-            logger.trace("Hosts ", remoteByLoad);
-        } catch (Exception e) {
-            logger.trace(e.msg).collectException;
-        }
-
-    }
-
-    /// Returns: the lowest loaded server.
-    Host randomAndPop() @safe nothrow {
-        import std.range : take;
-        import std.random : randomSample;
-
-        assert(!empty, "should never happen");
-
-        auto rval = remoteByLoad[0][0];
-
-        try {
-            auto topX = remoteByLoad.filter!(a => !a[1].unknown).array;
-            if (topX.length == 0) {
-                rval = remoteByLoad[0][0];
-            } else if (topX.length < 3) {
-                rval = topX[0][0];
-            } else {
-                rval = topX.take(3).randomSample(1).front[0];
-            }
-        } catch (Exception e) {
-            logger.trace(e.msg).collectException;
-        }
-
-        remoteByLoad = remoteByLoad.filter!(a => a[0] != rval).array;
-
-        return rval;
-    }
-
-    Host front() @safe pure nothrow {
-        assert(!empty);
-        return remoteByLoad[0][0];
-    }
-
-    void popFront() @safe pure nothrow {
-        assert(!empty);
-        remoteByLoad = remoteByLoad[1 .. $];
-    }
-
-    bool empty() @safe pure nothrow {
-        return remoteByLoad.length == 0;
-    }
 }
 
 /**

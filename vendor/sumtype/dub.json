@@ -1,0 +1,21 @@
+{
+	"name": "sumtype",
+	"authors": [
+		"Paul Backus",
+		"Atila Neves"
+	],
+	"description": "A sum type with pattern matching",
+	"copyright": "Copyright © 2018, Paul Backus",
+	"license": "MIT",
+
+	"toolchainRequirements": {
+		"frontend": ">=2.086.0"
+	},
+
+	"buildTypes": {
+		"unittest-dip1000": {
+			"buildOptions": ["unittests", "debugMode", "debugInfo"],
+			"dflags": ["-preview=dip1000"]
+		}
+	}
+}

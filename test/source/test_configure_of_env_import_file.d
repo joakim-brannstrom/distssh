@@ -27,7 +27,7 @@ echo "smurf is $SMURF"`;
         if (!g_preCondition) {
             g_preCondition = true;
             fake_env["SMURF"] = "42";
-            assert(spawnShell(distssh ~ " --export-env", stdin, stdout, stderr,
+            assert(spawnShell(distssh ~ " env -e", stdin, stdout, stderr,
                     fake_env).wait == 0, "failed to export env");
         }
     }
@@ -43,7 +43,7 @@ unittest {
     const script_file = preCondition(area);
 
     // action
-    auto res = executeShell(distssh ~ " --local-run -- bash " ~ script_file);
+    auto res = executeShell(distssh ~ " localrun -- bash " ~ script_file);
 
     // assert
     assert(res.status == 0, "failed executing: " ~ res.output);
@@ -58,7 +58,7 @@ unittest {
     const script_file = preCondition(area);
 
     // action
-    auto res = executeShell(distssh ~ " --no-import-env --local-run -- bash " ~ script_file);
+    auto res = executeShell(distssh ~ " localrun --no-import-env -- bash " ~ script_file);
 
     // assert
     assert(res.status == 0, "failed executing: " ~ res.output);
@@ -74,8 +74,8 @@ unittest {
     // action
     auto fake_env = ["SMURF" : "43"];
     const env_file = buildPath(area, "myenv.export");
-    assert(spawnShell(distssh ~ " --export-env --env-file " ~ env_file, stdin,
-            stdout, stderr, fake_env).wait == 0, "failed to export env");
+    assert(spawnShell(distssh ~ " env -e --env-file " ~ env_file, stdin, stdout,
+            stderr, fake_env).wait == 0, "failed to export env");
     auto res = executeShell(format(distssh ~ " -i %s --local-run -- bash " ~ script_file, env_file));
 
     // assert
@@ -92,11 +92,11 @@ unittest {
     // action
     const env_file = buildPath(area, "myenv.export");
     auto fake_env = ["SMURF" : "43"];
-    assert(spawnShell(distssh ~ " --export-env --env-file " ~ env_file, stdin,
-            stdout, stderr, fake_env).wait == 0, "failed to export env");
+    assert(spawnShell(distssh ~ " env -e --env-file " ~ env_file, stdin, stdout,
+            stderr, fake_env).wait == 0, "failed to export env");
 
-    fake_env = ["DISTSSH_IMPORT_ENV" : env_file];
-    auto res = executeShell(distssh ~ " --local-run -- bash " ~ script_file, fake_env);
+    fake_env = ["DISTSSH_IMPORT_ENV": env_file];
+    auto res = executeShell(distssh ~ " localrun -- bash " ~ script_file, fake_env);
 
     // assert
     assert(res.status == 0, "failed executing: " ~ res.output);

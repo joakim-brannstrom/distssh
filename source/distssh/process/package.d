@@ -11,6 +11,8 @@ import std.stdio : File;
 import std.string : fromStringz;
 import logger = std.experimental.logger;
 
+import from_;
+
 public import distssh.process.type;
 
 Pid[] getShallowChildren(int parent_pid) {
@@ -145,4 +147,13 @@ unittest {
     //logger.trace(groups.length, groups);
 
     assert(groups.length < deep.length);
+}
+
+auto spawnDaemon(scope const(char[])[] args, scope const char[] workDir = null) {
+    import std.process : spawnProcess, Config;
+    import std.stdio : File;
+
+    auto devNullIn = File("/dev/null");
+    auto devNullOut = File("/dev/null", "w");
+    return spawnProcess(args, devNullIn, devNullOut, devNullOut, null, Config.detached, workDir);
 }

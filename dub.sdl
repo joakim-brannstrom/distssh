@@ -4,15 +4,35 @@ authors "Joakim Brännström"
 copyright "Copyright © 2018, Joakim Brännström"
 license "BSL-1.0"
 
-dependency "distssh:msgpack-ll" version="*"
-subPackage "./vendor/msgpack-ll"
-
-dependency "distssh:distssh_common" version="*"
 subPackage "./common"
+subPackage "./vendor/colorlog"
+subPackage "./vendor/d2sqlite3"
+subPackage "./vendor/miniorm"
+subPackage "./vendor/msgpack-ll"
+subPackage "./vendor/sumtype"
+subPackage "./vendor/unit-threaded"
 
 dependency "distssh:colorlog" version="*"
-subPackage "./vendor/colorlog"
+dependency "distssh:distssh_common" version="*"
+dependency "distssh:miniorm" version="*"
+dependency "distssh:msgpack-ll" version="*"
+dependency "distssh:sumtype" version="*"
+dependency "distssh:d2sqlite3" version="*"
+
+subConfiguration "distssh:miniorm" "all-included"
 
 targetPath "build"
 targetType "executable"
 sourcePath "source"
+
+configuration "application" {
+}
+
+configuration "unittest" {
+    dependency "distssh:unit-threaded" version="*" optional=true
+
+    targetName "unittest"
+    mainSourceFile "build/ut.d"
+    excludedSourceFiles "source/distssh/app.d"
+    preBuildCommands "./update_ut.d build/ut.d"
+}

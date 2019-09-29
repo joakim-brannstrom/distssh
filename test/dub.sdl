@@ -4,17 +4,20 @@ authors "Joakim Brännström"
 copyright "Copyright © 2018, Joakim Brännström"
 license "BSL-1.0"
 
-dependency "distssh:msgpack-ll" version="*"
-subPackage "../vendor/msgpack-ll"
-
-dependency "distssh:distssh_common" version="*"
-subPackage "../common"
-
-dependency "distssh:colorlog" version="*"
-subPackage "../vendor/colorlog"
+subPackage "../vendor/unit-threaded"
+dependency "distssh:unit-threaded" version="*"
 
 targetPath "build"
+sourcePaths "source"
+importPaths "source"
 
-sourcePaths "../source" "source"
-importPaths "../source" "source"
-excludeSourceFiles "../source/app.d"
+configuration "application" {
+}
+
+configuration "unittest" {
+    dependency "distssh:unit-threaded" version="*" optional=true
+
+    targetName "unittest"
+    mainSourceFile "build/ut.d"
+    preBuildCommands "../update_ut.d build/ut.d"
+}
