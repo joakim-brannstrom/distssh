@@ -16,7 +16,6 @@ dependency "distssh:distssh_common" version="*"
 dependency "distssh:miniorm" version="*"
 dependency "distssh:msgpack-ll" version="*"
 dependency "distssh:sumtype" version="*"
-dependency "distssh:unit-threaded" version="*"
 
 targetPath "build"
 targetType "executable"

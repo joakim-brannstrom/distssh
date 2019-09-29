@@ -15,16 +15,16 @@ unittest {
 @("shall install the symlinks beside the binary")
 unittest {
     prepareDistssh;
-    assert(spawnShell(distssh ~ " --install").wait == 0, "failed installing symlinks");
-    assert(exists(buildPath(buildDir, "distcmd")), "no symlink created)");
-    assert(exists(buildPath(buildDir, "distshell")), "no symlink created)");
+    spawnShell(distssh ~ " install").wait.shouldEqual(0); // failed installing symlinks;
+    exists(buildPath(buildDir, "distcmd")).shouldBeTrue; // no symlink created
+    exists(buildPath(buildDir, "distshell")).shouldBeTrue; // no symlink created
 }
 
 @("shall export the env and import it")
 unittest {
     prepareDistssh;
-    assert(spawnShell(distssh ~ " --export-env").wait == 0, "failed exporting env");
-    assert(spawnShell(distssh ~ " --local-run --import-env=distssh_env.export -- ls")
+    assert(spawnShell(distssh ~ " env -e").wait == 0, "failed exporting env");
+    assert(spawnShell(distssh ~ " localrun --import-env=distssh_env.export -- ls")
             .wait == 0, "failed importing env");
 }
 
@@ -59,9 +59,9 @@ unittest {
 
     auto area = TestArea(__FILE__, __LINE__);
 
-    assert(spawnProcess([distssh, "--export-env"], null, Config.none, area)
+    assert(spawnProcess([distssh, "env", "-e"], null, Config.none, area)
             .wait == 0, "failed to export the environment");
-    auto res = execute([distssh, "--env-print"], null, Config.none, size_t.max, area);
+    auto res = execute([distssh, "env", "--print"], null, Config.none, size_t.max, area);
     assert(res.status == 0);
     assert(res.output.canFind("PWD"), "failed to print the environment");
 }

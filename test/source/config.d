@@ -18,6 +18,8 @@ public import std.stdio;
 public import std.string;
 public import logger = std.experimental.logger;
 
+public import unit_threaded.assertions;
+
 immutable buildDir = "../build";
 immutable tmpDir = "./build/testdata";
 
