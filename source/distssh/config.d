@@ -47,6 +47,9 @@ struct Config {
         string[] command;
 
         string dbPath = "distssh.sqlite3";
+
+        /// The hosts the cluster consist of.
+        Host[] cluster;
     }
 
     struct Help {
@@ -176,6 +179,7 @@ Config parseUserArgs(string[] args) {
     switch (conf.global.selfBinary.baseName) {
     case distShell:
         conf.data = Config.Shell.init;
+        conf.global.cluster = hostsFromEnv;
         return conf;
     case distCmd:
         if (args.length > 1 && args[1].among("-h", "--help"))
@@ -183,6 +187,7 @@ Config parseUserArgs(string[] args) {
         else {
             conf.data = Config.Cmd.init;
             conf.global.command = args.length > 1 ? args[1 .. $] : null;
+            conf.global.cluster = hostsFromEnv;
             configImportEnvFile(conf);
         }
         return conf;
@@ -214,8 +219,6 @@ Config parseUserArgs(string[] args) {
             // dfmt on
             if (conf.global.helpInfo.helpWanted)
                 args ~= "-h";
-            else
-                conf.data = Config.Cmd.init;
 
             // must convert e.g. "."
             conf.global.workDir = conf.global.workDir.absolutePath;
@@ -248,10 +251,12 @@ Config parseUserArgs(string[] args) {
 
         void shellParse() {
             conf.data = Config.Shell.init;
+            conf.global.cluster = hostsFromEnv;
         }
 
         void cmdParse() {
             conf.data = Config.Cmd.init;
+            conf.global.cluster = hostsFromEnv;
         }
 
         void localrunParse() {
@@ -264,6 +269,7 @@ Config parseUserArgs(string[] args) {
 
         void measurehostsParse() {
             conf.data = Config.MeasureHosts.init;
+            conf.global.cluster = hostsFromEnv;
         }
 
         void localloadParse() {
@@ -272,6 +278,7 @@ Config parseUserArgs(string[] args) {
 
         void runonallParse() {
             conf.data = Config.RunOnAll.init;
+            conf.global.cluster = hostsFromEnv;
         }
 
         void localshellParse() {
@@ -280,6 +287,7 @@ Config parseUserArgs(string[] args) {
 
         void daemonParse() {
             conf.data = Config.Daemon.init;
+            conf.global.cluster = hostsFromEnv;
         }
 
         alias ParseFn = void delegate();
@@ -390,4 +398,30 @@ unittest {
 
     auto opts = parseUserArgs(["distssh", "--workdir", "."]);
     assert(opts.global.workDir.isAbsolute, "expected an absolute path");
+}
+
+Host[] hostsFromEnv() nothrow {
+    import std.algorithm : splitter, map;
+    import std.array : array;
+    import std.exception : collectException;
+    import std.process : environment;
+    import std.string : strip;
+
+    typeof(return) rval;
+
+    try {
+        string hosts_env = environment.get(globalEnvHostKey, "").strip;
+        rval = hosts_env.splitter(";").map!(a => a.strip)
+            .filter!(a => a.length > 0)
+            .map!(a => Host(a))
+            .array;
+
+        if (rval.length == 0) {
+            logger.errorf("No remote host configured (%s='%s')", globalEnvHostKey, hosts_env);
+        }
+    } catch (Exception e) {
+        logger.error(e.msg).collectException;
+    }
+
+    return rval;
 }

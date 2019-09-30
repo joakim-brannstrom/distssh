@@ -27,19 +27,26 @@ import distssh.metric;
 
 int cli(const Config fconf, Config.Daemon conf) {
     auto db = openDatabase(fconf.global.dbPath);
+    const origNode = getInode(fconf.global.dbPath);
 
-    logger.trace("daemon beat: ", db.getDaemonBeat);
-
-    // do not spawn if a daemon is already running.
-    if (db.getDaemonBeat < heartBeatDaemonTimeout)
-        return 0;
+    {
+        const beat = db.getDaemonBeat;
+        logger.trace("daemon beat: ", beat);
+        // do not spawn if a daemon is already running.
+        if (beat < heartBeatDaemonTimeout)
+            return 0;
+    }
 
     db.daemonBeat;
-    initMetrics(db, fconf.global.timeout);
+    initMetrics(db, fconf.global.cluster, fconf.global.timeout);
 
     auto updateOldestAt = Clock.currTime + updateOldestInterval;
     while (true) {
         Thread.sleep(heartBeatUpdate);
+        // the database may have been removed/recreated
+        if (getInode(fconf.global.dbPath) != origNode)
+            break;
+
         logger.trace("client beat: ", db.getClientBeat);
         // no client is interested in the metric so stop collecting
         if (db.getClientBeat > heartBeatClientTimeout)
@@ -62,8 +69,10 @@ void startDaemon(ref from.miniorm.Miniorm db) nothrow {
 
     try {
         db.clientBeat;
-        if (db.getDaemonBeat > heartBeatDaemonTimeout)
+        if (db.getDaemonBeat > heartBeatDaemonTimeout) {
             spawnDaemon([thisExePath, "daemon"]);
+            logger.trace("daemon spawned");
+        }
     } catch (Exception e) {
         logger.error(e.msg).collectException;
     }
@@ -76,7 +85,7 @@ immutable heartBeatDaemonTimeout = 60.dur!"seconds";
 immutable heartBeatClientTimeout = 5.dur!"minutes";
 immutable updateOldestInterval = 30.dur!"seconds";
 
-void initMetrics(ref from.miniorm.Miniorm db, Duration timeout) nothrow {
+void initMetrics(ref from.miniorm.Miniorm db, const(Host)[] cluster, Duration timeout) nothrow {
     import std.parallelism : TaskPool;
 
     static auto loadHost(T)(T host_timeout) nothrow {
@@ -87,14 +96,14 @@ void initMetrics(ref from.miniorm.Miniorm db, Duration timeout) nothrow {
     }
 
     try {
-        auto shosts = hostsFromEnv.map!(a => tuple(a, timeout)).array;
+        auto shosts = cluster.map!(a => tuple(a, timeout)).array;
 
         auto pool = new TaskPool();
         scope (exit)
             pool.stop;
 
         foreach (v; pool.amap!(loadHost)(shosts)) {
-            db.updateServer(v);
+            db.newServer(v);
         }
     } catch (Exception e) {
         logger.trace(e.msg).collectException;
@@ -109,4 +118,31 @@ void updateOldest(ref from.miniorm.Miniorm db, Duration timeout) nothrow {
     auto load = getLoad(host.get, timeout);
     db.updateServer(HostLoad(Host(host.get), load));
     logger.tracef("Update %s with %s", host.get, load).collectException;
+}
+
+struct Inode {
+    ulong dev;
+    ulong ino;
+
+    bool opEquals()(auto ref const typeof(this) s) const {
+        return dev == s.dev && ino == s.ino;
+    }
+}
+
+Inode getInode(const string p) @trusted nothrow {
+    import core.sys.posix.sys.stat : stat_t, stat;
+    import std.file : isSymlink, exists;
+    import std.string : toStringz;
+
+    const pz = p.toStringz;
+
+    if (!exists(p)) {
+        return Inode(0, 0);
+    } else {
+        stat_t st = void;
+        // should NOT use lstat because we want to know even if the symlink is
+        // redirected etc.
+        stat(pz, &st);
+        return Inode(st.st_dev, st.st_ino);
+    }
 }
