@@ -30,10 +30,6 @@ version (unittest) {
 }
 
 struct Config {
-    struct Help {
-        std.getopt.GetoptResult helpInfo;
-    }
-
     struct Global {
         std.getopt.GetoptResult helpInfo;
         VerboseMode verbosity;
@@ -51,6 +47,10 @@ struct Config {
         string[] command;
 
         string dbPath = "distssh.sqlite3";
+    }
+
+    struct Help {
+        std.getopt.GetoptResult helpInfo;
     }
 
     struct Shell {
@@ -146,7 +146,7 @@ struct Config {
         template printers(T...) {
             static if (T.length == 1) {
                 static if (is(T[0] == Config.Help))
-                    alias printers = (T[0] a) => printHelpGroup(a.helpInfo, global.progName);
+                    alias printers = (T[0] a) => printHelpGroup(global.helpInfo, global.progName);
                 else
                     alias printers = (T[0] a) => printGroup!(T[0])(global.helpInfo,
                             a.helpInfo, global.progName);
@@ -212,7 +212,10 @@ Config parseUserArgs(string[] args) {
                 "workdir", "working directory to run the command in", &conf.global.workDir,
                 );
             // dfmt on
-            args ~= (conf.global.helpInfo.helpWanted ? "-h" : null);
+            if (conf.global.helpInfo.helpWanted)
+                args ~= "-h";
+            else
+                conf.data = Config.Cmd.init;
 
             // must convert e.g. "."
             conf.global.workDir = conf.global.workDir.absolutePath;
@@ -221,9 +224,10 @@ Config parseUserArgs(string[] args) {
 
             if (!export_env_file.empty)
                 conf.global.importEnv = export_env_file;
+        }
 
-            if (!conf.global.helpInfo.helpWanted)
-                conf.data = Config.Cmd.init;
+        void helpParse() {
+            conf.data = Config.Help.init;
         }
 
         void envParse() {
@@ -282,8 +286,7 @@ Config parseUserArgs(string[] args) {
         ParseFn[string] parsers;
 
         static foreach (T; Config.Type.AllowedTypes) {
-            static if (!is(T == Config.Help))
-                mixin(format(`parsers["%1$s"] = &%1$sParse;`, T.stringof.toLower));
+            mixin(format(`parsers["%1$s"] = &%1$sParse;`, T.stringof.toLower));
         }
 
         globalParse;
