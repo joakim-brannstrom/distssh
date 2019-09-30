@@ -74,7 +74,7 @@ int cli(const Config fconf, Config.Shell conf) nothrow {
     import std.process : spawnProcess, wait, escapeShellFileName;
     import std.stdio : writeln, writefln;
 
-    auto hosts = RemoteHostCache.make(fconf.global.dbPath);
+    auto hosts = RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster);
 
     if (hosts.empty) {
         logger.errorf("No remote host online").collectException;
@@ -116,7 +116,7 @@ int cli(const Config fconf, Config.Shell conf) nothrow {
 
 // #SPC-fast_env_startup
 int cli(const Config fconf, Config.Cmd conf) {
-    auto hosts = RemoteHostCache.make(fconf.global.dbPath);
+    auto hosts = RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster);
 
     if (hosts.empty) {
         logger.errorf("No remote host online").collectException;
@@ -273,7 +273,7 @@ int cli(const Config fconf, Config.MeasureHosts conf) nothrow {
     import std.stdio : writefln, writeln;
     import distssh.table;
 
-    auto hosts = RemoteHostCache.make(fconf.global.dbPath);
+    auto hosts = RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster);
 
     writeln("Host is overloaded if Load is >1").collectException;
 
@@ -350,12 +350,11 @@ int cli(const Config fconf, Config.RunOnAll conf) nothrow {
     import std.algorithm : sort;
     import std.stdio : writefln, writeln, stdout;
 
-    auto shosts = hostsFromEnv;
-
-    writefln("Configured hosts (%s): %(%s|%)", globalEnvHostKey, shosts).collectException;
+    writefln("Configured hosts (%s): %(%s|%)", globalEnvHostKey, fconf.global.cluster)
+        .collectException;
 
     bool exit_status = true;
-    foreach (a; shosts.sort) {
+    foreach (a; fconf.global.cluster.dup.sort) {
         stdout.writefln("Connecting to %s.", a).collectException;
         try {
             // #SPC-flush_buffers

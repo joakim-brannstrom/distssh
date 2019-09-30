@@ -112,7 +112,7 @@ struct RemoteHostCache {
 
     HostLoad[] remoteByLoad;
 
-    static auto make(string dbPath) nothrow {
+    static auto make(string dbPath, const Host[] cluster) nothrow {
         import distssh.daemon : startDaemon;
         import distssh.database;
         import std.algorithm : sort;
@@ -120,7 +120,10 @@ struct RemoteHostCache {
         try {
             auto db = openDatabase(dbPath);
             startDaemon(db);
-            return RemoteHostCache(db.getServerLoads.sort!((a, b) => a[1] < b[1]).array);
+            db.syncCluster(cluster);
+            auto servers = db.getServerLoads(cluster);
+            db.removeUnusedServers(servers.unused);
+            return RemoteHostCache(servers.online.sort!((a, b) => a[1] < b[1]).array);
         } catch (Exception e) {
             logger.error(e.msg).collectException;
         }
@@ -167,28 +170,4 @@ struct RemoteHostCache {
     bool empty() @safe pure nothrow {
         return remoteByLoad.length == 0;
     }
-}
-
-Host[] hostsFromEnv() nothrow {
-    import std.array : array;
-    import std.string : strip;
-    import std.process : environment;
-
-    typeof(return) rval;
-
-    try {
-        string hosts_env = environment.get(globalEnvHostKey, "").strip;
-        rval = hosts_env.splitter(";").map!(a => a.strip)
-            .filter!(a => a.length > 0)
-            .map!(a => Host(a))
-            .array;
-
-        if (rval.length == 0) {
-            logger.errorf("No remote host configured (%s='%s')", globalEnvHostKey, hosts_env);
-        }
-    } catch (Exception e) {
-        logger.error(e.msg).collectException;
-    }
-
-    return rval;
 }

@@ -29,14 +29,16 @@ int cli(const Config fconf, Config.Daemon conf) {
     auto db = openDatabase(fconf.global.dbPath);
     const origNode = getInode(fconf.global.dbPath);
 
-    logger.trace("daemon beat: ", db.getDaemonBeat);
-
-    // do not spawn if a daemon is already running.
-    if (db.getDaemonBeat < heartBeatDaemonTimeout)
-        return 0;
+    {
+        const beat = db.getDaemonBeat;
+        logger.trace("daemon beat: ", beat);
+        // do not spawn if a daemon is already running.
+        if (beat < heartBeatDaemonTimeout)
+            return 0;
+    }
 
     db.daemonBeat;
-    initMetrics(db, fconf.global.timeout);
+    initMetrics(db, fconf.global.cluster, fconf.global.timeout);
 
     auto updateOldestAt = Clock.currTime + updateOldestInterval;
     while (true) {
@@ -67,8 +69,10 @@ void startDaemon(ref from.miniorm.Miniorm db) nothrow {
 
     try {
         db.clientBeat;
-        if (db.getDaemonBeat > heartBeatDaemonTimeout)
+        if (db.getDaemonBeat > heartBeatDaemonTimeout) {
             spawnDaemon([thisExePath, "daemon"]);
+            logger.trace("daemon spawned");
+        }
     } catch (Exception e) {
         logger.error(e.msg).collectException;
     }
@@ -81,7 +85,7 @@ immutable heartBeatDaemonTimeout = 60.dur!"seconds";
 immutable heartBeatClientTimeout = 5.dur!"minutes";
 immutable updateOldestInterval = 30.dur!"seconds";
 
-void initMetrics(ref from.miniorm.Miniorm db, Duration timeout) nothrow {
+void initMetrics(ref from.miniorm.Miniorm db, const(Host)[] cluster, Duration timeout) nothrow {
     import std.parallelism : TaskPool;
 
     static auto loadHost(T)(T host_timeout) nothrow {
@@ -92,14 +96,14 @@ void initMetrics(ref from.miniorm.Miniorm db, Duration timeout) nothrow {
     }
 
     try {
-        auto shosts = hostsFromEnv.map!(a => tuple(a, timeout)).array;
+        auto shosts = cluster.map!(a => tuple(a, timeout)).array;
 
         auto pool = new TaskPool();
         scope (exit)
             pool.stop;
 
         foreach (v; pool.amap!(loadHost)(shosts)) {
-            db.updateServer(v);
+            db.newServer(v);
         }
     } catch (Exception e) {
         logger.trace(e.msg).collectException;
