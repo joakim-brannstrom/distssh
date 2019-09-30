@@ -57,7 +57,7 @@ struct Miniorm {
     }
 
     /// Toggle logging.
-    void log(bool v) {
+    void log(bool v) nothrow {
         this.log_ = v;
     }
 
