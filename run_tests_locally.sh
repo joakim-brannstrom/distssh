@@ -2,7 +2,7 @@
 
 export DISTSSH_HOSTS=localhost
 
-set -e
+set -ex
 
 dub test -- -s
 
