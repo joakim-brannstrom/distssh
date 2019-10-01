@@ -124,19 +124,19 @@ void syncCluster(ref Miniorm db, const Host[] cluster) nothrow {
     immutable forceEarlyUpdate = Clock.currTime - 1.dur!"hours";
 
     auto stmt = spinSql!(() {
-        return db.prepare(`INSERT OR IGNORE INTO ServerTbl ('address','lastUpdate','accessTime','loadAvg','unknown') VALUES(:address, :lastUpdate, :accessTime, :loadAvg, :unknown)`);
-    });
+        return db.prepare(`INSERT OR IGNORE INTO ServerTbl (address,lastUpdate,accessTime,loadAvg,unknown) VALUES(:address, :lastUpdate, :accessTime, :loadAvg, :unknown)`);
+    }, logger.trace);
 
     foreach (const h; cluster) {
         spinSql!(() {
+            stmt.reset;
             stmt.bind(":address", h.payload);
             stmt.bind(":lastUpdate", forceEarlyUpdate.toSqliteDateTime);
             stmt.bind(":accessTime", highAccessTime);
             stmt.bind(":loadAvg", highLoadAvg);
             stmt.bind(":unknown", true);
             stmt.execute;
-            stmt.reset;
-        });
+        }, logger.trace);
     }
 }
 
@@ -180,21 +180,21 @@ void removeUnusedServers(ref Miniorm db, Host[] hosts) nothrow {
 
     auto stmt = spinSql!(() {
         return db.prepare(`DELETE FROM ServerTbl WHERE address = :address`);
-    });
+    }, logger.trace);
 
     foreach (h; hosts) {
         spinSql!(() {
+            stmt.reset;
             stmt.bind(":address", h.payload);
             stmt.execute;
-            stmt.reset;
-        });
+        }, logger.trace);
     }
 }
 
 void daemonBeat(ref Miniorm db) nothrow {
     spinSql!(() {
         db.run(insertOrReplace!DaemonBeat, DaemonBeat(0, Clock.currTime));
-    });
+    }, logger.trace);
 }
 
 /// The heartbeat when daemon was last executed.
@@ -203,13 +203,13 @@ Duration getDaemonBeat(ref Miniorm db) nothrow {
         foreach (a; db.run(select!DaemonBeat.where("id =", 0)))
             return Clock.currTime - a.beat;
         return Duration.max;
-    });
+    }, logger.trace);
 }
 
 void clientBeat(ref Miniorm db) nothrow {
     spinSql!(() {
         db.run(insertOrReplace!ClientBeat, ClientBeat(0, Clock.currTime));
-    });
+    }, logger.trace);
 }
 
 Duration getClientBeat(ref Miniorm db) nothrow {
@@ -217,7 +217,7 @@ Duration getClientBeat(ref Miniorm db) nothrow {
         foreach (a; db.run(select!ClientBeat.where("id =", 0)))
             return Clock.currTime - a.beat;
         return Duration.max;
-    });
+    }, logger.trace);
 }
 
 /// Returns: the server that have the oldest update timestamp.
@@ -225,7 +225,7 @@ Nullable!Host getServerToUpdate(ref Miniorm db) nothrow {
     auto stmt = spinSql!(() {
         return db.prepare(
             `SELECT address FROM ServerTbl ORDER BY datetime(lastUpdate) ASC LIMIT 1`);
-    });
+    }, logger.trace);
 
     return spinSql!(() {
         foreach (a; stmt.execute) {
@@ -233,5 +233,5 @@ Nullable!Host getServerToUpdate(ref Miniorm db) nothrow {
             return Nullable!Host(Host(address));
         }
         return Nullable!Host.init;
-    });
+    }, logger.trace);
 }
