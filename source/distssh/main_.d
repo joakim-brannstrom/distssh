@@ -134,7 +134,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
     import std.process : spawnProcess, spawnShell, Pid, tryWait, thisProcessID;
     import std.process : PConfig = Config;
     import std.utf : toUTF8;
-    import distssh.timer : IntervalSleep, Timer;
+    import distssh.timer : makeTimers, makeInterval;
 
     if (fconf.global.command.length == 0)
         return 0;
@@ -145,20 +145,22 @@ int cli(const Config fconf, Config.LocalRun conf) {
         ProtocolEnv env;
 
         if (fconf.global.stdinMsgPackEnv) {
-            auto loop_sleep = IntervalSleep(10.dur!"msecs");
-            while (true) {
+            auto timers = makeTimers;
+            makeInterval(timers, () @trusted {
                 pread.update;
 
                 try {
                     auto tmp = pread.unpack!(ProtocolEnv);
                     if (!tmp.isNull) {
                         env = tmp;
-                        break;
+                        return false;
                     }
                 } catch (Exception e) {
                 }
-
-                loop_sleep.tick;
+                return true;
+            }, 10.dur!"msecs");
+            while (!timers.empty) {
+                timers.tick(10.dur!"msecs");
             }
         } else {
             env = readEnv(fconf.global.importEnv);
@@ -194,18 +196,20 @@ int cli(const Config fconf, Config.LocalRun conf) {
         bool sigint_cleanup;
         bool loop_running = true;
 
-        void sigintEvent() {
+        bool sigintEvent() {
             if (getppid != parent_pid) {
                 sigint_cleanup = true;
                 loop_running = false;
             }
+            return true;
         }
 
-        auto check_sigint = Timer(500.dur!"msecs");
-        check_sigint.register(&sigintEvent);
+        auto timers = makeTimers;
+        makeInterval(timers, &sigintEvent, 500.dur!"msecs");
+        // a dummy event that ensure that it tick each 50 msec.
+        makeInterval(timers, () => true, 50.dur!"msecs");
 
         int exit_status = 1;
-        auto loop_sleep = IntervalSleep(50.dur!"msecs");
 
         auto wd = Watchdog(pread, fconf.global.timeout * 2);
 
@@ -223,9 +227,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
             }
 
             // #SPC-sigint_detection
-            check_sigint.tick;
-
-            loop_sleep.tick;
+            timers.tick(50.dur!"msecs");
         }
 
         import core.sys.posix.signal : kill, killpg, SIGKILL;

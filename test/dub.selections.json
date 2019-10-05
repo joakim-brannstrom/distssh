@@ -1,5 +1,6 @@
 {
 	"fileVersion": 1,
 	"versions": {
+		"distssh": "2.0.0"
 	}
 }

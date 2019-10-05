@@ -7,5 +7,5 @@ set -ex
 dub test -- -s
 
 pushd test
-dub test -- -s
+dub test -- -s -d
 popd
