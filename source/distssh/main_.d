@@ -718,7 +718,7 @@ auto cloneEnv() nothrow {
                 .strip.splitter(';').map!(a => a.strip)
                 .filter!(a => a.length != 0)) {
             if (env.remove(k)) {
-                logger.infof("Removed '%s' from the exported environment", k);
+                logger.tracef("Removed '%s' from the exported environment", k);
             }
         }
 
