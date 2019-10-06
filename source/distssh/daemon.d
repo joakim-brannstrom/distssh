@@ -16,6 +16,7 @@ import std.datetime;
 import std.exception : collectException;
 
 import colorlog;
+import miniorm : SpinSqlTimeout;
 
 import from_;
 
@@ -24,6 +25,7 @@ import distssh.types;
 import distssh.config;
 import distssh.database;
 import distssh.metric;
+import distssh.timer;
 
 int cli(const Config fconf, Config.Daemon conf) {
     auto db = openDatabase(fconf.global.dbPath);
@@ -40,23 +42,72 @@ int cli(const Config fconf, Config.Daemon conf) {
     db.daemonBeat;
     initMetrics(db, fconf.global.cluster, fconf.global.timeout);
 
-    auto updateOldestAt = Clock.currTime + updateOldestInterval;
-    while (true) {
-        Thread.sleep(heartBeatUpdate);
+    bool running = true;
+    auto clientBeat = db.getClientBeat;
+
+    auto timers = makeTimers;
+
+    makeInterval(timers, () @trusted {
+        clientBeat = db.getClientBeat;
+        logger.trace("client beat: ", clientBeat);
+        // no client is interested in the metric so stop collecting
+        if (clientBeat > heartBeatClientTimeout)
+            running = false;
+        return running;
+    }, 5.dur!"seconds");
+
+    makeInterval(timers, () @safe {
         // the database may have been removed/recreated
         if (getInode(fconf.global.dbPath) != origNode)
-            break;
+            running = false;
+        return running;
+    }, 5.dur!"seconds");
 
-        logger.trace("client beat: ", db.getClientBeat);
-        // no client is interested in the metric so stop collecting
-        if (db.getClientBeat > heartBeatClientTimeout)
-            break;
+    makeInterval(timers, () @trusted { db.daemonBeat; return running; }, 15.dur!"seconds");
 
-        db.daemonBeat;
+    void updateOldestTimer(ref Timers ts) @trusted {
+        auto host = db.getOldestServer;
+        if (!host.isNull)
+            updateServer(db, host.get, fconf.global.timeout);
 
-        if (updateOldestAt < Clock.currTime) {
-            updateOldest(db, fconf.global.timeout);
-            updateOldestAt = Clock.currTime + updateOldestInterval;
+        auto next = () {
+            if (clientBeat < 5.dur!"minutes")
+                return 30.dur!"seconds";
+            else
+                return 60.dur!"seconds";
+        }();
+
+        ts.put(&updateOldestTimer, next);
+    }
+
+    timers.put(&updateOldestTimer, Duration.zero);
+
+    void updateLeastLoadedTimer(ref Timers ts) @trusted {
+        auto host = db.getLeastLoadedServer;
+        if (!host.isNull)
+            updateServer(db, host.get, fconf.global.timeout);
+
+        auto next = () {
+            if (clientBeat < 30.dur!"seconds")
+                return 10.dur!"seconds";
+            else if (clientBeat < 90.dur!"seconds")
+                return 20.dur!"seconds";
+            else
+                return 60.dur!"seconds";
+        }();
+
+        ts.put(&updateLeastLoadedTimer, next);
+    }
+
+    timers.put(&updateLeastLoadedTimer, Duration.zero);
+
+    while (running && !timers.empty) {
+        try {
+            timers.tick(100.dur!"msecs");
+        } catch (SpinSqlTimeout e) {
+            // the database is removed or something else "bad" has happend that
+            // the database access has started throwing exceptions.
+            return 1;
         }
     }
 
@@ -70,6 +121,7 @@ void startDaemon(ref from.miniorm.Miniorm db) nothrow {
     try {
         db.clientBeat;
         if (db.getDaemonBeat > heartBeatDaemonTimeout) {
+            db.purgeServers; // assuming the data is old
             spawnDaemon([thisExePath, "daemon"]);
             logger.trace("daemon spawned");
         }
@@ -80,9 +132,8 @@ void startDaemon(ref from.miniorm.Miniorm db) nothrow {
 
 private:
 
-immutable heartBeatUpdate = 15.dur!"seconds";
 immutable heartBeatDaemonTimeout = 60.dur!"seconds";
-immutable heartBeatClientTimeout = 5.dur!"minutes";
+immutable heartBeatClientTimeout = 30.dur!"minutes";
 immutable updateOldestInterval = 30.dur!"seconds";
 
 void initMetrics(ref from.miniorm.Miniorm db, const(Host)[] cluster, Duration timeout) nothrow {
@@ -110,14 +161,10 @@ void initMetrics(ref from.miniorm.Miniorm db, const(Host)[] cluster, Duration ti
     }
 }
 
-void updateOldest(ref from.miniorm.Miniorm db, Duration timeout) nothrow {
-    auto host = db.getServerToUpdate;
-    if (host.isNull)
-        return;
-
-    auto load = getLoad(host.get, timeout);
-    db.updateServer(HostLoad(Host(host.get), load));
-    logger.tracef("Update %s with %s", host.get, load).collectException;
+void updateServer(ref from.miniorm.Miniorm db, Host host, Duration timeout) {
+    auto load = getLoad(host, timeout);
+    distssh.database.updateServer(db, HostLoad(host, load));
+    logger.tracef("Update %s with %s", host, load).collectException;
 }
 
 struct Inode {
