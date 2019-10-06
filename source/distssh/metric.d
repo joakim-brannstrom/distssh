@@ -29,7 +29,7 @@ Load getLoad(Host h, Duration timeout) nothrow {
     import std.stdio : writeln;
     import core.time : dur;
     import core.sys.posix.signal : SIGKILL;
-    import distssh.timer : IntervalSleep;
+    import distssh.timer : makeTimers, makeInterval;
 
     enum ExitCode {
         none,
@@ -43,16 +43,12 @@ Load getLoad(Host h, Duration timeout) nothrow {
     Nullable!Load measure() {
         auto sw = StopWatch(AutoStart.yes);
 
-        // 25 because it is at the perception of human "lag" and less than the 100
-        // msecs that is the intention of the average delay.
-        auto loop_sleep = IntervalSleep(25.dur!"msecs");
-
         immutable abs_distssh = thisExePath;
         auto res = pipeProcess(["ssh", "-q"] ~ sshNoLoginArgs ~ [
                 h, abs_distssh.escapeShellFileName, "localload"
                 ]);
 
-        while (exit_code == ExitCode.none) {
+        bool checkExitCode() @trusted {
             auto st = res.pid.tryWait;
 
             if (st.terminated && st.status == 0) {
@@ -64,11 +60,19 @@ Load getLoad(Host h, Duration timeout) nothrow {
                 res.pid.kill(SIGKILL);
                 // must read the exit or a zombie process is left behind
                 res.pid.wait;
-            } else {
-                // sleep to avoid massive CPU usage
-                loop_sleep.tick;
             }
+            return exit_code == ExitCode.none;
         }
+
+        // 25 because it is at the perception of human "lag" and less than the 100
+        // msecs that is the intention of the average delay.
+        auto timers = makeTimers;
+        makeInterval(timers, &checkExitCode, 25.dur!"msecs");
+
+        while (!timers.empty) {
+            timers.tick(25.dur!"msecs");
+        }
+
         sw.stop;
 
         Nullable!Load rval;
@@ -106,6 +110,8 @@ Load getLoad(Host h, Duration timeout) nothrow {
 /**
  * #SPC-load_balance
  * #SPC-best_remote_host
+ *
+ * TODO: it can be empty. how to handle that?
  */
 struct RemoteHostCache {
     import std.array : array;

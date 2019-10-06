@@ -1,23 +1,18 @@
-name "distssh"
+name "distssh_test"
 description "Distributed load balance over SSH"
 authors "Joakim Brännström"
 copyright "Copyright © 2018, Joakim Brännström"
 license "BSL-1.0"
 
 subPackage "../vendor/unit-threaded"
-dependency "distssh:unit-threaded" version="*"
 
 targetPath "build"
-sourcePaths "source"
-importPaths "source"
-
-configuration "application" {
-}
 
 configuration "unittest" {
     dependency "distssh:unit-threaded" version="*" optional=true
 
     targetName "unittest"
+    targetType "executable"
     mainSourceFile "build/ut.d"
     preBuildCommands "../update_ut.d build/ut.d"
 }

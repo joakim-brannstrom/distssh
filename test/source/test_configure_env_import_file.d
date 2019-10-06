@@ -76,7 +76,7 @@ unittest {
     const env_file = buildPath(area, "myenv.export");
     assert(spawnShell(distssh ~ " env -e --env-file " ~ env_file, stdin, stdout,
             stderr, fake_env).wait == 0, "failed to export env");
-    auto res = executeShell(format(distssh ~ " -i %s --local-run -- bash " ~ script_file, env_file));
+    auto res = executeShell(format(distssh ~ " localrun -i %s -- bash " ~ script_file, env_file));
 
     // assert
     assert(res.status == 0, "failed executing: " ~ res.output);

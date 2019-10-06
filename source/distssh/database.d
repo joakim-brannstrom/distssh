@@ -117,7 +117,7 @@ Tuple!(HostLoad[], "online", Host[], "unused") getServerLoads(ref Miniorm db, co
  * The client may from one invocation to another change the cluster. Those in
  * the database should in that case be updated.
  */
-void syncCluster(ref Miniorm db, const Host[] cluster) nothrow {
+void syncCluster(ref Miniorm db, const Host[] cluster) {
     immutable highAccessTime = 1.dur!"minutes"
         .total!"msecs";
     immutable highLoadAvg = 9999.0;
@@ -125,7 +125,7 @@ void syncCluster(ref Miniorm db, const Host[] cluster) nothrow {
 
     auto stmt = spinSql!(() {
         return db.prepare(`INSERT OR IGNORE INTO ServerTbl (address,lastUpdate,accessTime,loadAvg,unknown) VALUES(:address, :lastUpdate, :accessTime, :loadAvg, :unknown)`);
-    }, logger.trace);
+    }, logger.trace)(timeout);
 
     foreach (const h; cluster) {
         spinSql!(() {
@@ -136,96 +136,84 @@ void syncCluster(ref Miniorm db, const Host[] cluster) nothrow {
             stmt.bind(":loadAvg", highLoadAvg);
             stmt.bind(":unknown", true);
             stmt.execute;
-        }, logger.trace);
+        }, logger.trace)(timeout);
     }
 }
 
 /// Update the data for a server.
-void newServer(ref Miniorm db, HostLoad a) nothrow {
-    while (true) {
-        try {
-            db.run(insertOrReplace!ServerTbl, ServerTbl(a[0].payload,
-                    Clock.currTime, a[1].accessTime.total!"msecs", a[1].loadAvg, a[1].unknown));
-            return;
-        } catch (Exception e) {
-            logger.trace(e.msg).collectException;
-        }
-        rndSleep(100.dur!"msecs", 300);
-    }
+void newServer(ref Miniorm db, HostLoad a) {
+    spinSql!(() {
+        db.run(insertOrReplace!ServerTbl, ServerTbl(a[0].payload,
+            Clock.currTime, a[1].accessTime.total!"msecs", a[1].loadAvg, a[1].unknown));
+    }, logger.trace)(timeout, 100.dur!"msecs", 300.dur!"msecs");
 }
 
 /// Update the data for a server.
-void updateServer(ref Miniorm db, HostLoad a) nothrow {
-    while (true) {
-        try {
-            // using IGNORE because the host could have been removed.
-            auto stmt = db.prepare(`UPDATE OR IGNORE ServerTbl SET lastUpdate = :lastUpdate, accessTime = :accessTime, loadAvg = :loadAvg, unknown = :unknown WHERE address = :address`);
-            stmt.bind(":address", a[0].payload);
-            stmt.bind(":lastUpdate", Clock.currTime.toSqliteDateTime);
-            stmt.bind(":accessTime", a[1].accessTime.total!"msecs");
-            stmt.bind(":loadAvg", a[1].loadAvg);
-            stmt.bind(":unknown", a[1].unknown);
-            stmt.execute;
-            return;
-        } catch (Exception e) {
-            logger.trace(e.msg).collectException;
-        }
-        rndSleep(100.dur!"msecs", 300);
-    }
+void updateServer(ref Miniorm db, HostLoad a) {
+    spinSql!(() {
+        // using IGNORE because the host could have been removed.
+        auto stmt = db.prepare(`UPDATE OR IGNORE ServerTbl SET lastUpdate = :lastUpdate, accessTime = :accessTime, loadAvg = :loadAvg, unknown = :unknown WHERE address = :address`);
+        stmt.bind(":address", a[0].payload);
+        stmt.bind(":lastUpdate", Clock.currTime.toSqliteDateTime);
+        stmt.bind(":accessTime", a[1].accessTime.total!"msecs");
+        stmt.bind(":loadAvg", a[1].loadAvg);
+        stmt.bind(":unknown", a[1].unknown);
+        stmt.execute;
+    })(timeout, 100.dur!"msecs", 300.dur!"msecs");
 }
 
-void removeUnusedServers(ref Miniorm db, Host[] hosts) nothrow {
+void removeUnusedServers(ref Miniorm db, Host[] hosts) {
     if (hosts.empty)
         return;
 
     auto stmt = spinSql!(() {
         return db.prepare(`DELETE FROM ServerTbl WHERE address = :address`);
-    }, logger.trace);
+    }, logger.trace)(timeout);
 
     foreach (h; hosts) {
         spinSql!(() {
             stmt.reset;
             stmt.bind(":address", h.payload);
             stmt.execute;
-        }, logger.trace);
+        }, logger.trace)(timeout);
     }
 }
 
-void daemonBeat(ref Miniorm db) nothrow {
+void daemonBeat(ref Miniorm db) {
     spinSql!(() {
         db.run(insertOrReplace!DaemonBeat, DaemonBeat(0, Clock.currTime));
-    }, logger.trace);
+    }, logger.trace)(timeout);
 }
 
 /// The heartbeat when daemon was last executed.
-Duration getDaemonBeat(ref Miniorm db) nothrow {
+Duration getDaemonBeat(ref Miniorm db) {
     return spinSql!(() {
         foreach (a; db.run(select!DaemonBeat.where("id =", 0)))
             return Clock.currTime - a.beat;
         return Duration.max;
-    }, logger.trace);
+    }, logger.trace)(timeout);
 }
 
-void clientBeat(ref Miniorm db) nothrow {
+void clientBeat(ref Miniorm db) {
     spinSql!(() {
         db.run(insertOrReplace!ClientBeat, ClientBeat(0, Clock.currTime));
-    }, logger.trace);
+    }, logger.trace)(timeout);
 }
 
-Duration getClientBeat(ref Miniorm db) nothrow {
+Duration getClientBeat(ref Miniorm db) {
     return spinSql!(() {
         foreach (a; db.run(select!ClientBeat.where("id =", 0)))
             return Clock.currTime - a.beat;
         return Duration.max;
-    }, logger.trace);
+    }, logger.trace)(timeout);
 }
 
 /// Returns: the server that have the oldest update timestamp.
-Nullable!Host getServerToUpdate(ref Miniorm db) nothrow {
+Nullable!Host getOldestServer(ref Miniorm db) {
     auto stmt = spinSql!(() {
         return db.prepare(
             `SELECT address FROM ServerTbl ORDER BY datetime(lastUpdate) ASC LIMIT 1`);
-    }, logger.trace);
+    }, logger.trace)(timeout);
 
     return spinSql!(() {
         foreach (a; stmt.execute) {
@@ -233,5 +221,23 @@ Nullable!Host getServerToUpdate(ref Miniorm db) nothrow {
             return Nullable!Host(Host(address));
         }
         return Nullable!Host.init;
-    }, logger.trace);
+    }, logger.trace)(timeout);
+}
+
+Nullable!Host getLeastLoadedServer(ref Miniorm db) {
+    auto stmt = spinSql!(() {
+        return db.prepare(`SELECT address FROM ServerTbl ORDER BY loadAvg ASC LIMIT 1`);
+    }, logger.trace)(timeout);
+
+    return spinSql!(() {
+        foreach (a; stmt.execute) {
+            auto address = a.peek!string(0);
+            return Nullable!Host(Host(address));
+        }
+        return Nullable!Host.init;
+    }, logger.trace)(timeout);
+}
+
+void purgeServers(ref Miniorm db) {
+    spinSql!(() { db.run("DELETE FROM ServerTbl"); })(timeout);
 }

@@ -7,8 +7,8 @@ Author: Oleg Butko (deviator)
 */
 module miniorm.api;
 
+import core.time : dur;
 import logger = std.experimental.logger;
-
 import std.array : Appender;
 import std.datetime : SysTime, Duration;
 import std.range;
@@ -465,7 +465,8 @@ class SpinSqlTimeout : Exception {
  *
  * Note: If there are any errors in the query it will go into an infinite loop.
  */
-auto spinSql(alias query, alias logFn = logger.warning)(Duration timeout) {
+auto spinSql(alias query, alias logFn = logger.warning)(Duration timeout,
+        Duration minTime = 50.dur!"msecs", Duration maxTime = 150.dur!"msecs") {
     import core.thread : Thread;
     import core.time : dur;
     import std.datetime.stopwatch : StopWatch, AutoStart;
@@ -480,7 +481,9 @@ auto spinSql(alias query, alias logFn = logger.warning)(Duration timeout) {
         } catch (Exception e) {
             logFn(e.msg).collectException;
             // even though the database have a builtin sleep it still result in too much spam.
-            () @trusted { Thread.sleep(uniform(50, 150).dur!"msecs"); }();
+            () @trusted {
+                Thread.sleep(uniform(minTime.total!"msecs", maxTime.total!"msecs").dur!"msecs");
+            }();
         }
     }
 
