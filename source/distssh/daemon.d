@@ -4,6 +4,20 @@ License: $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost Software License 1.
 Author: Joakim Brännström (joakim.brannstrom@gmx.com)
 
 Updates the distssh server cache.
+
+# Design
+
+The overall design is based around a shared, local database that is used by
+both the daemon and clients to exchange statistics about the cluster. By
+leveraging sqlite for the database it becomes safe for processes to read/write
+to it concurrently.
+
+The heartbeats are used by both the client and daemon:
+
+ * The client spawn a daemon if the daemon heartbeats have stopped being
+   updated.
+ * The server slow down the update of the cluster statistics if no client has
+   used it in a while until it finally terminates itself.
 */
 module distssh.daemon;
 
@@ -70,6 +84,13 @@ int cli(const Config fconf, Config.Daemon conf) {
         if (!host.isNull)
             updateServer(db, host.get, fconf.global.timeout);
 
+        // the times are arbitrarily chosen.
+        // assumption. The oldest statistic do not have to be updated that
+        // often because the other loop, updating the best candidate, is
+        // running "fast".
+        // assumption. If a user use distssh slower than five minutes it mean
+        // that a long running processes is used and the user wont interact
+        // with distssh for a while.
         auto next = () {
             if (clientBeat < 5.dur!"minutes")
                 return 30.dur!"seconds";
@@ -87,6 +108,14 @@ int cli(const Config fconf, Config.Daemon conf) {
         if (!host.isNull)
             updateServer(db, host.get, fconf.global.timeout);
 
+        // the times are arbitrarily chosen.
+        // assumption. The least loaded server will be getting jobs put on it
+        // not only from *this* instance of distssh but also from all other
+        // instances using the cluster. For this instance to be quick at moving
+        // job to another host it has to update the statistics often.
+        // assumption. A user that is using distssh less than 90s isn't using
+        // distssh interactively/in quick succession. By backing of/slowing
+        // down the update it lowers the network load.
         auto next = () {
             if (clientBeat < 30.dur!"seconds")
                 return 10.dur!"seconds";
