@@ -7,7 +7,7 @@ module distssh.config;
 
 import core.time : dur, Duration;
 import logger = std.experimental.logger;
-import std.algorithm : among, remove, filter, find;
+import std.algorithm : among, remove, filter, find, map, maxElement;
 import std.array : array, empty;
 import std.file : thisExePath, getcwd;
 import std.format : format;
@@ -15,7 +15,7 @@ import std.getopt : defaultGetoptPrinter;
 import std.meta : AliasSeq;
 import std.path : baseName, buildPath, dirName, absolutePath;
 import std.range : drop;
-import std.stdio : writeln;
+import std.stdio : writeln, writefln;
 import std.string : toLower;
 import std.traits : EnumMembers, hasMember;
 import std.variant : Algebraic, visit;
@@ -137,13 +137,17 @@ struct Config {
 
         static void printHelpGroup(std.getopt.GetoptResult helpInfo, string progName) {
             defaultGetoptPrinter(format("usage: %s <command>\n", progName), helpInfo.options);
-            writeln("Command groups:");
+            writeln("sub-command help");
+            string[2][] subCommands;
             static foreach (T; Type.AllowedTypes) {
                 static if (hasMember!(T, "helpDescription"))
-                    writeln("  ", T.stringof.toLower, " ", T.helpDescription);
+                    subCommands ~= [T.stringof.toLower, T.helpDescription];
                 else
-                    writeln("  ", T.stringof.toLower);
+                    subCommands ~= [T.stringof.toLower, null];
             }
+            const width = subCommands.map!(a => a[0].length).maxElement + 1;
+            foreach (cmd; subCommands)
+                writefln(" %s%*s %s", cmd[0], width - cmd[0].length, " ", cmd[1]);
         }
 
         template printers(T...) {
