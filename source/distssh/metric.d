@@ -110,6 +110,8 @@ Load getLoad(Host h, Duration timeout) nothrow {
 /**
  * #SPC-load_balance
  * #SPC-best_remote_host
+ *
+ * TODO: it can be empty. how to handle that?
  */
 struct RemoteHostCache {
     import std.array : array;
