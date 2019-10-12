@@ -241,3 +241,24 @@ Nullable!Host getLeastLoadedServer(ref Miniorm db) {
 void purgeServers(ref Miniorm db) {
     spinSql!(() { db.run("DELETE FROM ServerTbl"); })(timeout);
 }
+
+/** Sleep for a random time that is min_ + rnd(0, span).
+ *
+ * Params:
+ *  span = unit is msecs.
+ */
+private void rndSleep(Duration min_, ulong span) nothrow @trusted {
+    import core.thread : Thread;
+    import core.time : dur;
+    import std.random : uniform;
+
+    auto t_span = () {
+        try {
+            return uniform(0, span).dur!"msecs";
+        } catch (Exception e) {
+        }
+        return span.dur!"msecs";
+    }();
+
+    Thread.sleep(min_ + t_span);
+}
