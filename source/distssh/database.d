@@ -159,7 +159,7 @@ void updateServer(ref Miniorm db, HostLoad a) {
         stmt.bind(":loadAvg", a[1].loadAvg);
         stmt.bind(":unknown", a[1].unknown);
         stmt.execute;
-    })(timeout, 100.dur!"msecs", 300.dur!"msecs");
+    }, logger.trace)(timeout, 100.dur!"msecs", 300.dur!"msecs");
 }
 
 void removeUnusedServers(ref Miniorm db, Host[] hosts) {
