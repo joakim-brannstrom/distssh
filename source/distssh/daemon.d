@@ -45,6 +45,9 @@ int cli(const Config fconf, Config.Daemon conf) {
     auto db = openDatabase(fconf.global.dbPath);
     const origNode = getInode(fconf.global.dbPath);
 
+    if (fconf.global.verbosity == VerboseMode.trace)
+        db.log(true);
+
     {
         const beat = db.getDaemonBeat;
         logger.trace("daemon beat: ", beat);
