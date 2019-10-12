@@ -79,56 +79,54 @@ int cli(const Config fconf, Config.Daemon conf) {
 
     makeInterval(timers, () @trusted { db.daemonBeat; return running; }, 15.dur!"seconds");
 
-    void updateOldestTimer(ref Timers ts) @trusted {
-        auto host = db.getOldestServer;
-        if (!host.isNull)
-            updateServer(db, host.get, fconf.global.timeout);
-
-        // the times are arbitrarily chosen.
-        // assumption. The oldest statistic do not have to be updated that
-        // often because the other loop, updating the best candidate, is
-        // running "fast".
-        // assumption. If a user use distssh slower than five minutes it mean
-        // that a long running processes is used and the user wont interact
-        // with distssh for a while.
-        auto next = () {
-            if (clientBeat < 5.dur!"minutes")
-                return 30.dur!"seconds";
-            else
-                return 60.dur!"seconds";
-        }();
-
-        ts.put(&updateOldestTimer, next);
+    // the times are arbitrarily chosen.
+    // assumption. The oldest statistic do not have to be updated that often
+    // because the other loop, updating the best candidate, is running "fast".
+    // assumption. If a user use distssh slower than five minutes it mean that
+    // a long running processes is used and the user wont interact with distssh
+    // for a while.
+    bool updateOldestTimer(Duration begin, Duration end) @trusted {
+        if (clientBeat >= begin && clientBeat < end) {
+            auto host = db.getOldestServer;
+            if (!host.isNull)
+                updateServer(db, host.get, fconf.global.timeout);
+        }
+        return running;
     }
 
-    timers.put(&updateOldestTimer, Duration.zero);
+    makeInterval(timers, () @safe {
+        return updateOldestTimer(0.dur!"seconds", 5.dur!"minutes");
+    }, 30.dur!"seconds");
+    makeInterval(timers, () @safe {
+        return updateOldestTimer(5.dur!"minutes", Duration.max);
+    }, 60.dur!"seconds");
 
-    void updateLeastLoadedTimer(ref Timers ts) @trusted {
-        auto host = db.getLeastLoadedServer;
-        if (!host.isNull)
-            updateServer(db, host.get, fconf.global.timeout);
-
-        // the times are arbitrarily chosen.
-        // assumption. The least loaded server will be getting jobs put on it
-        // not only from *this* instance of distssh but also from all other
-        // instances using the cluster. For this instance to be quick at moving
-        // job to another host it has to update the statistics often.
-        // assumption. A user that is using distssh less than 90s isn't using
-        // distssh interactively/in quick succession. By backing of/slowing
-        // down the update it lowers the network load.
-        auto next = () {
-            if (clientBeat < 30.dur!"seconds")
-                return 10.dur!"seconds";
-            else if (clientBeat < 90.dur!"seconds")
-                return 20.dur!"seconds";
-            else
-                return 60.dur!"seconds";
-        }();
-
-        ts.put(&updateLeastLoadedTimer, next);
+    // the times are arbitrarily chosen.
+    // assumption. The least loaded server will be getting jobs put on it not
+    // only from *this* instance of distssh but also from all other instances
+    // using the cluster. For this instance to be quick at moving job to
+    // another host it has to update the statistics often.
+    // assumption. A user that is using distssh less than 90s isn't using
+    // distssh interactively/in quick succession. By backing of/slowing down
+    // the update it lowers the network load.
+    bool updateLeastLoadedTimer(Duration begin, Duration end) @trusted {
+        if (clientBeat >= begin && clientBeat < end) {
+            auto host = db.getLeastLoadedServer;
+            if (!host.isNull)
+                updateServer(db, host.get, fconf.global.timeout);
+        }
+        return running;
     }
 
-    timers.put(&updateLeastLoadedTimer, Duration.zero);
+    makeInterval(timers, () @safe {
+        return updateLeastLoadedTimer(0.dur!"seconds", 30.dur!"seconds");
+    }, 10.dur!"seconds");
+    makeInterval(timers, () @safe {
+        return updateLeastLoadedTimer(30.dur!"seconds", 90.dur!"seconds");
+    }, 20.dur!"seconds");
+    makeInterval(timers, () @safe {
+        return updateLeastLoadedTimer(90.dur!"seconds", Duration.max);
+    }, 60.dur!"seconds");
 
     while (running && !timers.empty) {
         try {
