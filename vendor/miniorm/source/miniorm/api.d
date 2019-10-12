@@ -203,9 +203,16 @@ struct Miniorm {
 
         const sql = q.toSql.toString;
 
-        if (sql !in cachedStmt)
-            cachedStmt[sql] = db.prepare(sql);
-        auto stmt = cachedStmt[sql];
+        auto stmt = () {
+            if (auto v = sql in cachedStmt) {
+                (*v).reset;
+                return *v;
+            } else {
+                auto r = db.prepare(sql);
+                cachedStmt[sql] = r;
+                return r;
+            }
+        }();
 
         static if (all == AggregateInsert.yes) {
             int n;
@@ -313,7 +320,6 @@ unittest {
 unittest {
     import std.datetime : Clock;
     import core.thread : Thread;
-    import core.time : dur;
 
     struct One {
         ulong id;
@@ -436,15 +442,19 @@ unittest {
 }
 
 SysTime fromSqLiteDateTime(string raw_dt) {
-    import core.time : dur;
-    import std.datetime : DateTime, UTC;
+    import std.datetime : DateTime, UTC, Clock;
     import std.format : formattedRead;
 
-    int year, month, day, hour, minute, second, msecs;
-    formattedRead(raw_dt, "%s-%s-%s %s:%s:%s.%s", year, month, day, hour, minute, second, msecs);
-    auto dt = DateTime(year, month, day, hour, minute, second);
-
-    return SysTime(dt, msecs.dur!"msecs", UTC());
+    try {
+        int year, month, day, hour, minute, second, msecs;
+        formattedRead(raw_dt, "%s-%s-%s %s:%s:%s.%s", year, month, day, hour,
+                minute, second, msecs);
+        auto dt = DateTime(year, month, day, hour, minute, second);
+        return SysTime(dt, msecs.dur!"msecs", UTC());
+    } catch (Exception e) {
+        logger.trace(e.msg);
+        return Clock.currTime(UTC());
+    }
 }
 
 string toSqliteDateTime(SysTime ts) {
@@ -468,7 +478,6 @@ class SpinSqlTimeout : Exception {
 auto spinSql(alias query, alias logFn = logger.warning)(Duration timeout,
         Duration minTime = 50.dur!"msecs", Duration maxTime = 150.dur!"msecs") {
     import core.thread : Thread;
-    import core.time : dur;
     import std.datetime.stopwatch : StopWatch, AutoStart;
     import std.exception : collectException;
     import std.random : uniform;
@@ -497,27 +506,6 @@ auto spinSql(alias query, alias logFn = logger.warning)() nothrow {
         } catch (Exception e) {
         }
     }
-}
-
-/** Sleep for a random time that is min_ + rnd(0, span).
- *
- * Params:
- *  span = unit is msecs.
- */
-void rndSleep(Duration min_, ulong span) nothrow @trusted {
-    import core.thread : Thread;
-    import core.time : dur;
-    import std.random : uniform;
-
-    auto t_span = () {
-        try {
-            return uniform(0, span).dur!"msecs";
-        } catch (Exception e) {
-        }
-        return span.dur!"msecs";
-    }();
-
-    Thread.sleep(min_ + t_span);
 }
 
 /// RAII handling of a transaction.

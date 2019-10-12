@@ -787,7 +787,7 @@ from.distssh.protocol.ProtocolEnv readEnv(string filename) nothrow {
     ProtocolEnv rval;
 
     if (!exists(filename)) {
-        logger.info("File to import the environment from do not exist: ",
+        logger.trace("File to import the environment from do not exist: ",
                 filename).collectException;
         return rval;
     }
