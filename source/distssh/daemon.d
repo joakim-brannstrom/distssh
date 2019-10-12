@@ -167,6 +167,7 @@ immutable updateOldestInterval = 30.dur!"seconds";
 
 void initMetrics(ref from.miniorm.Miniorm db, const(Host)[] cluster, Duration timeout) nothrow {
     import std.parallelism : TaskPool;
+    import std.random : randomCover;
 
     static auto loadHost(T)(T host_timeout) nothrow {
         import std.concurrency : thisTid;
@@ -176,7 +177,7 @@ void initMetrics(ref from.miniorm.Miniorm db, const(Host)[] cluster, Duration ti
     }
 
     try {
-        auto shosts = cluster.map!(a => tuple(a, timeout)).array;
+        auto shosts = cluster.randomCover.map!(a => tuple(a, timeout)).array;
 
         auto pool = new TaskPool();
         scope (exit)

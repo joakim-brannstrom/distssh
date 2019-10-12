@@ -95,7 +95,7 @@ Tuple!(HostLoad[], "online", Host[], "unused") getServerLoads(ref Miniorm db, co
         auto stopAt = Clock.currTime + timeout;
         while (Clock.currTime < stopAt) {
             typeof(return) rval;
-            foreach (h; spinSql!(getData, logger.trace)(timeout)) {
+            foreach (h; spinSql!(getData, logger.trace)(timeout).filter!(a => !a[1].unknown)) {
                 if (filterBy.contains(h[0].payload))
                     rval.online ~= h;
                 else
