@@ -112,11 +112,19 @@ int cli(const Config fconf, Config.Daemon conf) {
     // assumption. A user that is using distssh less than 90s isn't using
     // distssh interactively/in quick succession. By backing of/slowing down
     // the update it lowers the network load.
+    long updateLeastLoadedTimerTick;
     bool updateLeastLoadedTimer(Duration begin, Duration end) @trusted {
+        import std.range : drop, take;
+
         if (clientBeat >= begin && clientBeat < end) {
-            auto host = db.getLeastLoadedServer;
-            if (!host.isNull)
-                updateServer(db, host.get, fconf.global.timeout);
+            auto hosts = db.getLeastLoadedServer;
+            // if the servers ever are less than topCandidades it will start
+            // updating slower.
+            foreach (h; hosts.drop(updateLeastLoadedTimerTick).take(1)) {
+                updateServer(db, h, fconf.global.timeout);
+            }
+
+            updateLeastLoadedTimerTick = ++updateLeastLoadedTimerTick % topCandidades;
         }
         return running;
     }

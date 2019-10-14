@@ -20,6 +20,8 @@ immutable sshNoLoginArgs = [
     "-oStrictHostKeyChecking=no", "-oPasswordAuthentication=no"
 ];
 immutable ulong defaultTimeout_s = 2;
+/// Number of the top X candidates to choose a server from to put the work on.
+immutable topCandidades = 3;
 
 struct Host {
     string payload;

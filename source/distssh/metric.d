@@ -149,10 +149,10 @@ struct RemoteHostCache {
             auto topX = remoteByLoad.filter!(a => !a[1].unknown).array;
             if (topX.length == 0) {
                 rval = remoteByLoad[0][0];
-            } else if (topX.length < 3) {
+            } else if (topX.length < topCandidades) {
                 rval = topX[0][0];
             } else {
-                rval = topX.take(3).randomSample(1).front[0];
+                rval = topX.take(topCandidades).randomSample(1).front[0];
             }
         } catch (Exception e) {
             logger.trace(e.msg).collectException;
