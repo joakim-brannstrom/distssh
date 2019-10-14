@@ -224,17 +224,16 @@ Nullable!Host getOldestServer(ref Miniorm db) {
     }, logger.trace)(timeout);
 }
 
-Nullable!Host getLeastLoadedServer(ref Miniorm db) {
+Host[] getLeastLoadedServer(ref Miniorm db) {
+    import std.format : format;
+
     auto stmt = spinSql!(() {
-        return db.prepare(`SELECT address FROM ServerTbl ORDER BY loadAvg ASC LIMIT 1`);
+        return db.prepare(format(`SELECT address FROM ServerTbl ORDER BY loadAvg ASC LIMIT %s`,
+            topCandidades));
     }, logger.trace)(timeout);
 
     return spinSql!(() {
-        foreach (a; stmt.execute) {
-            auto address = a.peek!string(0);
-            return Nullable!Host(Host(address));
-        }
-        return Nullable!Host.init;
+        return stmt.execute.map!(a => Host(a.peek!string(0))).array;
     }, logger.trace)(timeout);
 }
 
