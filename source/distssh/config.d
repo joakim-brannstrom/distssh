@@ -111,8 +111,10 @@ struct Config {
 
     struct Daemon {
         std.getopt.GetoptResult helpInfo;
-        static string helpDescription = "daemon mode";
-        Duration timeout = 30.dur!"minutes";
+        static string helpDescription = "update the cluster statistics in the database";
+        Duration timeout;
+        /// If the daemon should persist in the background after it has measured the cluster once.
+        bool background;
     }
 
     alias Type = Algebraic!(Help, Shell, Cmd, LocalRun, Install, MeasureHosts,
@@ -137,7 +139,7 @@ struct Config {
 
         static void printHelpGroup(std.getopt.GetoptResult helpInfo, string progName) {
             defaultGetoptPrinter(format("usage: %s <command>\n", progName), helpInfo.options);
-            writeln("sub-command help");
+            writeln("sub-commands");
             string[2][] subCommands;
             static foreach (T; Type.AllowedTypes) {
                 static if (hasMember!(T, "helpDescription"))
@@ -243,8 +245,7 @@ Config parseUserArgs(string[] args) {
                 conf.data = data;
 
             // dfmt off
-            data.helpInfo = std.getopt.getopt(args, std.getopt.config.passThrough,
-                std.getopt.config.keepEndOfOptions,
+            data.helpInfo = std.getopt.getopt(args,
                 "d|delete", "remove a variable from the exported environment", &data.envDel,
                 "e|export", "export the current environment to a file that is used on the remote host", &data.exportEnv,
                 "p|print", "print the content of an exported environment", &data.print,
@@ -290,8 +291,19 @@ Config parseUserArgs(string[] args) {
         }
 
         void daemonParse() {
-            conf.data = Config.Daemon.init;
             conf.global.cluster = hostsFromEnv;
+            Config.Daemon data;
+            scope (success)
+                conf.data = data;
+
+            ulong timeout = 30;
+            // dfmt off
+            data.helpInfo = std.getopt.getopt(args,
+                "b|background", "persist in the background", &data.background,
+                "t|timeout", "shutdown background process if unused not used for this time (default: 30 minutes)", &timeout,
+                );
+            // dfmt on
+            data.timeout = timeout.dur!"minutes";
         }
 
         alias ParseFn = void delegate();
