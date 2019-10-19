@@ -80,7 +80,8 @@ Miniorm openDatabase(string dbFile) nothrow {
  * Waiting for up to 10s for servers to be added. This handles the case where a
  * daemon have been spawned in the background.
  */
-Tuple!(HostLoad[], "online", Host[], "unused") getServerLoads(ref Miniorm db, const Host[] filterBy_) nothrow {
+Tuple!(HostLoad[], "online", Host[], "unused") getServerLoads(ref Miniorm db,
+        const Host[] filterBy_, const Duration timeout) nothrow {
     import std.datetime : Clock, dur;
     import distssh.set;
 

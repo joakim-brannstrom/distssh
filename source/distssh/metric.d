@@ -7,9 +7,10 @@ module distssh.metric;
 
 import logger = std.experimental.logger;
 import std.algorithm : map, filter, splitter;
-import std.datetime : Duration;
-import std.exception : collectException;
-import std.typecons : Nullable;
+import std.array : empty, array;
+import std.datetime : Duration, dur;
+import std.exception : collectException, ifThrown;
+import std.typecons : Nullable, Yes, No;
 
 import distssh.types;
 
@@ -27,7 +28,6 @@ Load getLoad(Host h, Duration timeout) nothrow {
     import std.process : tryWait, pipeProcess, kill, wait, escapeShellFileName;
     import std.range : takeOne, retro;
     import std.stdio : writeln;
-    import core.time : dur;
     import core.sys.posix.signal : SIGKILL;
     import distssh.timer : makeTimers, makeInterval;
 
@@ -114,8 +114,6 @@ Load getLoad(Host h, Duration timeout) nothrow {
  * TODO: it can be empty. how to handle that?
  */
 struct RemoteHostCache {
-    import std.array : array;
-
     HostLoad[] remoteByLoad;
 
     static auto make(string dbPath, const Host[] cluster) nothrow {
@@ -125,9 +123,23 @@ struct RemoteHostCache {
 
         try {
             auto db = openDatabase(dbPath);
-            startDaemon(db);
-            db.syncCluster(cluster);
-            auto servers = db.getServerLoads(cluster);
+            db.clientBeat;
+            const started = startDaemon(db, Yes.background);
+            if (!started) {
+                db.syncCluster(cluster);
+            }
+
+            // if no hosts are found in the db within the timeout then go over
+            // into a fast mode. This happens if the client e.g. switches the
+            // cluster it is using.
+            auto servers = db.getServerLoads(cluster, 5.dur!"seconds")
+                .ifThrown(typeof(db.getServerLoads(cluster, Duration.zero)).init);
+            if (servers.online.empty) {
+                logger.trace("starting daemon in oneshot mode");
+                startDaemon(db, No.background);
+                servers = db.getServerLoads(cluster, 60.dur!"seconds");
+            }
+
             db.removeUnusedServers(servers.unused);
             return RemoteHostCache(servers.online.sort!((a, b) => a[1] < b[1]).array);
         } catch (Exception e) {

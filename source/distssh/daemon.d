@@ -28,6 +28,7 @@ import std.algorithm : map;
 import std.array : array;
 import std.datetime;
 import std.exception : collectException;
+import std.typecons : Flag;
 
 import colorlog;
 import miniorm : SpinSqlTimeout;
@@ -48,16 +49,22 @@ int cli(const Config fconf, Config.Daemon conf) {
     if (fconf.global.verbosity == VerboseMode.trace)
         db.log(true);
 
-    {
+    if (conf.background) {
         const beat = db.getDaemonBeat;
         logger.trace("daemon beat: ", beat);
         // do not spawn if a daemon is already running.
         if (beat < heartBeatDaemonTimeout)
             return 0;
+        // by only updating the beat when in background mode it ensures that
+        // the daemon will sooner or later start in the persistant background
+        // mode.
+        db.daemonBeat;
     }
 
-    db.daemonBeat;
     initMetrics(db, fconf.global.cluster, fconf.global.timeout);
+
+    if (!conf.background)
+        return 0;
 
     bool running = true;
     auto clientBeat = db.getClientBeat;
@@ -68,7 +75,7 @@ int cli(const Config fconf, Config.Daemon conf) {
         clientBeat = db.getClientBeat;
         logger.trace("client beat: ", clientBeat);
         // no client is interested in the metric so stop collecting
-        if (clientBeat > heartBeatClientTimeout)
+        if (clientBeat > conf.timeout)
             running = false;
         return running;
     }, 5.dur!"seconds");
@@ -152,27 +159,40 @@ int cli(const Config fconf, Config.Daemon conf) {
     return 0;
 }
 
-void startDaemon(ref from.miniorm.Miniorm db) nothrow {
+/** Start the daemon in either as a persistant background process or a oneshot
+ * update.
+ *
+ * Returns: true if the daemon where started.
+ */
+bool startDaemon(ref from.miniorm.Miniorm db, Flag!"background" bg) nothrow {
     import distssh.process : spawnDaemon;
     import std.file : thisExePath;
 
     try {
-        db.clientBeat;
-        if (db.getDaemonBeat > heartBeatDaemonTimeout) {
-            db.purgeServers; // assuming the data is old
-            spawnDaemon([thisExePath, "daemon"]);
-            logger.trace("daemon spawned");
+        if (bg && db.getDaemonBeat < heartBeatDaemonTimeout) {
+            return false;
         }
+
+        const flags = () {
+            if (bg)
+                return ["--background"];
+            return null;
+        }();
+
+        db.purgeServers; // assuming the data is old
+        spawnDaemon([thisExePath, "daemon"] ~ flags);
+        logger.trace("daemon spawned");
+        return true;
     } catch (Exception e) {
         logger.error(e.msg).collectException;
     }
+
+    return false;
 }
 
 private:
 
 immutable heartBeatDaemonTimeout = 60.dur!"seconds";
-immutable heartBeatClientTimeout = 30.dur!"minutes";
-immutable updateOldestInterval = 30.dur!"seconds";
 
 void initMetrics(ref from.miniorm.Miniorm db, const(Host)[] cluster, Duration timeout) nothrow {
     import std.parallelism : TaskPool;
