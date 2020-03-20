@@ -130,13 +130,13 @@ void syncCluster(ref Miniorm db, const Host[] cluster) {
 
     foreach (const h; cluster) {
         spinSql!(() {
-            stmt.reset;
-            stmt.bind(":address", h.payload);
-            stmt.bind(":lastUpdate", forceEarlyUpdate.toSqliteDateTime);
-            stmt.bind(":accessTime", highAccessTime);
-            stmt.bind(":loadAvg", highLoadAvg);
-            stmt.bind(":unknown", true);
-            stmt.execute;
+            stmt.get.reset;
+            stmt.get.bind(":address", h.payload);
+            stmt.get.bind(":lastUpdate", forceEarlyUpdate.toSqliteDateTime);
+            stmt.get.bind(":accessTime", highAccessTime);
+            stmt.get.bind(":loadAvg", highLoadAvg);
+            stmt.get.bind(":unknown", true);
+            stmt.get.execute;
         }, logger.trace)(timeout);
     }
 }
@@ -154,12 +154,12 @@ void updateServer(ref Miniorm db, HostLoad a) {
     spinSql!(() {
         // using IGNORE because the host could have been removed.
         auto stmt = db.prepare(`UPDATE OR IGNORE ServerTbl SET lastUpdate = :lastUpdate, accessTime = :accessTime, loadAvg = :loadAvg, unknown = :unknown WHERE address = :address`);
-        stmt.bind(":address", a[0].payload);
-        stmt.bind(":lastUpdate", Clock.currTime.toSqliteDateTime);
-        stmt.bind(":accessTime", a[1].accessTime.total!"msecs");
-        stmt.bind(":loadAvg", a[1].loadAvg);
-        stmt.bind(":unknown", a[1].unknown);
-        stmt.execute;
+        stmt.get.bind(":address", a[0].payload);
+        stmt.get.bind(":lastUpdate", Clock.currTime.toSqliteDateTime);
+        stmt.get.bind(":accessTime", a[1].accessTime.total!"msecs");
+        stmt.get.bind(":loadAvg", a[1].loadAvg);
+        stmt.get.bind(":unknown", a[1].unknown);
+        stmt.get.execute;
     }, logger.trace)(timeout, 100.dur!"msecs", 300.dur!"msecs");
 }
 
@@ -173,9 +173,9 @@ void removeUnusedServers(ref Miniorm db, Host[] hosts) {
 
     foreach (h; hosts) {
         spinSql!(() {
-            stmt.reset;
-            stmt.bind(":address", h.payload);
-            stmt.execute;
+            stmt.get.reset;
+            stmt.get.bind(":address", h.payload);
+            stmt.get.execute;
         }, logger.trace)(timeout);
     }
 }
@@ -189,7 +189,7 @@ void daemonBeat(ref Miniorm db) {
 /// The heartbeat when daemon was last executed.
 Duration getDaemonBeat(ref Miniorm db) {
     return spinSql!(() {
-        foreach (a; db.run(select!DaemonBeat.where("id =", 0)))
+        foreach (a; db.run(select!DaemonBeat.where("id = 0", null)))
             return Clock.currTime - a.beat;
         return Duration.max;
     }, logger.trace)(timeout);
@@ -203,7 +203,7 @@ void clientBeat(ref Miniorm db) {
 
 Duration getClientBeat(ref Miniorm db) {
     return spinSql!(() {
-        foreach (a; db.run(select!ClientBeat.where("id =", 0)))
+        foreach (a; db.run(select!ClientBeat.where("id = 0", null)))
             return Clock.currTime - a.beat;
         return Duration.max;
     }, logger.trace)(timeout);
@@ -217,7 +217,7 @@ Nullable!Host getOldestServer(ref Miniorm db) {
     }, logger.trace)(timeout);
 
     return spinSql!(() {
-        foreach (a; stmt.execute) {
+        foreach (a; stmt.get.execute) {
             auto address = a.peek!string(0);
             return Nullable!Host(Host(address));
         }
@@ -234,7 +234,7 @@ Host[] getLeastLoadedServer(ref Miniorm db) {
     }, logger.trace)(timeout);
 
     return spinSql!(() {
-        return stmt.execute.map!(a => Host(a.peek!string(0))).array;
+        return stmt.get.execute.map!(a => Host(a.peek!string(0))).array;
     }, logger.trace)(timeout);
 }
 
