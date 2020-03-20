@@ -215,7 +215,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
             pread.update;
 
             try {
-                if (res.terminated) {
+                if (res.tryWait) {
                     exit_status = res.status;
                     loop_running = false;
                 }
