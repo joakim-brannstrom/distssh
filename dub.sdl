@@ -25,6 +25,8 @@ targetPath "build"
 targetType "executable"
 sourcePath "source"
 
+//dflags "-preview=dip1000" "-verrors=context"
+
 configuration "application" {
 }
 

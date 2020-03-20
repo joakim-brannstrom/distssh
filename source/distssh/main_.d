@@ -27,6 +27,7 @@ static import std.getopt;
 
 int rmain(string[] args) {
     import distssh.daemon;
+    static import distssh.purge;
 
     confLogger(VerboseMode.info);
 
@@ -56,6 +57,8 @@ int rmain(string[] args) {
           (Config.LocalShell a) => cli(conf, a),
           (Config.Env a) => cli(conf, a),
           (Config.Daemon a) => distssh.daemon.cli(conf, a),
+          (Config.Purge a) => distssh.purge.cli(conf, a),
+          (Config.LocalPurge a) => distssh.purge.cli(conf, a),
     );
     // dfmt on
 }

@@ -117,8 +117,28 @@ struct Config {
         bool background;
     }
 
+    struct Purge {
+        std.getopt.GetoptResult helpInfo;
+        static string helpDescription = "purge the cluster of rogue processes";
+        /// Only prints those that would be removed
+        bool print;
+        /// Kill rogue process.
+        bool kill;
+    }
+
+    struct LocalPurge {
+        std.getopt.GetoptResult helpInfo;
+        static string helpDescription = "purge the current host rogue processes";
+        /// Only prints those that would be removed
+        bool print;
+        /// Kill rogue process.
+        bool kill;
+        /// regex whitelist. Only processes in this list is not killed.
+        string[] whiteList;
+    }
+
     alias Type = Algebraic!(Help, Shell, Cmd, LocalRun, Install, MeasureHosts,
-            LocalLoad, RunOnAll, LocalShell, Env, Daemon);
+            LocalLoad, RunOnAll, LocalShell, Env, Daemon, Purge, LocalPurge);
     Type data;
 
     Global global;
@@ -304,6 +324,34 @@ Config parseUserArgs(string[] args) {
                 );
             // dfmt on
             data.timeout = timeout.dur!"minutes";
+        }
+
+        void purgeParse() {
+            conf.global.cluster = hostsFromEnv;
+            Config.Purge data;
+            scope (success)
+                conf.data = data;
+
+            // dfmt off
+            data.helpInfo = std.getopt.getopt(args,
+                "p|print", "print rogue process", &data.print,
+                "k|kill", "kill rogue processes", &data.kill,
+                );
+            // dfmt on
+        }
+
+        void localpurgeParse() {
+            Config.LocalPurge data;
+            scope (success)
+                conf.data = data;
+
+            // dfmt off
+            data.helpInfo = std.getopt.getopt(args,
+                "k|kill", "kill rogue processes", &data.kill,
+                "p|print", "print rogue process", &data.print,
+                "whitelist", "one or more regex (case insensitive) that whitelist processes as not rogue", &data.whiteList,
+                );
+            // dfmt on
         }
 
         alias ParseFn = void delegate();
