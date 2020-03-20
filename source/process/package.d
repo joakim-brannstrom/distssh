@@ -365,12 +365,16 @@ struct Sandbox(ProcessT) {
         return p.osHandle;
     }
 
-    ref Pipe pipe() nothrow @safe {
-        return p.pipe;
+    static if (__traits(hasMember, ProcessT, "pipe")) {
+        ref Pipe pipe() nothrow @safe {
+            return p.pipe;
+        }
     }
 
-    ref FileReadChannel stderr() nothrow @safe {
-        return p.stderr;
+    static if (__traits(hasMember, ProcessT, "stderr")) {
+        ref FileReadChannel stderr() nothrow @safe {
+            return p.stderr;
+        }
     }
 
     void dispose() @safe {
