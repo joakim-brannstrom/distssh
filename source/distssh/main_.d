@@ -21,7 +21,6 @@ import from_;
 
 import distssh.config;
 import distssh.metric;
-import distssh.process : Pid;
 import distssh.types;
 
 static import std.getopt;
@@ -131,9 +130,10 @@ int cli(const Config fconf, Config.LocalRun conf) {
     import core.time : dur;
     import std.stdio : File, stdin;
     import std.file : exists;
-    import std.process : spawnProcess, spawnShell, Pid, tryWait, thisProcessID;
+    import std.process : thisProcessID;
     import std.process : PConfig = Config;
     import std.utf : toUTF8;
+    import process;
     import distssh.timer : makeTimers, makeInterval;
 
     if (fconf.global.command.length == 0)
@@ -181,24 +181,22 @@ int cli(const Config fconf, Config.LocalRun conf) {
             logger.trace(e.msg).collectException;
         }
 
-        Pid res;
-
-        if (exists(fconf.global.command[0])) {
-            res = spawnProcess(fconf.global.command, env, PConfig.none, fconf.global.workDir);
-        } else {
-            res = spawnShell(fconf.global.command.dup.joiner(" ").toUTF8, env,
-                    PConfig.none, fconf.global.workDir);
-        }
+        auto res = () {
+            if (exists(fconf.global.command[0])) {
+                return spawnProcess(fconf.global.command, env, PConfig.none, fconf.global.workDir)
+                    .sandbox.scopeKill;
+            }
+            return spawnShell(fconf.global.command.dup.joiner(" ").toUTF8, env,
+                    PConfig.none, fconf.global.workDir).sandbox.scopeKill;
+        }();
 
         import core.sys.posix.unistd : getppid;
 
         const parent_pid = getppid;
-        bool sigint_cleanup;
         bool loop_running = true;
 
         bool sigintEvent() {
             if (getppid != parent_pid) {
-                sigint_cleanup = true;
                 loop_running = false;
             }
             return true;
@@ -217,9 +215,8 @@ int cli(const Config fconf, Config.LocalRun conf) {
             pread.update;
 
             try {
-                auto status = tryWait(res);
-                if (status.terminated) {
-                    exit_status = status.status;
+                if (res.terminated) {
+                    exit_status = res.status;
                     loop_running = false;
                 }
                 wd.update;
@@ -228,23 +225,6 @@ int cli(const Config fconf, Config.LocalRun conf) {
 
             // #SPC-sigint_detection
             timers.tick(50.dur!"msecs");
-        }
-
-        import core.sys.posix.signal : kill, killpg, SIGKILL;
-        import core.sys.posix.unistd : getpid;
-        import distssh.process : cleanupProcess;
-
-        // #SPC-early_terminate_no_processes_left
-        if (wd.isTimeout) {
-            // cleanup all subprocesses of sshd. Should catch those that fork and create another process group.
-            cleanupProcess(.Pid(parent_pid), (int a) => kill(a, SIGKILL),
-                    (int a) => killpg(a, SIGKILL));
-        }
-
-        if (sigint_cleanup || wd.isTimeout) {
-            // sshd has already died on a SIGINT on the host side thus it is only possible to reliabley cleanup *this* process tree if anything is left.
-            cleanupProcess(.Pid(getpid), (int a) => kill(a, SIGKILL), (int a) => killpg(a, SIGKILL)).killpg(
-                    SIGKILL);
         }
 
         return exit_status;
