@@ -343,11 +343,15 @@ PidMap makePidMap() @trusted nothrow {
 
 /// Returns: a `PidMap` that only contains those processes that are owned by `uid`.
 PidMap filterBy(PidMap pmap, const uid_t uid) nothrow {
+    if (pmap.empty)
+        return pmap;
+
     auto rval = pmap;
     foreach (k; pmap.stat
             .byKeyValue
             .filter!(a => a.value.uid != uid)
-            .map!(a => a.key)) {
+            .map!(a => a.key)
+            .array) {
         rval.remove(k);
     }
 
