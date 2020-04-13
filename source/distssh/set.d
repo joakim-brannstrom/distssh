@@ -1,15 +1,36 @@
 /**
-Copyright: Copyright (c) 2019, Joakim Brännström. All rights reserved.
+Copyright: Copyright (c) 2018, Joakim Brännström. All rights reserved.
+Authors: Jacob Carlborg
 License: $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost Software License 1.0)
-Author: Joakim Brännström (joakim.brannstrom@gmx.com)
+
+Copied from DStep.
+
+Convenient functions for a set.
 */
 module distssh.set;
 
-import std.range : ElementType;
+import std.algorithm : filter;
+import std.range : ElementType, isOutputRange;
 
 struct Set(T) {
     alias Type = void[0][T];
     Type data;
+
+    void clear() {
+        data.clear;
+    }
+
+    bool opBinaryRight(string op)(T key) if (op == "in") {
+        return (key in data) !is null;
+    }
+
+    bool empty() @safe pure nothrow const @nogc {
+        return data.length == 0;
+    }
+
+    size_t length() @safe pure nothrow const @nogc {
+        return data.length;
+    }
 
     void add(T value) @safe pure nothrow {
         data[value] = (void[0]).init;
@@ -22,6 +43,11 @@ struct Set(T) {
     void add(Type set) @safe pure nothrow {
         foreach (key; set.byKey)
             data[key] = (void[0]).init;
+    }
+
+    void add(Range)(Range r) @safe pure nothrow if (is(ElementType!Range == T)) {
+        foreach (v; r)
+            data[v] = (void[0]).init;
     }
 
     void remove(T value) {
@@ -42,9 +68,7 @@ struct Set(T) {
      *
      * It is the set of all members in self that are not members of set.
      */
-    Set!T setDifference(Set!T set) @safe pure nothrow {
-        import std.algorithm : filter;
-
+    Set!T setDifference(Set!T set) {
         typeof(this) r;
         foreach (k; toRange.filter!(a => !set.contains(a)))
             r.add(k);
@@ -56,9 +80,7 @@ struct Set(T) {
      *
      * It is the set of all objects that are a member of exactly one of self and set.
      */
-    Set!T symmetricDifference(Set!T set) @safe pure nothrow {
-        import std.algorithm : filter;
-
+    Set!T symmetricDifference(Set!T set) {
         typeof(this) r;
         foreach (k; toRange.filter!(a => !contains(a)))
             r.add(k);
@@ -73,7 +95,6 @@ struct Set(T) {
      * It is the set of all objects that are members of both self and set.
      */
     Set!T intersect(Set!T set) {
-        import std.algorithm : filter;
 
         typeof(this) r;
         foreach (k; toRange.filter!(a => set.contains(a)))
@@ -82,7 +103,7 @@ struct Set(T) {
         return r;
     }
 
-    auto toList() {
+    auto toArray() inout {
         import std.array : appender;
 
         auto app = appender!(T[])();
@@ -91,19 +112,23 @@ struct Set(T) {
         return app.data;
     }
 
-    /// Specify the template type or it doesn't work.
-    auto toRange() {
+    auto toRange() inout {
         return data.byKey;
     }
-}
 
-Set!T toSet(T)(T[] list) {
-    import std.traits : Unqual;
+    string toString() {
+        import std.array : appender;
 
-    Set!(Unqual!T) result;
-    foreach (item; list)
-        result.add(item);
-    return result;
+        auto buf = appender!string;
+        toString(buf);
+        return buf.data;
+    }
+
+    void toString(Writer)(ref Writer w) const if (isOutputRange!(Writer, char)) {
+        import std.format : formattedWrite;
+
+        formattedWrite(w, "Set!(%s)(%-(%s, %))", T.stringof, toRange);
+    }
 }
 
 auto toSet(RangeT)(RangeT range) {

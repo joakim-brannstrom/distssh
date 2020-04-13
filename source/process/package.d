@@ -9,7 +9,6 @@ one at http://mozilla.org/MPL/2.0/.
 */
 module process;
 
-import core.sys.posix.unistd : pid_t;
 import core.thread : Thread;
 import core.time : dur, Duration;
 import logger = std.experimental.logger;
@@ -21,6 +20,7 @@ static import std.process;
 static import std.stdio;
 
 public import process.channel;
+public import process.pid;
 
 version (unittest) {
     import unit_threaded.assertions;
@@ -53,17 +53,19 @@ struct SpawnProcess {
         }
 
         std.process.Pid process;
+        RawPid pid;
         int status_;
         State st;
     }
 
     this(std.process.Pid process) @safe {
         this.process = process;
+        this.pid = process.osHandle.RawPid;
     }
 
     /// Returns: The raw OS handle for the process ID.
     RawPid osHandle() nothrow @safe {
-        return process.osHandle.RawPid;
+        return pid;
     }
 
     /// Kill and cleanup the process.
@@ -176,17 +178,19 @@ struct PipeProcess {
         FileReadChannel stderr_;
         int status_;
         State st;
+        RawPid pid;
     }
 
     this(std.process.ProcessPipes process) @safe {
         this.process = process;
         this.pipe_ = Pipe(this.process.stdout, this.process.stdin);
         this.stderr_ = FileReadChannel(this.process.stderr);
+        this.pid = process.pid.osHandle.RawPid;
     }
 
     /// Returns: The raw OS handle for the process ID.
     RawPid osHandle() nothrow @safe {
-        return process.pid.osHandle.RawPid;
+        return this.pid;
     }
 
     /// Access to stdin and stdout.
@@ -352,17 +356,19 @@ PipeProcess pipeShell(scope const(char)[] command,
 struct Sandbox(ProcessT) {
     private {
         ProcessT p;
+        RawPid pid;
     }
 
     this(ProcessT p) @safe {
         import core.sys.posix.unistd : setpgid;
 
         this.p = p;
-        setpgid(p.osHandle, 0);
+        this.pid = p.osHandle;
+        setpgid(pid, 0);
     }
 
     RawPid osHandle() nothrow @safe {
-        return p.osHandle;
+        return pid;
     }
 
     static if (__traits(hasMember, ProcessT, "pipe")) {
@@ -384,43 +390,17 @@ struct Sandbox(ProcessT) {
     }
 
     void kill() nothrow @safe {
-        static import core.sys.posix.signal;
-        import core.sys.posix.sys.wait : waitpid, WNOHANG;
+        import process.pid;
 
-        static RawPid[] update(RawPid[] pids) @trusted {
-            auto app = appender!(RawPid[])();
-
-            foreach (p; pids) {
-                try {
-                    app.put(getDeepChildren(p));
-                } catch (Exception e) {
-                }
-            }
-
-            return app.data;
-        }
-
-        static void killChildren(RawPid[] children) @trusted {
-            foreach (const c; children) {
-                core.sys.posix.signal.kill(c, core.sys.posix.signal.SIGKILL);
-            }
-        }
+        // must first retrieve the submap because after the process is killed
+        // its children may have changed.
+        auto pmap = makePidMap.getSubMap(pid);
 
         p.kill;
-        auto children = update([p.osHandle]);
-        auto reapChildren = appender!(RawPid[])();
-        // if there ever are processes that are spawned with root permissions
-        // or something happens that they can't be killed by "this" process
-        // tree. Thus limit the iterations to a reasonable number
-        for (int i = 0; !children.empty && i < 1000; ++i) {
-            reapChildren.put(children);
-            killChildren(children);
-            children = update(children);
-        }
 
-        foreach (c; reapChildren.data) {
-            () @trusted { waitpid(c, null, WNOHANG); }();
-        }
+        // only kill and reap the children
+        pmap.remove(pid);
+        process.pid.kill(pmap).reap;
     }
 
     int wait() @safe {
@@ -446,7 +426,6 @@ auto sandbox(T)(T p) @safe {
 
 @("shall terminate a group of processes")
 unittest {
-    import std.algorithm : count;
     import std.datetime.stopwatch : StopWatch, AutoStart;
 
     immutable scriptName = makeScript(`#!/bin/bash
@@ -458,13 +437,11 @@ sleep 10m
         remove(scriptName);
 
     auto p = pipeProcess([scriptName]).sandbox.scopeKill;
-    for (int i = 0; getDeepChildren(p.osHandle).count < 3; ++i) {
-        Thread.sleep(50.dur!"msecs");
-    }
-    const preChildren = getDeepChildren(p.osHandle).count;
+    waitUntilChildren(p.osHandle, 3);
+    const preChildren = makePidMap.getSubMap(p.osHandle).remove(p.osHandle).length;
     p.kill;
     Thread.sleep(500.dur!"msecs"); // wait for the OS to kill the children
-    const postChildren = getDeepChildren(p.osHandle).count;
+    const postChildren = makePidMap.getSubMap(p.osHandle).remove(p.osHandle).length;
 
     p.wait.shouldEqual(-9);
     p.terminated.shouldBeTrue;
@@ -496,6 +473,7 @@ struct Timeout(ProcessT) {
 
         static struct Payload {
             ProcessT p;
+            RawPid pid;
             Background background;
             Reply backgroundReply;
         }
@@ -506,7 +484,8 @@ struct Timeout(ProcessT) {
     this(ProcessT p, Duration timeout) @trusted {
         import std.algorithm : move;
 
-        rc = refCounted(Payload(move(p)));
+        auto pid = p.osHandle;
+        rc = refCounted(Payload(move(p), pid));
         rc.background = new Background(&rc.p, timeout);
         rc.background.isDaemon = true;
         rc.background.start;
@@ -521,20 +500,22 @@ struct Timeout(ProcessT) {
         Mutex mtx;
         Msg[] msg;
         Reply reply_;
+        RawPid pid;
 
         this(ProcessT* p, Duration timeout) {
             this.p = p;
             this.timeout = timeout;
             this.mtx = new Mutex();
+            this.pid = p.osHandle;
 
             super(&run);
         }
 
         void run() {
-            checkProcess(p.osHandle, this.timeout, this);
+            checkProcess(this.pid, this.timeout, this);
         }
 
-        void put(Msg msg) @trusted {
+        void put(Msg msg) @trusted nothrow {
             this.mtx.lock_nothrow();
             scope (exit)
                 this.mtx.unlock_nothrow();
@@ -552,13 +533,11 @@ struct Timeout(ProcessT) {
             return rval;
         }
 
-        void setReply(Reply reply_) @trusted {
-            {
-                this.mtx.lock_nothrow();
-                scope (exit)
-                    this.mtx.unlock_nothrow();
-                this.reply_ = reply_;
-            }
+        void setReply(Reply reply_) @trusted nothrow {
+            this.mtx.lock_nothrow();
+            scope (exit)
+                this.mtx.unlock_nothrow();
+            this.reply_ = reply_;
         }
 
         Reply reply() @trusted nothrow {
@@ -576,7 +555,7 @@ struct Timeout(ProcessT) {
         }
     }
 
-    private static void checkProcess(RawPid p, Duration timeout, Background bg) {
+    private static void checkProcess(RawPid p, Duration timeout, Background bg) nothrow {
         import core.sys.posix.signal : SIGKILL;
         import std.algorithm : max, min;
         import std.variant : Variant;
@@ -623,7 +602,7 @@ struct Timeout(ProcessT) {
     }
 
     RawPid osHandle() nothrow @trusted {
-        return rc.p.osHandle;
+        return rc.pid;
     }
 
     ref Pipe pipe() nothrow @trusted {
@@ -701,54 +680,6 @@ unittest {
     p.terminated.shouldBeTrue;
     p.status.shouldEqual(-9);
     p.timeoutTriggered.shouldBeTrue;
-}
-
-struct RawPid {
-    pid_t value;
-    alias value this;
-}
-
-RawPid[] getShallowChildren(const int parentPid) {
-    import std.algorithm : filter, splitter;
-    import std.conv : to;
-    import std.file : exists;
-    import std.path : buildPath;
-
-    const pidPath = buildPath("/proc", parentPid.to!string);
-    if (!exists(pidPath)) {
-        return null;
-    }
-
-    auto children = appender!(RawPid[])();
-    foreach (const p; File(buildPath(pidPath, "task", parentPid.to!string, "children")).readln.splitter(" ")
-            .filter!(a => !a.empty)) {
-        try {
-            children.put(p.to!pid_t.RawPid);
-        } catch (Exception e) {
-            logger.trace(e.msg).collectException;
-        }
-    }
-
-    return children.data;
-}
-
-/// Returns: a list of all processes with the leafs being at the back.
-RawPid[] getDeepChildren(const int parentPid) {
-    import std.container : DList;
-
-    auto children = DList!(RawPid)();
-
-    children.insert(getShallowChildren(parentPid));
-    auto res = appender!(RawPid[])();
-
-    while (!children.empty) {
-        const p = children.front;
-        res.put(p);
-        children.insertBack(getShallowChildren(p));
-        children.removeFront;
-    }
-
-    return res.data;
 }
 
 struct DrainElement {
@@ -976,7 +907,7 @@ struct DrainByLineCopyRange(ProcessT) {
 
 @("shall drain the process output by line")
 unittest {
-    import std.algorithm : filter, count, joiner, map;
+    import std.algorithm : filter, joiner, map;
     import std.array : array;
 
     auto p = pipeProcess(["dd", "if=/dev/zero", "bs=10", "count=3"]).scopeKill;
@@ -1035,13 +966,10 @@ sleep 10m
         remove(script);
 
     auto p = pipeProcess([script]).sandbox.timeout(1.dur!"seconds").scopeKill;
-    do {
-        Thread.sleep(50.dur!"msecs");
-    }
-    while (getDeepChildren(p.osHandle).count < 1);
-    const preChildren = getDeepChildren(p.osHandle).count;
+    waitUntilChildren(p.osHandle, 1);
+    const preChildren = makePidMap.getSubMap(p.osHandle).remove(p.osHandle).length;
     const res = p.process.drain(1.dur!"minutes").array;
-    const postChildren = getDeepChildren(p.osHandle).count;
+    const postChildren = makePidMap.getSubMap(p.osHandle).remove(p.osHandle).length;
 
     p.wait.shouldEqual(-9);
     p.terminated.shouldBeTrue;
@@ -1061,4 +989,17 @@ string makeScript(string script, string file = __FILE__, uint line = __LINE__) {
     File(fname, "w").writeln(script);
     setAttributes(fname, getAttributes(fname) | S_IXUSR | S_IXGRP | S_IXOTH);
     return fname;
+}
+
+/// Wait for p to have num children or fail after 10s.
+void waitUntilChildren(RawPid p, int num) {
+    import std.datetime : Clock;
+
+    const failAt = Clock.currTime + 10.dur!"seconds";
+    do {
+        Thread.sleep(50.dur!"msecs");
+        if (Clock.currTime > failAt)
+            break;
+    }
+    while (makePidMap.getSubMap(p).remove(p).length < num);
 }

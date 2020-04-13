@@ -115,10 +115,34 @@ struct Config {
         Duration timeout;
         /// If the daemon should persist in the background after it has measured the cluster once.
         bool background;
+        /// Force the server to start even though there may be one running in the background
+        bool forceStart;
+    }
+
+    struct Purge {
+        std.getopt.GetoptResult helpInfo;
+        static string helpDescription = "purge the cluster of rogue processes";
+        /// Only prints those that would be removed
+        bool print;
+        /// Kill rogue process
+        bool kill;
+        /// regex whitelist. Only processes in this list is not killed.
+        string[] whiteList;
+    }
+
+    struct LocalPurge {
+        std.getopt.GetoptResult helpInfo;
+        static string helpDescription = "purge the current host rogue processes";
+        /// Only prints those that would be removed
+        bool print;
+        /// Kill rogue process
+        bool kill;
+        /// regex whitelist. Only processes in this list is not killed.
+        string[] whiteList;
     }
 
     alias Type = Algebraic!(Help, Shell, Cmd, LocalRun, Install, MeasureHosts,
-            LocalLoad, RunOnAll, LocalShell, Env, Daemon);
+            LocalLoad, RunOnAll, LocalShell, Env, Daemon, Purge, LocalPurge);
     Type data;
 
     Global global;
@@ -300,10 +324,40 @@ Config parseUserArgs(string[] args) {
             // dfmt off
             data.helpInfo = std.getopt.getopt(args,
                 "b|background", "persist in the background", &data.background,
+                "force-start", "force the server to start", &data.forceStart,
                 "t|timeout", "shutdown background process if unused not used for this time (default: 30 minutes)", &timeout,
                 );
             // dfmt on
             data.timeout = timeout.dur!"minutes";
+        }
+
+        void purgeParse() {
+            conf.global.cluster = hostsFromEnv;
+            Config.Purge data;
+            scope (success)
+                conf.data = data;
+
+            // dfmt off
+            data.helpInfo = std.getopt.getopt(args,
+                "k|kill", "kill rogue processes", &data.kill,
+                "p|print", "print rogue process", &data.print,
+                "whitelist", "one or more regex (case insensitive) that whitelist processes as not rogue", &data.whiteList,
+                );
+            // dfmt on
+        }
+
+        void localpurgeParse() {
+            Config.LocalPurge data;
+            scope (success)
+                conf.data = data;
+
+            // dfmt off
+            data.helpInfo = std.getopt.getopt(args,
+                "k|kill", "kill rogue processes", &data.kill,
+                "p|print", "print rogue process", &data.print,
+                "whitelist", "one or more regex (case insensitive) that whitelist processes as not rogue", &data.whiteList,
+                );
+            // dfmt on
         }
 
         alias ParseFn = void delegate();

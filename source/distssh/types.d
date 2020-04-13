@@ -12,6 +12,8 @@ alias HostLoad = Tuple!(Host, Load);
 immutable globalEnvHostKey = "DISTSSH_HOSTS";
 immutable globalEnvFileKey = "DISTSSH_IMPORT_ENV";
 immutable globalEnvFilterKey = "DISTSSH_ENV_EXPORT_FILTER";
+immutable globalEnvPurge = "DISTSSH_AUTO_PURGE";
+immutable globalEnvPurgeWhiteList = "DISTSSH_PURGE_WLIST";
 immutable distShell = "distshell";
 immutable distCmd = "distcmd";
 immutable distsshEnvExport = "distssh_env.export";
@@ -22,6 +24,8 @@ immutable sshNoLoginArgs = [
 immutable ulong defaultTimeout_s = 2;
 /// Number of the top X candidates to choose a server from to put the work on.
 immutable topCandidades = 3;
+
+@safe:
 
 struct Host {
     string payload;
