@@ -22,6 +22,7 @@ import from_;
 import distssh.config;
 import distssh.metric;
 import distssh.types;
+import distssh.utility;
 
 static import std.getopt;
 
@@ -125,7 +126,9 @@ int cli(const Config fconf, Config.Cmd conf) {
         return 1;
     }
 
-    return executeOnHost(fconf, hosts.randomAndPop);
+    return executeOnHost(ExecuteOnHostConf(fconf.global.workDir, fconf.global.command.dup,
+            fconf.global.importEnv, fconf.global.cloneEnv, fconf.global.noImportEnv),
+            hosts.randomAndPop);
 }
 
 // #SPC-fast_env_startup
@@ -347,7 +350,9 @@ int cli(const Config fconf, Config.RunOnAll conf) nothrow {
         } catch (Exception e) {
         }
 
-        auto status = executeOnHost(fconf, a);
+        auto status = executeOnHost(ExecuteOnHostConf(fconf.global.workDir,
+                fconf.global.command.dup, fconf.global.importEnv,
+                fconf.global.cloneEnv, fconf.global.noImportEnv), a);
 
         if (status != 0) {
             writeln("Failed, error code: ", status).collectException;
@@ -506,57 +511,6 @@ unittest {
     assert(symlinks[1] == ["/foo/src", "/bar/distcmd"]);
 }
 
-/** Execute a command on a remote host.
- *
- * #SPC-automatic_env_import
- */
-int executeOnHost(const Config conf, Host host) nothrow {
-    import distssh.protocol : ProtocolEnv;
-    import core.thread : Thread;
-    import core.time : dur, MonoTime;
-    import std.file : thisExePath;
-    import std.path : absolutePath;
-    import std.process : tryWait, Redirect, pipeProcess, escapeShellFileName;
-
-    // #SPC-draft_remote_cmd_spec
-    try {
-        auto args = ["ssh"] ~ sshNoLoginArgs ~ [
-            host, thisExePath, "localrun", "--workdir",
-            conf.global.workDir.escapeShellFileName, "--stdin-msgpack-env", "--"
-        ] ~ conf.global.command;
-
-        logger.info("Connecting to: ", host);
-        logger.trace("run: ", args.joiner(" "));
-
-        auto p = pipeProcess(args, Redirect.stdin);
-
-        auto pwriter = PipeWriter(p.stdin);
-
-        ProtocolEnv env;
-        if (conf.global.cloneEnv)
-            env = cloneEnv;
-        else if (!conf.global.noImportEnv)
-            env = readEnv(conf.global.importEnv.absolutePath);
-        pwriter.pack(env);
-
-        while (true) {
-            try {
-                auto st = p.pid.tryWait;
-                if (st.terminated)
-                    return st.status;
-
-                Watchdog.ping(pwriter);
-            } catch (Exception e) {
-            }
-
-            Thread.sleep(50.dur!"msecs");
-        }
-    } catch (Exception e) {
-        logger.error(e.msg).collectException;
-        return 1;
-    }
-}
-
 @("shall modify the exported env by adding, removing and modifying")
 unittest {
     import std.array;
@@ -598,199 +552,12 @@ unittest {
     assert("FOO_DEL" !in env);
 }
 
-struct NonblockingFd {
-    int fileno;
-
-    private const int old_fcntl;
-
-    this(int fd) {
-        this.fileno = fd;
-
-        import core.sys.posix.fcntl : fcntl, F_SETFL, F_GETFL, O_NONBLOCK;
-
-        old_fcntl = fcntl(fileno, F_GETFL);
-        fcntl(fileno, F_SETFL, old_fcntl | O_NONBLOCK);
-    }
-
-    ~this() {
-        import core.sys.posix.fcntl : fcntl, F_SETFL;
-
-        fcntl(fileno, F_SETFL, old_fcntl);
-    }
-
-    void read(ref ubyte[] buf) {
-        static import core.sys.posix.unistd;
-
-        auto len = core.sys.posix.unistd.read(fileno, buf.ptr, buf.length);
-        if (len > 0)
-            buf = buf[0 .. len];
-    }
-}
-
-struct Watchdog {
-    import std.datetime.stopwatch : StopWatch;
-
-    enum State {
-        ok,
-        timeout
-    }
-
-    private {
-        State st;
-        Duration timeout;
-        NullableRef!PipeReader pread;
-        StopWatch sw;
-    }
-
-    this(ref PipeReader pread, Duration timeout) {
-        this.pread = &pread;
-        this.timeout = timeout;
-        sw.start;
-    }
-
-    void update() {
-        import distssh.protocol : HeartBeat;
-
-        if (!pread.unpack!HeartBeat.isNull) {
-            sw.reset;
-            sw.start;
-        } else if (sw.peek > timeout) {
-            st = State.timeout;
-        }
-    }
-
-    bool isTimeout() {
-        return State.timeout == st;
-    }
-
-    static void ping(ref PipeWriter f) {
-        import distssh.protocol : HeartBeat;
-
-        f.pack!HeartBeat;
-    }
-}
-
 @("shall print the load of the localhost")
 unittest {
     string load;
     auto exit_status = cli(Config.LocalLoad.init, (string s) => load = s);
     assert(exit_status == 0);
     assert(load.length > 0, load);
-}
-
-/**
- * #SPC-env_export_filter
- *
- * Params:
- *  env = a null terminated array of C strings.
- *
- * Returns: a clone of the environment.
- */
-auto cloneEnv() nothrow {
-    import std.process : environment;
-    import std.string : strip;
-    import distssh.protocol : ProtocolEnv, EnvVariable;
-
-    ProtocolEnv app;
-
-    try {
-        auto env = environment.toAA;
-
-        foreach (k; environment.get(globalEnvFilterKey, null)
-                .strip.splitter(';').map!(a => a.strip)
-                .filter!(a => a.length != 0)) {
-            if (env.remove(k)) {
-                logger.tracef("Removed '%s' from the exported environment", k);
-            }
-        }
-
-        foreach (const a; env.byKeyValue) {
-            app ~= EnvVariable(a.key, a.value);
-        }
-    } catch (Exception e) {
-        logger.warning(e.msg).collectException;
-    }
-
-    return app;
-}
-
-struct PipeReader {
-    import distssh.protocol : Deserialize;
-
-    NonblockingFd nfd;
-    Deserialize deser;
-
-    alias deser this;
-
-    this(int fd) {
-        this.nfd = NonblockingFd(fd);
-    }
-
-    // Update the buffer with data from the pipe.
-    void update() nothrow {
-        ubyte[128] buf;
-        ubyte[] s = buf[];
-
-        try {
-            nfd.read(s);
-            if (s.length > 0)
-                deser.put(s);
-        } catch (Exception e) {
-        }
-
-        deser.cleanupUntilKind;
-    }
-}
-
-struct PipeWriter {
-    import distssh.protocol : Serialize;
-
-    File fout;
-    Serialize!(void delegate(const(ubyte)[]) @safe) ser;
-
-    alias ser this;
-
-    this(File f) {
-        this.fout = f;
-        this.ser = typeof(ser)(&this.put);
-    }
-
-    void put(const(ubyte)[] v) @safe {
-        fout.rawWrite(v);
-        fout.flush;
-    }
-}
-
-from.distssh.protocol.ProtocolEnv readEnv(string filename) nothrow {
-    import distssh.protocol : ProtocolEnv, EnvVariable, Deserialize;
-    import std.file : exists;
-    import std.stdio : File;
-
-    ProtocolEnv rval;
-
-    if (!exists(filename)) {
-        logger.trace("File to import the environment from do not exist: ",
-                filename).collectException;
-        return rval;
-    }
-
-    try {
-        auto fin = File(filename);
-        Deserialize deser;
-
-        ubyte[128] buf;
-        while (!fin.eof) {
-            auto read_ = fin.rawRead(buf[]);
-            deser.put(read_);
-        }
-
-        rval = deser.unpack!(ProtocolEnv);
-    } catch (Exception e) {
-        logger.error(e.msg).collectException;
-        logger.errorf("Unable to import environment from '%s'", filename).collectException;
-    }
-
-    return rval;
 }
 
 void writeEnv(string filename, from.distssh.protocol.ProtocolEnv env) {
