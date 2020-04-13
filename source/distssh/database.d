@@ -81,7 +81,7 @@ Miniorm openDatabase(string dbFile) nothrow {
  * daemon have been spawned in the background.
  */
 Tuple!(HostLoad[], "online", Host[], "unused") getServerLoads(ref Miniorm db,
-        const Host[] filterBy_, const Duration timeout) nothrow {
+        const Host[] filterBy_, const Duration timeout) @trusted nothrow {
     import std.datetime : Clock, dur;
     import distssh.set;
 
@@ -103,7 +103,7 @@ Tuple!(HostLoad[], "online", Host[], "unused") getServerLoads(ref Miniorm db,
                     rval.unused ~= h[0];
             }
 
-            if (!rval.online.empty)
+            if (!rval.online.empty || filterBy_.empty)
                 return rval;
         }
     } catch (Exception e) {

@@ -115,6 +115,8 @@ struct Config {
         Duration timeout;
         /// If the daemon should persist in the background after it has measured the cluster once.
         bool background;
+        /// Force the server to start even though there may be one running in the background
+        bool forceStart;
     }
 
     struct Purge {
@@ -322,6 +324,7 @@ Config parseUserArgs(string[] args) {
             // dfmt off
             data.helpInfo = std.getopt.getopt(args,
                 "b|background", "persist in the background", &data.background,
+                "force-start", "force the server to start", &data.forceStart,
                 "t|timeout", "shutdown background process if unused not used for this time (default: 30 minutes)", &timeout,
                 );
             // dfmt on

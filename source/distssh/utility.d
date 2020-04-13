@@ -47,8 +47,7 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
             conf.workDir.escapeShellFileName, "--stdin-msgpack-env", "--"
         ] ~ conf.command;
 
-        logger.info("Connecting to: ", host);
-        logger.trace("run: ", args.joiner(" "));
+        logger.tracef("Connecting to %s. Run %s", host, args.joiner(" "));
 
         auto p = pipeProcess(args, Redirect.stdin);
 

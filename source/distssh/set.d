@@ -16,6 +16,10 @@ struct Set(T) {
     alias Type = void[0][T];
     Type data;
 
+    void clear() {
+        data.clear;
+    }
+
     bool opBinaryRight(string op)(T key) if (op == "in") {
         return (key in data) !is null;
     }

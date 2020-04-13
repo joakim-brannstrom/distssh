@@ -16,7 +16,7 @@ import std.conv;
 import std.exception : collectException, ifThrown;
 import std.file;
 import std.path;
-import std.range : iota;
+import std.range : iota, only;
 import std.stdio : File, writeln, writefln;
 import std.typecons : Nullable, NullableRef;
 
@@ -84,8 +84,6 @@ int cli(const Config fconf, Config.LocalPurge conf) @trusted nothrow {
 int cli(const Config fconf, Config.Purge conf) @trusted nothrow {
     import std.algorithm : sort;
     import std.stdio : writefln, writeln, stdout;
-    import std.file : thisExePath;
-    import std.process : escapeShellFileName;
 
     auto hosts = RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster);
 
@@ -95,30 +93,11 @@ int cli(const Config fconf, Config.Purge conf) @trusted nothrow {
     }
 
     auto failed = appender!(Host[])();
-    auto distsshCmd = () {
-        string[] r;
-        try {
-            r = [thisExePath.escapeShellFileName];
-        } catch (Exception e) {
-            r = ["distssh"];
-        }
-        return r ~ "localpurge";
-    }();
+    auto econf = ExecuteOnHostConf(fconf.global.workDir, null,
+            fconf.global.importEnv, fconf.global.cloneEnv, fconf.global.noImportEnv);
 
     foreach (a; hosts) {
-        auto econf = ExecuteOnHostConf(fconf.global.workDir, distsshCmd,
-                fconf.global.importEnv, fconf.global.cloneEnv, fconf.global.noImportEnv);
-        if (conf.print) {
-            econf.command ~= "-p";
-        }
-        if (conf.kill) {
-            econf.command ~= "-k";
-        }
-        if (!conf.whiteList.empty) {
-            econf.command ~= conf.whiteList.map!(a => ["--whitelist", a]).joiner.array;
-        }
-
-        if (executeOnHost(econf, a) != 0) {
+        if (purgeServer(econf, conf, a) != 0) {
             failed.put(a);
         }
     }
@@ -131,6 +110,49 @@ int cli(const Config fconf, Config.Purge conf) @trusted nothrow {
     }
 
     return failed.data.empty ? 0 : 1;
+}
+
+int purgeServer(ExecuteOnHostConf econf, const Config.Purge pconf, Host a) @safe nothrow {
+    import std.file : thisExePath;
+    import std.process : escapeShellFileName;
+
+    econf.command = () {
+        string[] r;
+        try {
+            r = [thisExePath.escapeShellFileName];
+        } catch (Exception e) {
+            r = ["distssh"];
+        }
+        return r ~ "localpurge";
+    }();
+
+    if (pconf.print) {
+        econf.command ~= "-p";
+    }
+    if (pconf.kill) {
+        econf.command ~= "-k";
+    }
+
+    econf.command ~= pconf.whiteList.map!(a => ["--whitelist", a]).joiner.array;
+    econf.command ~= readPurgeEnvWhiteList.map!(a => ["--whitelist", a]).joiner.array;
+
+    logger.trace("Purge command ", econf.command).collectException;
+
+    return () @trusted { return executeOnHost(econf, a); }();
+}
+
+string[] readPurgeEnvWhiteList() @safe nothrow {
+    import std.process : environment;
+    import std.string : strip;
+
+    try {
+        return environment.get(globalEnvPurgeWhiteList, "").strip.splitter(";").map!(a => a.strip)
+            .filter!(a => !a.empty)
+            .array;
+    } catch (Exception e) {
+    }
+
+    return null;
 }
 
 private:

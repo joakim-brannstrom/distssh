@@ -24,10 +24,11 @@ module distssh.daemon;
 import core.thread : Thread;
 import core.time : dur;
 import logger = std.experimental.logger;
-import std.algorithm : map;
+import std.algorithm : map, filter;
 import std.array : array;
 import std.datetime;
 import std.exception : collectException;
+import std.process : environment;
 import std.typecons : Flag;
 
 import colorlog;
@@ -35,12 +36,13 @@ import miniorm : SpinSqlTimeout;
 
 import from_;
 
-import distssh.database;
-import distssh.types;
 import distssh.config;
 import distssh.database;
 import distssh.metric;
+import distssh.set;
 import distssh.timer;
+import distssh.types;
+import distssh.utility;
 
 int cli(const Config fconf, Config.Daemon conf) {
     auto db = openDatabase(fconf.global.dbPath);
@@ -53,7 +55,7 @@ int cli(const Config fconf, Config.Daemon conf) {
         const beat = db.getDaemonBeat;
         logger.trace("daemon beat: ", beat);
         // do not spawn if a daemon is already running.
-        if (beat < heartBeatDaemonTimeout)
+        if (beat < heartBeatDaemonTimeout && !conf.forceStart)
             return 0;
         // by only updating the beat when in background mode it ensures that
         // the daemon will sooner or later start in the persistant background
@@ -146,6 +148,30 @@ int cli(const Config fconf, Config.Daemon conf) {
         return updateLeastLoadedTimer(90.dur!"seconds", Duration.max);
     }, 60.dur!"seconds");
 
+    if (globalEnvPurge in environment && globalEnvPurgeWhiteList in environment) {
+        import distssh.purge : readPurgeEnvWhiteList;
+
+        Config.Purge pconf;
+        pconf.kill = true;
+        auto econf = ExecuteOnHostConf(fconf.global.workDir, null, null, false, true);
+        Set!Host clearedServers;
+
+        logger.tracef("Server purge whitelist from %s is %s",
+                globalEnvPurgeWhiteList, readPurgeEnvWhiteList);
+
+        makeInterval(timers, () @safe nothrow{
+            try {
+                purgeServer(db, econf, pconf, clearedServers, fconf.global.timeout);
+            } catch (Exception e) {
+                logger.warning(e.msg).collectException;
+            }
+            return true;
+        }, 2.dur!"minutes");
+    } else {
+        logger.tracef("Automatic purge not running because both %s and %s must be set",
+                globalEnvPurge, globalEnvPurgeWhiteList);
+    }
+
     while (running && !timers.empty) {
         try {
             timers.tick(100.dur!"msecs");
@@ -224,6 +250,30 @@ void updateServer(ref from.miniorm.Miniorm db, Host host, Duration timeout) {
     auto load = getLoad(host, timeout);
     distssh.database.updateServer(db, HostLoad(host, load));
     logger.tracef("Update %s with %s", host, load).collectException;
+}
+
+/// Round robin clearing of the servers.
+void purgeServer(ref from.miniorm.Miniorm db, ExecuteOnHostConf econf,
+        const Config.Purge pconf, ref Set!Host clearedServers, const Duration timeout) @safe {
+    import distssh.purge;
+
+    auto servers = distssh.database.getServerLoads(db, clearedServers.toArray, timeout);
+
+    logger.trace("Round robin server purge list ", clearedServers.toArray);
+
+    bool clearedAServer;
+    foreach (a; servers.unused.filter!(a => !clearedServers.contains(a))) {
+        logger.trace("Purge server ", a);
+        clearedAServer = true;
+        distssh.purge.purgeServer(econf, pconf, a);
+        clearedServers.add(a);
+        break;
+    }
+
+    if (!clearedAServer) {
+        logger.trace("Reset server purge list ");
+        () @trusted { clearedServers.clear; }();
+    }
 }
 
 struct Inode {

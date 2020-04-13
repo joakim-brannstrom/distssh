@@ -104,3 +104,19 @@ Example:
 export DISTSSH_ENV_EXPORT_FILTER='PWD;USER;USERNAME;_'
 distssh --export-env
 ```
+
+ * `DISTSSH_AUTO_PURGE`: set the variable to `1` to activate automatic purge of
+   processes that isn't part of a process subtree which contains a whitelisted
+   process when the daemon is running.
+Example:
+```sh
+export DISTSSH_AUTO_PURGE=1
+```
+
+ * `DISTSSH_PURGE_WLIST`: a list of case insensitive regex separated by `;`.
+   Used both by the manual `purge` sub-command and the daemon mode.
+Example:
+```sh
+# will purge all processes that have "escaped" distssh
+export DISTSSH_PURGE_WLIST='.*distssh|.*distcmd|.*distshell'
+```

@@ -126,9 +126,10 @@ int cli(const Config fconf, Config.Cmd conf) {
         return 1;
     }
 
+    auto host = hosts.randomAndPop;
+    logger.info("Connecting to ", host);
     return executeOnHost(ExecuteOnHostConf(fconf.global.workDir, fconf.global.command.dup,
-            fconf.global.importEnv, fconf.global.cloneEnv, fconf.global.noImportEnv),
-            hosts.randomAndPop);
+            fconf.global.importEnv, fconf.global.cloneEnv, fconf.global.noImportEnv), host);
 }
 
 // #SPC-fast_env_startup
@@ -343,7 +344,7 @@ int cli(const Config fconf, Config.RunOnAll conf) nothrow {
 
     bool exit_status = true;
     foreach (a; fconf.global.cluster.dup.sort) {
-        stdout.writefln("Connecting to %s.", a).collectException;
+        stdout.writefln("Connecting to %s", a).collectException;
         try {
             // #SPC-flush_buffers
             stdout.flush;
@@ -572,22 +573,4 @@ void writeEnv(string filename, from.distssh.protocol.ProtocolEnv env) {
             a));
 
     ser.pack(env);
-}
-
-/**
-  * Searches all dirs on path for exe if required,
-  * or simply calls it if it's a relative or absolute path
-  */
-string pathToExe(string exe) {
-    import std.path : dirSeparator, pathSeparator, buildPath;
-    import std.algorithm : splitter;
-    import std.file : exists;
-    import std.process : environment;
-
-    // if it already has a / or . at the start, assume the exe is correct
-    if (exe[0 .. 1] == dirSeparator || exe[0 .. 1] == ".")
-        return exe;
-    auto matches = environment["PATH"].splitter(pathSeparator).map!(path => buildPath(path, exe))
-        .filter!(path => exists(path));
-    return matches.empty ? exe : matches.front;
 }
