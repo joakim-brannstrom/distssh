@@ -13,7 +13,7 @@ import logger = std.experimental.logger;
 import std.algorithm : splitter, map, filter, joiner, sort;
 import std.array : array, appender, empty;
 import std.conv;
-import std.exception : collectException;
+import std.exception : collectException, ifThrown;
 import std.file;
 import std.path;
 import std.range : iota;
@@ -29,6 +29,7 @@ import distssh.config;
 import distssh.metric;
 import distssh.set;
 import distssh.types;
+import distssh.utility;
 
 @safe:
 
@@ -81,7 +82,55 @@ int cli(const Config fconf, Config.LocalPurge conf) @trusted nothrow {
 }
 
 int cli(const Config fconf, Config.Purge conf) @trusted nothrow {
-    return 0;
+    import std.algorithm : sort;
+    import std.stdio : writefln, writeln, stdout;
+    import std.file : thisExePath;
+    import std.process : escapeShellFileName;
+
+    auto hosts = RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster);
+
+    if (hosts.empty) {
+        logger.errorf("No remote host online").collectException;
+        return 1;
+    }
+
+    auto failed = appender!(Host[])();
+    auto distsshCmd = () {
+        string[] r;
+        try {
+            r = [thisExePath.escapeShellFileName];
+        } catch (Exception e) {
+            r = ["distssh"];
+        }
+        return r ~ "localpurge";
+    }();
+
+    foreach (a; hosts) {
+        auto econf = ExecuteOnHostConf(fconf.global.workDir, distsshCmd,
+                fconf.global.importEnv, fconf.global.cloneEnv, fconf.global.noImportEnv);
+        if (conf.print) {
+            econf.command ~= "-p";
+        }
+        if (conf.kill) {
+            econf.command ~= "-k";
+        }
+        if (!conf.whiteList.empty) {
+            econf.command ~= conf.whiteList.map!(a => ["--whitelist", a]).joiner.array;
+        }
+
+        if (executeOnHost(econf, a) != 0) {
+            failed.put(a);
+        }
+    }
+
+    if (!failed.data.empty) {
+        logger.warning("Failed to purge").collectException;
+        foreach (a; failed.data) {
+            logger.info(a).collectException;
+        }
+    }
+
+    return failed.data.empty ? 0 : 1;
 }
 
 private:
