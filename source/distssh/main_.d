@@ -182,7 +182,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
         }
 
         auto res = () {
-            if (exists(fconf.global.command[0])) {
+            if (exists(fconf.global.command[0]) && fconf.global.command.length == 1) {
                 return spawnProcess(fconf.global.command, env, PConfig.none, fconf.global.workDir)
                     .sandbox.scopeKill;
             }
@@ -363,12 +363,11 @@ int cli(const Config fconf, Config.LocalShell conf) {
     import std.process : spawnProcess, wait, userShell, Config, Pid;
 
     try {
-        Pid pid;
-        if (exists(fconf.global.workDir))
-            pid = spawnProcess([userShell], null, Config.none, fconf.global.workDir);
-        else
-            pid = spawnProcess([userShell]);
-
+        auto pid = () {
+            if (exists(fconf.global.workDir))
+                return spawnProcess([userShell], null, Config.none, fconf.global.workDir);
+            return spawnProcess([userShell]);
+        }();
         return pid.wait;
     } catch (Exception e) {
         logger.error(e.msg).collectException;
