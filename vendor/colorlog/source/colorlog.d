@@ -18,12 +18,12 @@ import std.experimental.logger : LogLevel;
 enum VerboseMode {
     /// Warning+
     minimal,
+    /// Warnings+
+    warning,
     /// Info+
     info,
     /// Trace+
     trace,
-    /// Warnings+
-    warning,
 }
 
 /** Configure `std.experimental.logger` with a colorlog instance.
