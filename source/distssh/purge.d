@@ -55,6 +55,10 @@ int cli(const Config fconf, Config.LocalPurge conf) @trusted nothrow {
                 }
             }
 
+            if (conf.kill && !hasWhiteListProc) {
+                auto killed = process.kill(t.map);
+                reap(killed);
+            }
             if (conf.print) {
                 if (hasWhiteListProc) {
                     logger.info("whitelist".color(Color.green), " process tree");
@@ -67,10 +71,6 @@ int cli(const Config fconf, Config.LocalPurge conf) @trusted nothrow {
                 foreach (p; t.map.pids.filter!(a => a != t.root)) {
                     writefln("  pid:%s %s", p.to!string.color(Color.magenta), t.map.getProc(p));
                 }
-            }
-            if (conf.kill && !hasWhiteListProc) {
-                auto killed = process.kill(t.map);
-                reap(killed);
             }
         }
     } catch (Exception e) {
