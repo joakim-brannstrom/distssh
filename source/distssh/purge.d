@@ -60,7 +60,7 @@ int cli(const Config fconf, Config.LocalPurge conf) @trusted nothrow {
                 reap(killed);
             }
             if (conf.print) {
-                if (hasWhiteListProc && fconf.global.verbosity == VerboseMode.info) {
+                if (hasWhiteListProc && fconf.global.verbosity >= VerboseMode.info) {
                     logger.info("whitelist".color(Color.green), " process tree");
                     printTree!(writefln)(t);
                 } else if (!hasWhiteListProc) {
@@ -94,7 +94,7 @@ int cli(const Config fconf, Config.Purge conf) @trusted nothrow {
 
     foreach (a; hosts) {
         logger.info("Connecting to ", a).collectException;
-        if (purgeServer(econf, conf, a) != 0) {
+        if (purgeServer(econf, conf, a, fconf.global.verbosity) != 0) {
             failed.put(a);
         }
     }
@@ -109,7 +109,8 @@ int cli(const Config fconf, Config.Purge conf) @trusted nothrow {
     return failed.data.empty ? 0 : 1;
 }
 
-int purgeServer(ExecuteOnHostConf econf, const Config.Purge pconf, Host a) @safe nothrow {
+int purgeServer(ExecuteOnHostConf econf, const Config.Purge pconf, Host a,
+        VerboseMode vmode = VerboseMode.init) @safe nothrow {
     import std.file : thisExePath;
     import std.process : escapeShellFileName;
 
@@ -122,6 +123,11 @@ int purgeServer(ExecuteOnHostConf econf, const Config.Purge pconf, Host a) @safe
         }
         return r ~ "localpurge";
     }();
+
+    try {
+        econf.command ~= ["-v", vmode.to!string];
+    } catch (Exception e) {
+    }
 
     if (pconf.print) {
         econf.command ~= "-p";
