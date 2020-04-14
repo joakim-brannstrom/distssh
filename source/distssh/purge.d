@@ -55,22 +55,18 @@ int cli(const Config fconf, Config.LocalPurge conf) @trusted nothrow {
                 }
             }
 
-            if (conf.print) {
-                if (hasWhiteListProc) {
-                    logger.info("whitelist".color(Color.green), " process tree");
-                } else {
-                    logger.info("terminate".color(Color.red), " process tree");
-                }
-                writefln("root:%s %s", t.root.to!string.color(Color.magenta)
-                        .mode(Mode.bold), t.map.getProc(t.root)
-                        .color(Color.cyan).mode(Mode.underline));
-                foreach (p; t.map.pids.filter!(a => a != t.root)) {
-                    writefln("  pid:%s %s", p.to!string.color(Color.magenta), t.map.getProc(p));
-                }
-            }
             if (conf.kill && !hasWhiteListProc) {
                 auto killed = process.kill(t.map);
                 reap(killed);
+            }
+            if (conf.print) {
+                if (hasWhiteListProc && fconf.global.verbosity == VerboseMode.info) {
+                    logger.info("whitelist".color(Color.green), " process tree");
+                    printTree!(writefln)(t);
+                } else if (!hasWhiteListProc) {
+                    logger.info("terminate".color(Color.red), " process tree");
+                    printTree!(writefln)(t);
+                }
             }
         }
     } catch (Exception e) {
@@ -97,6 +93,7 @@ int cli(const Config fconf, Config.Purge conf) @trusted nothrow {
             fconf.global.importEnv, fconf.global.cloneEnv, fconf.global.noImportEnv);
 
     foreach (a; hosts) {
+        logger.info("Connecting to ", a).collectException;
         if (purgeServer(econf, conf, a) != 0) {
             failed.put(a);
         }
@@ -156,6 +153,14 @@ string[] readPurgeEnvWhiteList() @safe nothrow {
 }
 
 private:
+
+void printTree(alias printT, T)(T t) {
+    printT("root:%s %s", t.root.to!string.color(Color.magenta)
+            .mode(Mode.bold), t.map.getProc(t.root).color(Color.cyan).mode(Mode.underline));
+    foreach (p; t.map.pids.filter!(a => a != t.root)) {
+        printT("  pid:%s %s", p.to!string.color(Color.magenta), t.map.getProc(p));
+    }
+}
 
 struct Whitelist {
     import std.regex : regex, matchFirst, Regex;
