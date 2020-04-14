@@ -5,8 +5,8 @@ Author: Joakim Brännström (joakim.brannstrom@gmx.com)
 */
 module distssh.table;
 
-import std.exception : collectException;
 import logger = std.experimental.logger;
+import std.exception : collectException;
 
 @safe:
 
@@ -72,16 +72,20 @@ struct Table(int columnsNr) {
         }
     }
 
-    private void updateColumns(const ref Row r) {
+    private void updateColumns(const ref Row r) nothrow {
         import std.algorithm : filter, count, map;
         import std.range : enumerate;
-        import std.utf : byCodeUnit;
+        import std.uni : byGrapheme;
         import std.typecons : tuple;
 
-        foreach (a; r[].enumerate
-                .map!(a => tuple(a.index, a.value.byCodeUnit.count))
-                .filter!(a => a[1] > columnWidth[a[0]])) {
-            columnWidth[a[0]] = a[1];
+        try {
+            foreach (a; r[].enumerate
+                    .map!(a => tuple(a.index, a.value.byGrapheme.count))
+                    .filter!(a => a[1] > columnWidth[a[0]])) {
+                columnWidth[a[0]] = a[1];
+            }
+        } catch (Exception e) {
+            logger.warning(e.msg).collectException;
         }
     }
 }
