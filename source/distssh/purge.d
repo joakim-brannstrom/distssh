@@ -42,7 +42,7 @@ int cli(const Config fconf, Config.LocalPurge conf) @trusted nothrow {
         return 1;
     }
 
-    try {
+    void iterate(alias fn)() {
         auto pmap = makePidMap.filterByCurrentUser;
         updateProc(pmap);
 
@@ -55,20 +55,32 @@ int cli(const Config fconf, Config.LocalPurge conf) @trusted nothrow {
                 }
             }
 
-            if (conf.kill && !hasWhiteListProc) {
-                auto killed = process.kill(t.map);
-                reap(killed);
-            }
-            if (conf.print) {
-                if (hasWhiteListProc && fconf.global.verbosity >= VerboseMode.info) {
-                    logger.info("whitelist".color(Color.green), " process tree");
-                    printTree!(writefln)(t);
-                } else if (!hasWhiteListProc) {
-                    logger.info("terminate".color(Color.red), " process tree");
-                    printTree!(writefln)(t);
-                }
+            fn(hasWhiteListProc, t.map, t.root);
+        }
+    }
+
+    void purgeKill(bool hasWhiteListProc, ref PidMap pmap, RawPid root) {
+        if (conf.kill && !hasWhiteListProc) {
+            auto killed = process.kill(pmap);
+            reap(killed);
+        }
+    }
+
+    void purgePrint(bool hasWhiteListProc, ref PidMap pmap, RawPid root) {
+        if (conf.print) {
+            if (hasWhiteListProc && fconf.global.verbosity >= VerboseMode.info) {
+                logger.info("whitelist".color(Color.green), " process tree");
+                printTree!(writefln)(pmap, root);
+            } else if (!hasWhiteListProc) {
+                logger.info("terminate".color(Color.red), " process tree");
+                printTree!(writefln)(pmap, root);
             }
         }
+    }
+
+    try {
+        iterate!purgeKill();
+        iterate!purgePrint();
     } catch (Exception e) {
         logger.error(e.msg).collectException;
         return 1;
@@ -165,11 +177,11 @@ string[] readPurgeEnvWhiteList() @safe nothrow {
 
 private:
 
-void printTree(alias printT, T)(T t) {
-    printT("root:%s %s", t.root.to!string.color(Color.magenta)
-            .mode(Mode.bold), t.map.getProc(t.root).color(Color.cyan).mode(Mode.underline));
-    foreach (p; t.map.pids.filter!(a => a != t.root)) {
-        printT("  pid:%s %s", p.to!string.color(Color.magenta), t.map.getProc(p));
+void printTree(alias printT)(ref PidMap pmap, RawPid root) {
+    printT("root:%s %s", root.to!string.color(Color.magenta).mode(Mode.bold),
+            pmap.getProc(root).color(Color.cyan).mode(Mode.underline));
+    foreach (p; pmap.pids.filter!(a => a != root)) {
+        printT("  pid:%s %s", p.to!string.color(Color.magenta), pmap.getProc(p));
     }
 }
 
