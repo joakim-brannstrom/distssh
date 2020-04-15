@@ -255,6 +255,7 @@ void updateServer(ref from.miniorm.Miniorm db, Host host, Duration timeout) {
 /// Round robin clearing of the servers.
 void purgeServer(ref from.miniorm.Miniorm db, ExecuteOnHostConf econf,
         const Config.Purge pconf, ref Set!Host clearedServers, const Duration timeout) @safe {
+    import std.random : randomCover;
     import distssh.purge;
 
     auto servers = distssh.database.getServerLoads(db, clearedServers.toArray, timeout);
@@ -262,7 +263,7 @@ void purgeServer(ref from.miniorm.Miniorm db, ExecuteOnHostConf econf,
     logger.trace("Round robin server purge list ", clearedServers.toArray);
 
     bool clearedAServer;
-    foreach (a; servers.unused.filter!(a => !clearedServers.contains(a))) {
+    foreach (a; servers.unused.randomCover.filter!(a => !clearedServers.contains(a))) {
         logger.trace("Purge server ", a);
         clearedAServer = true;
         distssh.purge.purgeServer(econf, pconf, a);

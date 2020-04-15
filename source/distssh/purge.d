@@ -42,7 +42,7 @@ int cli(const Config fconf, Config.LocalPurge conf) @trusted nothrow {
         return 1;
     }
 
-    try {
+    void iterate(alias fn)() {
         auto pmap = makePidMap.filterByCurrentUser;
         updateProc(pmap);
 
@@ -55,20 +55,32 @@ int cli(const Config fconf, Config.LocalPurge conf) @trusted nothrow {
                 }
             }
 
-            if (conf.kill && !hasWhiteListProc) {
-                auto killed = process.kill(t.map);
-                reap(killed);
-            }
-            if (conf.print) {
-                if (hasWhiteListProc && fconf.global.verbosity >= VerboseMode.info) {
-                    logger.info("whitelist".color(Color.green), " process tree");
-                    printTree!(writefln)(t);
-                } else if (!hasWhiteListProc) {
-                    logger.info("terminate".color(Color.red), " process tree");
-                    printTree!(writefln)(t);
-                }
+            fn(hasWhiteListProc, t.map, t.root);
+        }
+    }
+
+    void purgeKill(bool hasWhiteListProc, ref PidMap pmap, RawPid root) {
+        if (conf.kill && !hasWhiteListProc) {
+            auto killed = process.kill(pmap);
+            reap(killed);
+        }
+    }
+
+    void purgePrint(bool hasWhiteListProc, ref PidMap pmap, RawPid root) {
+        if (conf.print) {
+            if (hasWhiteListProc && fconf.global.verbosity >= VerboseMode.info) {
+                logger.info("whitelist".color(Color.green), " process tree");
+                printTree!(writefln)(pmap, root);
+            } else if (!hasWhiteListProc) {
+                logger.info("terminate".color(Color.red), " process tree");
+                printTree!(writefln)(pmap, root);
             }
         }
+    }
+
+    try {
+        iterate!purgeKill();
+        iterate!purgePrint();
     } catch (Exception e) {
         logger.error(e.msg).collectException;
         return 1;
@@ -109,10 +121,11 @@ int cli(const Config fconf, Config.Purge conf) @trusted nothrow {
     return failed.data.empty ? 0 : 1;
 }
 
-int purgeServer(ExecuteOnHostConf econf, const Config.Purge pconf, Host a,
+int purgeServer(ExecuteOnHostConf econf, const Config.Purge pconf, Host host,
         VerboseMode vmode = VerboseMode.init) @safe nothrow {
     import std.file : thisExePath;
     import std.process : escapeShellFileName;
+    import distssh.set;
 
     econf.command = () {
         string[] r;
@@ -136,12 +149,16 @@ int purgeServer(ExecuteOnHostConf econf, const Config.Purge pconf, Host a,
         econf.command ~= "-k";
     }
 
-    econf.command ~= pconf.whiteList.map!(a => ["--whitelist", a]).joiner.array;
-    econf.command ~= readPurgeEnvWhiteList.map!(a => ["--whitelist", a]).joiner.array;
+    Set!string wlist;
+    foreach (a; only(pconf.whiteList, readPurgeEnvWhiteList).joiner) {
+        wlist.add(a);
+    }
+
+    econf.command ~= wlist.toArray.map!(a => ["--whitelist", a]).joiner.array;
 
     logger.trace("Purge command ", econf.command).collectException;
 
-    return () @trusted { return executeOnHost(econf, a); }();
+    return () @trusted { return executeOnHost(econf, host); }();
 }
 
 string[] readPurgeEnvWhiteList() @safe nothrow {
@@ -160,11 +177,11 @@ string[] readPurgeEnvWhiteList() @safe nothrow {
 
 private:
 
-void printTree(alias printT, T)(T t) {
-    printT("root:%s %s", t.root.to!string.color(Color.magenta)
-            .mode(Mode.bold), t.map.getProc(t.root).color(Color.cyan).mode(Mode.underline));
-    foreach (p; t.map.pids.filter!(a => a != t.root)) {
-        printT("  pid:%s %s", p.to!string.color(Color.magenta), t.map.getProc(p));
+void printTree(alias printT)(ref PidMap pmap, RawPid root) {
+    printT("root:%s %s", root.to!string.color(Color.magenta).mode(Mode.bold),
+            pmap.getProc(root).color(Color.cyan).mode(Mode.underline));
+    foreach (p; pmap.pids.filter!(a => a != root)) {
+        printT("  pid:%s %s", p.to!string.color(Color.magenta), pmap.getProc(p));
     }
 }
 
