@@ -109,10 +109,11 @@ int cli(const Config fconf, Config.Purge conf) @trusted nothrow {
     return failed.data.empty ? 0 : 1;
 }
 
-int purgeServer(ExecuteOnHostConf econf, const Config.Purge pconf, Host a,
+int purgeServer(ExecuteOnHostConf econf, const Config.Purge pconf, Host host,
         VerboseMode vmode = VerboseMode.init) @safe nothrow {
     import std.file : thisExePath;
     import std.process : escapeShellFileName;
+    import distssh.set;
 
     econf.command = () {
         string[] r;
@@ -136,12 +137,16 @@ int purgeServer(ExecuteOnHostConf econf, const Config.Purge pconf, Host a,
         econf.command ~= "-k";
     }
 
-    econf.command ~= pconf.whiteList.map!(a => ["--whitelist", a]).joiner.array;
-    econf.command ~= readPurgeEnvWhiteList.map!(a => ["--whitelist", a]).joiner.array;
+    Set!string wlist;
+    foreach (a; only(pconf.whiteList, readPurgeEnvWhiteList).joiner) {
+        wlist.add(a);
+    }
+
+    econf.command ~= wlist.toArray.map!(a => ["--whitelist", a]).joiner.array;
 
     logger.trace("Purge command ", econf.command).collectException;
 
-    return () @trusted { return executeOnHost(econf, a); }();
+    return () @trusted { return executeOnHost(econf, host); }();
 }
 
 string[] readPurgeEnvWhiteList() @safe nothrow {
