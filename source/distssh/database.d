@@ -188,11 +188,20 @@ void daemonBeat(ref Miniorm db) {
 
 /// The heartbeat when daemon was last executed.
 Duration getDaemonBeat(ref Miniorm db) {
-    return spinSql!(() {
+    auto d = spinSql!(() {
         foreach (a; db.run(select!DaemonBeat.where("id = 0", null)))
             return Clock.currTime - a.beat;
         return Duration.max;
     }, logger.trace)(timeout);
+
+    // can happen if there is a "junk" value but it has to be a little bit
+    // robust against possible "jitter" thus accepting up to 1 minute "lag".
+    if (d < (-1).dur!"minutes") {
+        d = Duration.max;
+    } else if (d < Duration.zero) {
+        d = Duration.zero;
+    }
+    return d;
 }
 
 void clientBeat(ref Miniorm db) {
@@ -202,11 +211,20 @@ void clientBeat(ref Miniorm db) {
 }
 
 Duration getClientBeat(ref Miniorm db) {
-    return spinSql!(() {
+    auto d = spinSql!(() {
         foreach (a; db.run(select!ClientBeat.where("id = 0", null)))
             return Clock.currTime - a.beat;
         return Duration.max;
     }, logger.trace)(timeout);
+
+    // can happen if there is a "junk" value but it has to be a little bit
+    // robust against possible "jitter" thus accepting up to 1 minute "lag".
+    if (d < (-1).dur!"minutes") {
+        d = Duration.max;
+    } else if (d < Duration.zero) {
+        d = Duration.zero;
+    }
+    return d;
 }
 
 /// Returns: the server that have the oldest update timestamp.

@@ -69,6 +69,9 @@ int cli(const Config fconf, Config.Daemon conf) {
         return 0;
 
     bool running = true;
+    // the daemon is at most running for 24h. This is a workaround for if/when
+    // the client beat error out in such a way that it is always "zero".
+    const forceShutdown = Clock.currTime + 24.dur!"hours";
     auto clientBeat = db.getClientBeat;
 
     auto timers = makeTimers;
@@ -78,6 +81,8 @@ int cli(const Config fconf, Config.Daemon conf) {
         logger.trace("client beat: ", clientBeat);
         // no client is interested in the metric so stop collecting
         if (clientBeat > conf.timeout)
+            running = false;
+        if (Clock.currTime > forceShutdown)
             running = false;
         return running;
     }, 5.dur!"seconds");
