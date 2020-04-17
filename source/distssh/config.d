@@ -128,6 +128,8 @@ struct Config {
         bool kill;
         /// regex whitelist. Only processes in this list is not killed.
         string[] whiteList;
+        /// restrict killing of processes to the current user
+        bool userFilter;
     }
 
     struct LocalPurge {
@@ -139,6 +141,8 @@ struct Config {
         bool kill;
         /// regex whitelist. Only processes in this list is not killed.
         string[] whiteList;
+        /// restrict killing of processes to the current user
+        bool userFilter;
     }
 
     alias Type = Algebraic!(Help, Shell, Cmd, LocalRun, Install, MeasureHosts,
@@ -341,6 +345,7 @@ Config parseUserArgs(string[] args) {
             data.helpInfo = std.getopt.getopt(args,
                 "k|kill", "kill rogue processes", &data.kill,
                 "p|print", "print rogue process", &data.print,
+                "user-filter", "only purge those processes owned by the current user", &data.userFilter,
                 "whitelist", "one or more regex (case insensitive) that whitelist processes as not rogue", &data.whiteList,
                 );
             // dfmt on
@@ -355,6 +360,7 @@ Config parseUserArgs(string[] args) {
             data.helpInfo = std.getopt.getopt(args,
                 "k|kill", "kill rogue processes", &data.kill,
                 "p|print", "print rogue process", &data.print,
+                "user-filter", "only purge those processes owned by the current user", &data.userFilter,
                 "whitelist", "one or more regex (case insensitive) that whitelist processes as not rogue", &data.whiteList,
                 );
             // dfmt on

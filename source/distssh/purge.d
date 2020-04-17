@@ -8,17 +8,16 @@ a distssh client in the root.
 */
 module distssh.purge;
 
-import core.time : Duration;
 import logger = std.experimental.logger;
-import std.algorithm : splitter, map, filter, joiner, sort;
+import std.algorithm : splitter, map, filter, joiner;
 import std.array : array, appender, empty;
 import std.conv;
-import std.exception : collectException, ifThrown;
+import std.exception : collectException;
 import std.file;
 import std.path;
-import std.range : iota, only;
-import std.stdio : File, writeln, writefln;
-import std.typecons : Nullable, NullableRef;
+import std.range : only;
+import std.stdio : writefln;
+import std.typecons : Flag;
 
 import core.sys.posix.sys.types : uid_t;
 
@@ -43,8 +42,17 @@ int cli(const Config fconf, Config.LocalPurge conf) @trusted nothrow {
     }
 
     void iterate(alias fn)() {
-        auto pmap = makePidMap.filterByCurrentUser;
+        auto pmap = () {
+            auto rval = makePidMap;
+            if (conf.userFilter)
+                return rval.filterByCurrentUser;
+            // assuming that processes owned by root such as init never
+            // interesting to kill. 4294967295 is a magic number used in linux
+            // for system processes.
+            return rval.removeUser(0).removeUser(4294967295);
+        }();
         updateProc(pmap);
+        debug logger.trace(pmap);
 
         foreach (ref t; pmap.splitToSubMaps) {
             bool hasWhiteListProc;
@@ -61,7 +69,7 @@ int cli(const Config fconf, Config.LocalPurge conf) @trusted nothrow {
 
     void purgeKill(bool hasWhiteListProc, ref PidMap pmap, RawPid root) {
         if (conf.kill && !hasWhiteListProc) {
-            auto killed = process.kill(pmap);
+            auto killed = process.kill(pmap, cast(Flag!"onlyCurrentUser") conf.userFilter);
             reap(killed);
         }
     }
@@ -90,9 +98,6 @@ int cli(const Config fconf, Config.LocalPurge conf) @trusted nothrow {
 }
 
 int cli(const Config fconf, Config.Purge conf) @trusted nothrow {
-    import std.algorithm : sort;
-    import std.stdio : writefln, writeln, stdout;
-
     auto hosts = RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster);
 
     if (hosts.empty) {
@@ -147,6 +152,9 @@ int purgeServer(ExecuteOnHostConf econf, const Config.Purge pconf, Host host,
     }
     if (pconf.kill) {
         econf.command ~= "-k";
+    }
+    if (pconf.userFilter) {
+        econf.command ~= "--user-filter";
     }
 
     Set!string wlist;
