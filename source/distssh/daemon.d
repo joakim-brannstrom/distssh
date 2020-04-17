@@ -158,6 +158,7 @@ int cli(const Config fconf, Config.Daemon conf) {
 
         Config.Purge pconf;
         pconf.kill = true;
+        pconf.userFilter = true;
         auto econf = ExecuteOnHostConf(fconf.global.workDir, null, null, false, true);
         Set!Host clearedServers;
 
