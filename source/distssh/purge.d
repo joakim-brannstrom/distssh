@@ -98,7 +98,9 @@ int cli(const Config fconf, Config.LocalPurge conf) @trusted nothrow {
 }
 
 int cli(const Config fconf, Config.Purge conf) @trusted nothrow {
-    auto hosts = RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster);
+    import std.algorithm : sort;
+
+    auto hosts = fconf.global.cluster.dup.sort;
 
     if (hosts.empty) {
         logger.errorf("No remote host online").collectException;
