@@ -47,29 +47,33 @@ When that is done it is now ready to use!
 
 ## Remote Shell
 
-This is the simplest usage.
+This is the simplest usage. It gives you a shell at the cluster.
+
 ```sh
 distshell
 # or
-distssh --shell
+distssh shell
 ```
 
 ## Remote Command
 
+This will execute the command on the cluster.
+
 ```sh
-distssh -- ls
+distssh cmd -- ls
 ```
 
 ## Export the Environemnt to Remote Host
 
-This is useful for those development environments where it is *heavy* to reload the shell with the correct modules.
-By exporting and then importing the environment on the remote host this can be bypassed/sped up.
+This is useful for those development environments where it is *heavy* to reload
+the shell with the correct modules.  By exporting and then importing the
+environment on the remote host this can be bypassed/sped up.
 
 Note that this basically requires them to be equivalent.
 
 ```sh
 # store an export of the env
-distssh --export-env
+distssh env -e
 # now the env is reused on the remote hosts
 distcmd ls
 ```
@@ -77,7 +81,46 @@ distcmd ls
 It is also possible to clone the current environment without first exporting it to a file.
 
 ```sh
-distssh --clone-env -- ls
+distssh distcmd --clone-env -- ls
+```
+
+The exported environment can also be used to run commands locally.
+
+```sh
+distssh localrun -- env
+```
+
+## Cluster Load
+
+Distssh can display the current load of the cluster. The servers that are
+listed are those that distssh is currently able to connect to and that respond
+within the `--timeout` limit.
+
+The load is normalised to what is considered "best practice" when comparing the
+value from `loadavg` by dividing it by the number of cores that are available
+on the server. A server is most probably overloaded if it is above 1.0.
+
+```sh
+distssh measurehosts
+```
+
+## Purge
+
+Even though `distssh` try to do a good job of cleaning up stale processes and
+such when it logout of a server there are circumstances wherein a process can
+be left dangling on a server in the cluster and take up resources. What
+resource is obviously dependent on what type of process that is left.
+
+`distssh` can `purge` these processes from the cluster. This can be executed
+either manually or by the daemon in the background.
+
+```sh
+# print all processes that have escaped sshd, from all users
+distssh purge -p
+# print those that have escaped the current user
+distssh purge -p --user-filter
+# kill them
+distssh purge -p --user-filter -k
 ```
 
 # Configuration
@@ -117,6 +160,6 @@ export DISTSSH_AUTO_PURGE=1
    Used both by the manual `purge` sub-command and the daemon mode.
 Example:
 ```sh
-# will purge all processes that have "escaped" distssh
-export DISTSSH_PURGE_WLIST='.*distssh|.*distcmd|.*distshell'
+# will purge all processes that have "escaped" an interactive sshd instance
+export DISTSSH_PURGE_WLIST='.*sshd'
 ```
