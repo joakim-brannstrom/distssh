@@ -153,6 +153,15 @@ int cli(const Config fconf, Config.Daemon conf) {
         return updateLeastLoadedTimer(90.dur!"seconds", Duration.max);
     }, 60.dur!"seconds");
 
+    makeInterval(timers, () @trusted nothrow{
+        try {
+            db.removeUnusedServers(30.dur!"minutes");
+        } catch (Exception e) {
+            logger.warning(e.msg).collectException;
+        }
+        return true;
+    }, 1.dur!"minutes");
+
     if (globalEnvPurge in environment && globalEnvPurgeWhiteList in environment) {
         import distssh.purge : readPurgeEnvWhiteList;
 
