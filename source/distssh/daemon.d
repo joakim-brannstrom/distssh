@@ -68,6 +68,10 @@ int cli(const Config fconf, Config.Daemon conf) {
     if (!conf.background)
         return 0;
 
+    // when starting the daemon for the first time we assume that if there are
+    // any data in the database that it is old.
+    db.purgeServers;
+
     bool running = true;
     // the daemon is at most running for 24h. This is a workaround for if/when
     // the client beat error out in such a way that it is always "zero".
@@ -220,7 +224,6 @@ bool startDaemon(ref from.miniorm.Miniorm db, Flag!"background" bg) nothrow {
             return null;
         }();
 
-        db.purgeServers; // assuming the data is old
         spawnDaemon([thisExePath, "daemon"] ~ flags);
         logger.trace("daemon spawned");
         return true;
