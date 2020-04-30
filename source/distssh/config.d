@@ -515,7 +515,7 @@ private Path xdgRuntimeDir() {
         import std.string : toStringz;
 
         const rval = buildPath("/tmp", format!"%s_distssh"(getuid));
-        logger.warningf("XDG_RUNTIME_DIR not set. Using %s as fallback", rval);
+        logger.tracef("XDG_RUNTIME_DIR not set. Using %s as fallback", rval);
 
         const cstr = rval.toStringz;
         if (exists(rval)) {
@@ -532,5 +532,8 @@ private Path xdgRuntimeDir() {
         throw new Exception("Unable to create temp directory " ~ rval);
     }
 
-    return environment.get("XDG_RUNTIME_DIR", backup).Path;
+    string rval = environment.get("XDG_RUNTIME_DIR");
+    if (rval.empty)
+        rval = backup;
+    return rval.Path;
 }

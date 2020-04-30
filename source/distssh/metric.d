@@ -128,6 +128,7 @@ struct RemoteHostCache {
             if (!started) {
                 db.syncCluster(cluster);
             }
+            db.updateLastUse(cluster);
 
             // if no hosts are found in the db within the timeout then go over
             // into a fast mode. This happens if the client e.g. switches the
@@ -140,7 +141,6 @@ struct RemoteHostCache {
                 servers = db.getServerLoads(cluster, 60.dur!"seconds");
             }
 
-            db.removeUnusedServers(servers.unused);
             return RemoteHostCache(servers.online.sort!((a, b) => a[1] < b[1]).array);
         } catch (Exception e) {
             logger.error(e.msg).collectException;

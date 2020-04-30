@@ -18,7 +18,7 @@ import miniorm;
 import distssh.types;
 
 immutable timeout = 30.dur!"seconds";
-enum SchemaVersion = 1;
+enum SchemaVersion = 2;
 
 struct VersionTbl {
     @ColumnName("version")
@@ -32,6 +32,10 @@ struct ServerTbl {
     long accessTime;
     double loadAvg;
     bool unknown;
+
+    // Last time used the entry in unix time. Assuming that it is always
+    // running locally.
+    long lastUse;
 }
 
 /// The daemon beats ones per minute.
@@ -51,6 +55,7 @@ Miniorm openDatabase(Path dbFile) nothrow {
 }
 
 Miniorm openDatabase(string dbFile) nothrow {
+    logger.trace("opening database ", dbFile).collectException;
     while (true) {
         try {
             auto db = Miniorm(dbFile);
@@ -129,7 +134,7 @@ void syncCluster(ref Miniorm db, const Host[] cluster) {
     immutable forceEarlyUpdate = Clock.currTime - 1.dur!"hours";
 
     auto stmt = spinSql!(() {
-        return db.prepare(`INSERT OR IGNORE INTO ServerTbl (address,lastUpdate,accessTime,loadAvg,unknown) VALUES(:address, :lastUpdate, :accessTime, :loadAvg, :unknown)`);
+        return db.prepare(`INSERT OR IGNORE INTO ServerTbl (address,lastUpdate,accessTime,loadAvg,unknown,lastUse) VALUES(:address, :lastUpdate, :accessTime, :loadAvg, :unknown, :lastUse)`);
     }, logger.trace)(timeout);
 
     foreach (const h; cluster) {
@@ -140,6 +145,25 @@ void syncCluster(ref Miniorm db, const Host[] cluster) {
             stmt.get.bind(":accessTime", highAccessTime);
             stmt.get.bind(":loadAvg", highLoadAvg);
             stmt.get.bind(":unknown", true);
+            stmt.get.bind(":lastUse", Clock.currTime.toUnixTime);
+            stmt.get.execute;
+        }, logger.trace)(timeout);
+    }
+}
+
+void updateLastUse(ref Miniorm db, const Host[] cluster) {
+    auto stmt = spinSql!(() {
+        return db.prepare(
+            `UPDATE OR IGNORE ServerTbl SET lastUse = :lastUse WHERE address = :address`);
+    }, logger.trace)(timeout);
+
+    const lastUse = Clock.currTime.toUnixTime;
+
+    foreach (const h; cluster) {
+        spinSql!(() {
+            stmt.get.reset;
+            stmt.get.bind(":address", h.payload);
+            stmt.get.bind(":lastUse", lastUse);
             stmt.get.execute;
         }, logger.trace)(timeout);
     }
@@ -149,7 +173,8 @@ void syncCluster(ref Miniorm db, const Host[] cluster) {
 void newServer(ref Miniorm db, HostLoad a) {
     spinSql!(() {
         db.run(insertOrReplace!ServerTbl, ServerTbl(a[0].payload,
-            Clock.currTime, a[1].accessTime.total!"msecs", a[1].loadAvg, a[1].unknown));
+            Clock.currTime, a[1].accessTime.total!"msecs", a[1].loadAvg,
+            a[1].unknown, Clock.currTime.toUnixTime));
     }, logger.trace)(timeout, 100.dur!"msecs", 300.dur!"msecs");
 }
 
@@ -167,21 +192,13 @@ void updateServer(ref Miniorm db, HostLoad a) {
     }, logger.trace)(timeout, 100.dur!"msecs", 300.dur!"msecs");
 }
 
-void removeUnusedServers(ref Miniorm db, Host[] hosts) {
-    if (hosts.empty)
-        return;
-
-    auto stmt = spinSql!(() {
-        return db.prepare(`DELETE FROM ServerTbl WHERE address = :address`);
+/// Those that haven't been used for `unused` seconds.
+void removeUnusedServers(ref Miniorm db, Duration unused) {
+    spinSql!(() {
+        auto stmt = db.prepare(`DELETE FROM ServerTbl WHERE lastUse < :lastUse`);
+        stmt.get.bind(":lastUse", Clock.currTime.toUnixTime - unused.total!"seconds");
+        stmt.get.execute();
     }, logger.trace)(timeout);
-
-    foreach (h; hosts) {
-        spinSql!(() {
-            stmt.get.reset;
-            stmt.get.bind(":address", h.payload);
-            stmt.get.execute;
-        }, logger.trace)(timeout);
-    }
 }
 
 void daemonBeat(ref Miniorm db) {
@@ -251,7 +268,8 @@ Host[] getLeastLoadedServer(ref Miniorm db) {
     import std.format : format;
 
     auto stmt = spinSql!(() {
-        return db.prepare(format(`SELECT address FROM ServerTbl ORDER BY loadAvg ASC LIMIT %s`,
+        return db.prepare(
+            format!`SELECT address,lastUse,loadAvg FROM ServerTbl ORDER BY lastUse DESC, loadAvg ASC LIMIT %s`(
             topCandidades));
     }, logger.trace)(timeout);
 
