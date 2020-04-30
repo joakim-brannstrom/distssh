@@ -292,14 +292,14 @@ struct Inode {
     }
 }
 
-Inode getInode(const string p) @trusted nothrow {
+Inode getInode(const Path p) @trusted nothrow {
     import core.sys.posix.sys.stat : stat_t, stat;
     import std.file : isSymlink, exists;
     import std.string : toStringz;
 
-    const pz = p.toStringz;
+    const pz = p.toString.toStringz;
 
-    if (!exists(p)) {
+    if (!exists(p.toString)) {
         return Inode(0, 0);
     } else {
         stat_t st = void;

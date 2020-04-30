@@ -46,7 +46,7 @@ struct Config {
         string workDir;
         string[] command;
 
-        string dbPath = "distssh.sqlite3";
+        Path dbPath;
 
         /// The hosts the cluster consist of.
         Host[] cluster;
@@ -209,6 +209,7 @@ Config parseUserArgs(string[] args) {
     conf.global.selfBinary = buildPath(thisExePath.dirName, args[0].baseName);
     conf.global.selfDir = conf.global.selfBinary.dirName;
     conf.global.workDir = getcwd;
+    conf.global.dbPath = buildPath(xdgRuntimeDir.toString, "distssh.sqlite3").Path;
 
     switch (conf.global.selfBinary.baseName) {
     case distShell:
@@ -500,4 +501,36 @@ Host[] hostsFromEnv() nothrow {
     }
 
     return rval;
+}
+
+private Path xdgRuntimeDir() {
+    import std.process : environment;
+
+    string backup() @trusted {
+        import core.stdc.stdio : perror;
+        import core.sys.posix.sys.stat : mkdir;
+        import core.sys.posix.sys.stat;
+        import core.sys.posix.unistd : getuid;
+        import std.file : exists;
+        import std.string : toStringz;
+
+        const rval = buildPath("/tmp", format!"%s_distssh"(getuid));
+        logger.warningf("XDG_RUNTIME_DIR not set. Using %s as fallback", rval);
+
+        const cstr = rval.toStringz;
+        if (exists(rval)) {
+            stat_t st;
+            stat(cstr, &st);
+            if (st.st_uid == getuid)
+                return rval;
+            throw new Exception("Unable to create temp directory. Owned by another user " ~ rval);
+        }
+
+        if (mkdir(cstr, S_IRWXU) == 0)
+            return rval;
+        perror(null);
+        throw new Exception("Unable to create temp directory " ~ rval);
+    }
+
+    return environment.get("XDG_RUNTIME_DIR", backup).Path;
 }

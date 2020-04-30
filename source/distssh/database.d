@@ -46,6 +46,10 @@ struct ClientBeat {
     SysTime beat;
 }
 
+Miniorm openDatabase(Path dbFile) nothrow {
+    return openDatabase(dbFile.toString);
+}
+
 Miniorm openDatabase(string dbFile) nothrow {
     while (true) {
         try {

@@ -116,7 +116,7 @@ Load getLoad(Host h, Duration timeout) nothrow {
 struct RemoteHostCache {
     HostLoad[] remoteByLoad;
 
-    static auto make(string dbPath, const Host[] cluster) nothrow {
+    static auto make(Path dbPath, const Host[] cluster) nothrow {
         import distssh.daemon : startDaemon;
         import distssh.database;
         import std.algorithm : sort;
