@@ -127,7 +127,7 @@ struct SpawnProcess {
     bool tryWait() @safe {
         final switch (st) {
         case State.running:
-            auto s = std.process.tryWait(process);
+            const s = std.process.tryWait(process);
             if (s.terminated) {
                 st = State.exitCode;
                 status_ = s.status;
@@ -264,7 +264,7 @@ struct PipeProcess {
     bool tryWait() @safe {
         final switch (st) {
         case State.running:
-            auto s = std.process.tryWait(process.pid);
+            const s = std.process.tryWait(process.pid);
             if (s.terminated) {
                 st = State.exitCode;
                 status_ = s.status;
