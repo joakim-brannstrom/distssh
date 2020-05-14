@@ -1,13 +1,9 @@
 /**
-Copyright: Copyright (c) 2019, Joakim Brännström. All rights reserved.
-License: MPL-2
+Copyright: Copyright (c) 2020, Joakim Brännström. All rights reserved.
+License: $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost Software License 1.0)
 Author: Joakim Brännström (joakim.brannstrom@gmx.com)
-
-This Source Code Form is subject to the terms of the Mozilla Public License,
-v.2.0. If a copy of the MPL was not distributed with this file, You can obtain
-one at http://mozilla.org/MPL/2.0/.
 */
-module process;
+module proc;
 
 import core.thread : Thread;
 import core.time : dur, Duration;
@@ -20,8 +16,8 @@ import std.typecons : Flag, Yes;
 static import std.process;
 static import std.stdio;
 
-public import process.channel;
-public import process.pid;
+public import proc.channel;
+public import proc.pid;
 
 version (unittest) {
     import unit_threaded.assertions;
@@ -391,8 +387,6 @@ struct Sandbox(ProcessT) {
     }
 
     void kill() nothrow @safe {
-        import process.pid;
-
         // must first retrieve the submap because after the process is killed
         // its children may have changed.
         auto pmap = makePidMap.getSubMap(pid);
@@ -401,7 +395,7 @@ struct Sandbox(ProcessT) {
 
         // only kill and reap the children
         pmap.remove(pid);
-        process.pid.kill(pmap, Yes.onlyCurrentUser).reap;
+        proc.pid.kill(pmap, Yes.onlyCurrentUser).reap;
     }
 
     int wait() @safe {
@@ -709,16 +703,16 @@ struct DrainElement {
  * There may be `DrainElement` that are empty.
  */
 struct DrainRange(ProcessT) {
-    enum State {
-        start,
-        draining,
-        lastStdout,
-        lastStderr,
-        lastElement,
-        empty,
-    }
-
     private {
+        enum State {
+            start,
+            draining,
+            lastStdout,
+            lastStderr,
+            lastElement,
+            empty,
+        }
+
         Duration timeout;
         ProcessT p;
         DrainElement front_;
@@ -837,8 +831,17 @@ auto drain(T)(T p, Duration timeout) {
 /// Read the data from a ReadChannel by line.
 struct DrainByLineCopyRange(ProcessT) {
     private {
+        enum State {
+            start,
+            draining,
+            lastLine,
+            lastBuf,
+            empty,
+        }
+
         ProcessT process;
         DrainRange!ProcessT range;
+        State st;
         const(ubyte)[] buf;
         const(char)[] line;
     }
@@ -861,48 +864,91 @@ struct DrainByLineCopyRange(ProcessT) {
         import std.array : array;
         static import std.utf;
 
-        void fillBuf() {
-            if (!range.empty) {
-                range.popFront;
+        const(ubyte)[] updateBuf(size_t idx) {
+            const(ubyte)[] tmp;
+            if (buf.empty) {
+                // do nothing
+            } else if (idx == -1) {
+                tmp = buf;
+                buf = null;
+            } else {
+                idx = () {
+                    if (idx < buf.length) {
+                        return idx + 1;
+                    }
+                    return idx;
+                }();
+                tmp = buf[0 .. idx];
+                buf = buf[idx .. $];
             }
-            if (!range.empty) {
-                buf ~= range.front.data;
+
+            if (!tmp.empty && tmp[$ - 1] == '\n') {
+                tmp = tmp[0 .. $ - 1];
             }
+            return tmp;
         }
 
-        size_t idx;
-        do {
-            fillBuf();
-            idx = buf.countUntil('\n');
-        }
-        while (!range.empty && idx == -1);
-
-        const(ubyte)[] tmp;
-        if (buf.empty) {
-            // do nothing
-        } else if (idx == -1) {
-            tmp = buf;
-            buf = null;
-        } else {
-            idx = () {
-                if (idx < buf.length) {
-                    return idx + 1;
+        void drainLine() {
+            void fillBuf() {
+                if (!range.empty) {
+                    range.popFront;
                 }
-                return idx;
+                if (!range.empty) {
+                    buf ~= range.front.data;
+                }
+            }
+
+            size_t idx;
+            () {
+                int cnt;
+                do {
+                    fillBuf();
+                    idx = buf.countUntil('\n');
+                    // 10 is a magic number which mean that it at most wait 10x timeout for data
+                }
+                while (!range.empty && idx == -1 && cnt++ < 10);
             }();
-            tmp = buf[0 .. idx];
-            buf = buf[idx .. $];
+
+            auto tmp = updateBuf(idx);
+            line = std.utf.byUTF!(const(char))(cast(const(char)[]) tmp).array;
         }
 
-        if (!tmp.empty && tmp[$ - 1] == '\n') {
-            tmp = tmp[0 .. $ - 1];
+        bool lastLine() {
+            size_t idx = buf.countUntil('\n');
+            if (idx == -1)
+                return true;
+
+            auto tmp = updateBuf(idx);
+            line = std.utf.byUTF!(const(char))(cast(const(char)[]) tmp).array;
+            return false;
         }
 
-        line = std.utf.byUTF!(const(char))(cast(const(char)[]) tmp).array;
+        line = null;
+        final switch (st) {
+        case State.start:
+            drainLine;
+            st = State.draining;
+            break;
+        case State.draining:
+            drainLine;
+            if (range.empty)
+                st = State.lastLine;
+            break;
+        case State.lastLine:
+            if (lastLine)
+                st = State.lastBuf;
+            break;
+        case State.lastBuf:
+            line = std.utf.byUTF!(const(char))(cast(const(char)[]) buf).array;
+            st = State.empty;
+            break;
+        case State.empty:
+            break;
+        }
     }
 
     bool empty() @safe pure nothrow const @nogc {
-        return range.empty && buf.empty && line.empty;
+        return st == State.empty;
     }
 }
 

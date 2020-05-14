@@ -3,7 +3,7 @@ Copyright: Copyright (c) 2020, Joakim Brännström. All rights reserved.
 License: $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost Software License 1.0)
 Author: Joakim Brännström (joakim.brannstrom@gmx.com)
 */
-module process.pid;
+module proc.pid;
 
 import core.time : Duration;
 import logger = std.experimental.logger;
@@ -107,7 +107,7 @@ struct PidMap {
         return stat.empty;
     }
 
-    /** Remove a pid from the map.
+    /** Remove PID `p` from the map.
      *
      * An existing pid that have `p` as its parent will be rewritten such that
      * it is it's own parent.
@@ -115,7 +115,7 @@ struct PidMap {
      * The pid that had `p` as a child will be rewritten such that `p` is
      * removed as a child.
      */
-    ref PidMap remove(RawPid p) nothrow {
+    ref PidMap remove(RawPid p) return nothrow {
         stat.remove(p);
         proc.remove(p);
 
@@ -134,6 +134,7 @@ struct PidMap {
         return this;
     }
 
+    /// Remove all PIDs owned by the user `uid`.
     ref PidMap removeUser(uid_t uid) return nothrow {
         auto removePids = appender!(RawPid[])();
         foreach (a; stat.byKeyValue.filter!(a => a.value.uid == uid)) {
@@ -213,8 +214,10 @@ struct PidMap {
  * no new processes have been started.
  *
  * Returns: a pid list of the killed pids that may need to be called wait on.
+ *
+ * TODO: remove @trusted when upgrading the minimum compiler >2.091.0
  */
-RawPid[] kill(PidMap pmap, Flag!"onlyCurrentUser" user) nothrow {
+RawPid[] kill(PidMap pmap, Flag!"onlyCurrentUser" user) @trusted nothrow {
     static import core.sys.posix.signal;
 
     static void killMap(RawPid[] pids) @trusted nothrow {

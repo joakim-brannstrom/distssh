@@ -11,6 +11,7 @@ subPackage "./vendor/miniorm"
 subPackage "./vendor/msgpack-ll"
 subPackage "./vendor/sumtype"
 subPackage "./vendor/unit-threaded"
+subPackage "./vendor/proc"
 
 dependency "distssh:colorlog" version="*"
 dependency "distssh:distssh_common" version="*"
@@ -18,6 +19,7 @@ dependency "distssh:miniorm" version="*"
 dependency "distssh:msgpack-ll" version="*"
 dependency "distssh:sumtype" version="*"
 dependency "distssh:d2sqlite3" version="*"
+dependency "distssh:proc" version="*"
 
 subConfiguration "distssh:miniorm" "all-included"
 
