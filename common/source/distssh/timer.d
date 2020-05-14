@@ -22,11 +22,11 @@ struct Timers {
         Nullable!Timer front_;
     }
 
-    auto put(Timer.Action action, Duration d) {
+    void put(Timer.Action action, Duration d) {
         timers.stableInsert(Timer(Clock.currTime + d, action));
     }
 
-    auto put(Timer.Action action, SysTime t) {
+    void put(Timer.Action action, SysTime t) {
         timers.stableInsert(Timer(t, action));
     }
 

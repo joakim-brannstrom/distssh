@@ -274,7 +274,7 @@ unittest {
 
     auto deser = Deserialize(app.data);
     assert(deser.nextKind == Kind.heartBeat);
-    auto hb = deser.unpack!HeartBeat;
+    const hb = deser.unpack!HeartBeat;
     assert(!hb.isNull);
 }
 
