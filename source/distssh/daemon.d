@@ -58,8 +58,7 @@ int cli(const Config fconf, Config.Daemon conf) {
         if (beat < heartBeatDaemonTimeout && !conf.forceStart)
             return 0;
         // by only updating the beat when in background mode it ensures that
-        // the daemon will sooner or later start in the persistant background
-        // mode.
+        // the daemon will sooner or later start in persistant background mode.
         db.daemonBeat;
     }
 
@@ -70,7 +69,7 @@ int cli(const Config fconf, Config.Daemon conf) {
 
     // when starting the daemon for the first time we assume that if there are
     // any data in the database that it is old.
-    db.purgeServers;
+    db.removeUnusedServers(5.dur!"minutes");
 
     bool running = true;
     // the daemon is at most running for 24h. This is a workaround for if/when
@@ -250,13 +249,11 @@ void initMetrics(ref from.miniorm.Miniorm db, const(Host)[] cluster, Duration ti
     }
 
     try {
-        auto shosts = cluster.randomCover.map!(a => tuple(a, timeout)).array;
-
         auto pool = new TaskPool();
         scope (exit)
             pool.stop;
 
-        foreach (v; pool.amap!(loadHost)(shosts)) {
+        foreach (v; pool.amap!(loadHost)(cluster.randomCover.map!(a => tuple(a, timeout)).array)) {
             db.newServer(v);
         }
     } catch (Exception e) {
