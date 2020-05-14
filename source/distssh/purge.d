@@ -21,7 +21,7 @@ import std.typecons : Flag;
 
 import core.sys.posix.sys.types : uid_t;
 
-import process;
+import proc;
 import colorlog;
 
 import distssh.config;
@@ -69,7 +69,7 @@ int cli(const Config fconf, Config.LocalPurge conf) @trusted nothrow {
 
     void purgeKill(bool hasWhiteListProc, ref PidMap pmap, RawPid root) {
         if (conf.kill && !hasWhiteListProc) {
-            auto killed = process.kill(pmap, cast(Flag!"onlyCurrentUser") conf.userFilter);
+            auto killed = proc.kill(pmap, cast(Flag!"onlyCurrentUser") conf.userFilter);
             reap(killed);
         }
     }

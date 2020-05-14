@@ -140,7 +140,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
     import std.process : thisProcessID;
     import std.process : PConfig = Config;
     import std.utf : toUTF8;
-    import process;
+    import proc;
     import distssh.timer : makeTimers, makeInterval;
 
     if (fconf.global.command.length == 0)
