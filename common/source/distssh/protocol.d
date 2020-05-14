@@ -103,8 +103,7 @@ struct Deserialize {
                 if (raw <= Kind.max && raw != Kind.none)
                     break;
                 debug logger.trace("dropped ", raw);
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
             }
 
             buf = buf[1 .. $];
@@ -161,14 +160,12 @@ struct Deserialize {
             // may contain invalid utf8 chars but still have to consume everything
             try {
                 key = demux!string();
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
             }
 
             try {
                 value = demux!string();
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
             }
 
             env ~= EnvVariable(key, value);
@@ -187,8 +184,7 @@ struct Deserialize {
         try {
             auto host = RemoteHost(demux!string());
             return typeof(return)(host);
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
         }
 
         return typeof(return)();
