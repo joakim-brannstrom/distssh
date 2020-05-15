@@ -69,7 +69,7 @@ int cli(const Config fconf, Config.Daemon conf) {
 
     // when starting the daemon for the first time we assume that if there are
     // any data in the database that it is old.
-    db.removeUnusedServers(5.dur!"minutes");
+    db.removeUnusedServers(1.dur!"minutes");
 
     bool running = true;
     // the daemon is at most running for 24h. This is a workaround for if/when
