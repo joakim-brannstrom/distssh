@@ -17,6 +17,10 @@ import miniorm;
 
 import distssh.types;
 
+version (unittest) {
+    import unit_threaded.assertions;
+}
+
 immutable timeout = 30.dur!"seconds";
 enum SchemaVersion = 2;
 
@@ -86,27 +90,35 @@ Miniorm openDatabase(string dbFile) nothrow {
 
 /** Get all servers.
  *
- * Waiting for up to 10s for servers to be added. This handles the case where a
- * daemon have been spawned in the background.
+ * Waiting up to `timeout` for servers to be added. This handles the case where
+ * a daemon have been spawned in the background.
+ *
+ * Params:
+ *  db = database instance to read from
+ *  filterBy_ = only hosts that are among these are added to the online set
+ *  timeout = max time to wait for the `online` set to contain at least one host
+ *  maxAge = only hosts that have a status newer than this is added to online
  */
 Tuple!(HostLoad[], "online", Host[], "unused") getServerLoads(ref Miniorm db,
-        const Host[] filterBy_, const Duration timeout) @trusted nothrow {
+        const Host[] filterBy_, const Duration timeout, const Duration maxAge) @trusted nothrow {
     import std.datetime : Clock, dur;
     import distssh.set;
 
-    auto getData() {
-        return db.run(select!ServerTbl).map!(a => HostLoad(Host(a.address),
-                Load(a.loadAvg, a.accessTime.dur!"msecs", a.unknown))).array;
+    const lastUseLimit = Clock.currTime - maxAge;
+    auto onlineHostSet = toSet(filterBy_.map!(a => a.payload));
+    bool filterBy(ServerTbl host) {
+        return host.address in onlineHostSet && host.lastUpdate > lastUseLimit;
     }
-
-    auto filterBy = toSet(filterBy_.map!(a => a.payload));
 
     try {
         auto stopAt = Clock.currTime + timeout;
         while (Clock.currTime < stopAt) {
             typeof(return) rval;
-            foreach (h; spinSql!(getData, logger.trace)(timeout).filter!(a => !a[1].unknown)) {
-                if (filterBy.contains(h[0].payload))
+            foreach (a; spinSql!(() => db.run(select!ServerTbl), logger.trace)(timeout).filter!(
+                    a => !a.unknown)) {
+                auto h = HostLoad(Host(a.address), Load(a.loadAvg,
+                        a.accessTime.dur!"msecs", a.unknown));
+                if (filterBy(a))
                     rval.online ~= h;
                 else
                     rval.unused ~= h[0];
@@ -179,12 +191,12 @@ void newServer(ref Miniorm db, HostLoad a) {
 }
 
 /// Update the data for a server.
-void updateServer(ref Miniorm db, HostLoad a) {
+void updateServer(ref Miniorm db, HostLoad a, SysTime updateTime = Clock.currTime) {
     spinSql!(() {
         // using IGNORE because the host could have been removed.
         auto stmt = db.prepare(`UPDATE OR IGNORE ServerTbl SET lastUpdate = :lastUpdate, accessTime = :accessTime, loadAvg = :loadAvg, unknown = :unknown WHERE address = :address`);
         stmt.get.bind(":address", a[0].payload);
-        stmt.get.bind(":lastUpdate", Clock.currTime.toSqliteDateTime);
+        stmt.get.bind(":lastUpdate", updateTime.toSqliteDateTime);
         stmt.get.bind(":accessTime", a[1].accessTime.total!"msecs");
         stmt.get.bind(":loadAvg", a[1].loadAvg);
         stmt.get.bind(":unknown", a[1].unknown);
@@ -301,4 +313,83 @@ private void rndSleep(Duration min_, ulong span) nothrow @trusted {
     }();
 
     Thread.sleep(min_ + t_span);
+}
+
+version (unittest) {
+    private struct UnittestDb {
+        string name;
+        Miniorm db;
+        Host[] hosts;
+
+        alias db this;
+
+        ~this() {
+            import std.file : remove;
+
+            db.close;
+            remove(name);
+        }
+    }
+
+    private UnittestDb makeUnittestDb(string file = __FILE__, uint line = __LINE__)() {
+        import std.format : format;
+        import std.path : baseName;
+
+        immutable dbFname = format!"%s_%s.sqlite3"(file.baseName, line);
+        return UnittestDb(dbFname, openDatabase(dbFname));
+    }
+
+    private void populate(ref UnittestDb db, uint nr) {
+        import std.format : format;
+        import std.range;
+        import std.algorithm;
+
+        db.hosts = iota(0, nr).map!(a => Host(format!"h%s"(a))).array;
+        syncCluster(db, db.hosts);
+    }
+
+    private void fejkLoad(ref UnittestDb db, double start, double step) {
+        foreach (a; db.hosts) {
+            updateServer(db, HostLoad(a, Load(start, 50.dur!"msecs", false)));
+            start += step;
+        }
+    }
+}
+
+@("shall filter out all servers with an unknown status")
+unittest {
+    auto db = makeUnittestDb();
+    populate(db, 10);
+    auto res = getServerLoads(db, db.hosts[0 .. $ / 2], 1.dur!"seconds", 10.dur!"minutes");
+    res.online.length.shouldEqual(0);
+}
+
+@("shall split the returned hosts by the host set when retrieving the load")
+unittest {
+    auto db = makeUnittestDb();
+    populate(db, 10);
+    fejkLoad(db, 0.1, 0.3);
+
+    auto res = getServerLoads(db, db.hosts[0 .. $ / 2], 1.dur!"seconds", 10.dur!"minutes");
+    res.online.length.shouldEqual(5);
+    res.online.map!(a => a[0].payload).array.shouldEqual([
+            "h0", "h1", "h2", "h3", "h4"
+            ]);
+    res.unused.length.shouldEqual(5);
+}
+
+@("shall put hosts with a too old status update in the unused set when splitting")
+unittest {
+    auto db = makeUnittestDb();
+    populate(db, 10);
+    fejkLoad(db, 0.1, 0.3);
+    updateServer(db, HostLoad(Host("h3"), Load(0.5, 50.dur!"msecs", false)),
+            Clock.currTime - 11.dur!"minutes");
+
+    auto res = getServerLoads(db, db.hosts[0 .. $ / 2], 1.dur!"seconds", 10.dur!"minutes");
+    res.online.length.shouldEqual(4);
+    res.online.map!(a => a[0].payload).array.shouldEqual([
+            "h0", "h1", "h2", "h4"
+            ]);
+    res.unused.length.shouldEqual(6);
 }

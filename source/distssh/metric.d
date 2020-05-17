@@ -117,7 +117,7 @@ struct RemoteHostCache {
     HostLoad[] remoteByLoad;
 
     static auto make(Path dbPath, const Host[] cluster) nothrow {
-        import distssh.daemon : startDaemon;
+        import distssh.daemon : startDaemon, updateLeastLoadTimersInterval;
         import distssh.database;
         import std.algorithm : sort;
 
@@ -133,18 +133,19 @@ struct RemoteHostCache {
             // if no hosts are found in the db within the timeout then go over
             // into a fast mode. This happens if the client e.g. switches the
             // cluster it is using.
-            auto servers = db.getServerLoads(cluster, 3.dur!"seconds")
-                .ifThrown(typeof(db.getServerLoads(cluster, Duration.zero)).init);
+            auto servers = db.getServerLoads(cluster, 1.dur!"seconds", updateLeastLoadTimersInterval[$ - 1])
+                .ifThrown(typeof(db.getServerLoads(cluster, Duration.zero, Duration.zero)).init);
             if (servers.online.empty) {
                 logger.trace("starting daemon in oneshot mode");
                 startDaemon(db, No.background);
-                // give the background process time to update some servers
+
                 import core.thread : Thread;
                 import core.time : dur;
 
+                // give the background process time to update some servers
                 Thread.sleep(2.dur!"seconds");
-
-                servers = db.getServerLoads(cluster, 60.dur!"seconds");
+                servers = db.getServerLoads(cluster, 60.dur!"seconds",
+                        updateLeastLoadTimersInterval[$ - 1]);
             }
 
             return RemoteHostCache(servers.online.sort!((a, b) => a[1] < b[1]).array);
