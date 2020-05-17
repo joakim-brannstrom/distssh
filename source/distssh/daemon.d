@@ -44,6 +44,10 @@ import distssh.timer;
 import distssh.types;
 import distssh.utility;
 
+immutable updateLeastLoadTimersInterval = [
+    10.dur!"seconds", 20.dur!"seconds", 60.dur!"seconds"
+];
+
 int cli(const Config fconf, Config.Daemon conf) {
     auto db = openDatabase(fconf.global.dbPath);
     const origNode = getInode(fconf.global.dbPath);
@@ -148,13 +152,13 @@ int cli(const Config fconf, Config.Daemon conf) {
 
     makeInterval(timers, () @safe {
         return updateLeastLoadedTimer(0.dur!"seconds", 30.dur!"seconds");
-    }, 10.dur!"seconds");
+    }, updateLeastLoadTimersInterval[0]);
     makeInterval(timers, () @safe {
         return updateLeastLoadedTimer(30.dur!"seconds", 90.dur!"seconds");
-    }, 20.dur!"seconds");
+    }, updateLeastLoadTimersInterval[1]);
     makeInterval(timers, () @safe {
         return updateLeastLoadedTimer(90.dur!"seconds", Duration.max);
-    }, 60.dur!"seconds");
+    }, updateLeastLoadTimersInterval[2]);
 
     makeInterval(timers, () @trusted nothrow{
         try {
@@ -273,7 +277,8 @@ void purgeServer(ref from.miniorm.Miniorm db, ExecuteOnHostConf econf,
     import std.random : randomCover;
     import distssh.purge;
 
-    auto servers = distssh.database.getServerLoads(db, clearedServers.toArray, timeout);
+    auto servers = distssh.database.getServerLoads(db, clearedServers.toArray,
+            timeout, 10.dur!"minutes");
 
     logger.trace("Round robin server purge list ", clearedServers.toArray);
 

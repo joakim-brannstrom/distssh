@@ -26,6 +26,12 @@ import distssh.utility;
 
 static import std.getopt;
 
+import unit_threaded.attrs : Serial;
+
+version (unittest) {
+    import unit_threaded.assertions;
+}
+
 int rmain(string[] args) {
     import distssh.daemon;
     static import distssh.purge;
@@ -451,7 +457,7 @@ int cli(const Config fconf, Config.Env conf) {
 }
 
 @("shall export the environment")
-unittest {
+@Serial unittest {
     import std.conv : to;
     import std.file;
     import std.process : environment;
@@ -495,7 +501,7 @@ unittest {
 }
 
 @("shall create symlinks to self")
-unittest {
+@Serial unittest {
     string[2][] symlinks;
     void fakeSymlink(string src, string dst) {
         string[2] v = [src, dst];
@@ -513,7 +519,7 @@ unittest {
 }
 
 @("shall modify the exported env by adding, removing and modifying")
-unittest {
+@Serial unittest {
     import std.array;
     import std.file;
     import std.process : environment;
@@ -554,7 +560,7 @@ unittest {
 }
 
 @("shall print the load of the localhost")
-unittest {
+@Serial unittest {
     string load;
     auto exit_status = cli(Config.LocalLoad.init, (string s) => load = s);
     assert(exit_status == 0);
