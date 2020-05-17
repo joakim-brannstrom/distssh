@@ -7,7 +7,7 @@ module distssh.types;
 
 public import std.typecons : Tuple, tuple;
 
-alias HostLoad = Tuple!(Host, Load);
+alias HostLoad = Tuple!(Host, "host", Load, "load");
 
 immutable globalEnvHostKey = "DISTSSH_HOSTS";
 immutable globalEnvFileKey = "DISTSSH_IMPORT_ENV";

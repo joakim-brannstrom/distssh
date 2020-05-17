@@ -345,11 +345,15 @@ int cli(const Config fconf, Config.RunOnAll conf) nothrow {
     import std.algorithm : sort;
     import std.stdio : writefln, writeln, stdout;
 
-    writefln("Configured hosts (%s): %(%s|%)", globalEnvHostKey, fconf.global.cluster)
+    auto hosts = RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster);
+
+    writefln("Hosts (%s): %(%s|%)", globalEnvHostKey, hosts.remoteByLoad.map!(a => a.host))
         .collectException;
 
     bool exit_status = true;
-    foreach (a; fconf.global.cluster.dup.sort) {
+    foreach (a; hosts.remoteByLoad
+            .filter!(a => !a.load.unknown)
+            .map!(a => a.host)) {
         stdout.writefln("Connecting to %s", a).collectException;
         try {
             // #SPC-flush_buffers
