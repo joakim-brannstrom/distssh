@@ -85,7 +85,7 @@ int cli(const Config fconf, Config.Daemon conf) {
 
     makeInterval(timers, () @trusted {
         clientBeat = db.getClientBeat;
-        logger.trace("client beat: ", clientBeat);
+        logger.tracef("client beat: %s timeout: %s", clientBeat, conf.timeout);
         // no client is interested in the metric so stop collecting
         if (clientBeat > conf.timeout)
             running = false;

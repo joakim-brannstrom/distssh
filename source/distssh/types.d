@@ -5,6 +5,8 @@ Author: Joakim Brännström (joakim.brannstrom@gmx.com)
 */
 module distssh.types;
 
+import core.thread : Thread;
+import core.time : dur;
 public import std.typecons : Tuple, tuple;
 
 alias HostLoad = Tuple!(Host, "host", Load, "load");
@@ -36,9 +38,9 @@ struct Host {
 struct Load {
     import std.datetime : Duration;
 
-    double loadAvg;
-    Duration accessTime;
-    bool unknown;
+    double loadAvg = int.max;
+    Duration accessTime = 1.dur!"hours";
+    bool unknown = true;
 
     bool opEquals(const typeof(this) o) nothrow @safe pure @nogc {
         if (unknown && o.unknown)
@@ -73,14 +75,19 @@ unittest {
     import std.algorithm : sort;
     import std.array : array;
     import core.time : dur;
+    import std.conv : to;
 
     {
-        auto raw = [Load(0.6, 500.dur!"msecs"), Load(0.5, 500.dur!"msecs")].sort.array;
-        assert(raw[0].loadAvg == 0.5);
+        auto raw = [
+            Load(0.6, 500.dur!"msecs", false), Load(0.5, 500.dur!"msecs", false)
+        ].sort.array;
+        assert(raw[0].loadAvg == 0.5, raw[0].to!string);
     }
 
     {
-        auto raw = [Load(0.5, 600.dur!"msecs"), Load(0.5, 500.dur!"msecs")].sort.array;
+        auto raw = [
+            Load(0.5, 600.dur!"msecs", false), Load(0.5, 500.dur!"msecs", false)
+        ].sort.array;
         assert(raw[0].accessTime == 500.dur!"msecs");
     }
 }

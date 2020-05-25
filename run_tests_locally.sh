@@ -4,7 +4,7 @@ export DISTSSH_HOSTS=localhost
 
 set -ex
 
-dub test -- -s
+dub test
 dub build
 
 pushd test

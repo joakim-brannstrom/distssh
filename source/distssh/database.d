@@ -100,7 +100,7 @@ Miniorm openDatabase(string dbFile) nothrow {
  *  maxAge = only hosts that have a status newer than this is added to online
  */
 Tuple!(HostLoad[], "online", Host[], "unused") getServerLoads(ref Miniorm db,
-        const Host[] filterBy_, const Duration timeout, const Duration maxAge) @trusted nothrow {
+        const Host[] filterBy_, const Duration timeout, const Duration maxAge) @trusted {
     import std.datetime : Clock, dur;
     import distssh.set;
 
@@ -110,25 +110,21 @@ Tuple!(HostLoad[], "online", Host[], "unused") getServerLoads(ref Miniorm db,
         return host.address in onlineHostSet && host.lastUpdate > lastUseLimit;
     }
 
-    try {
-        auto stopAt = Clock.currTime + timeout;
-        while (Clock.currTime < stopAt) {
-            typeof(return) rval;
-            foreach (a; spinSql!(() => db.run(select!ServerTbl), logger.trace)(timeout).filter!(
-                    a => !a.unknown)) {
-                auto h = HostLoad(Host(a.address), Load(a.loadAvg,
-                        a.accessTime.dur!"msecs", a.unknown));
-                if (filterBy(a))
-                    rval.online ~= h;
-                else
-                    rval.unused ~= h[0];
+    auto stopAt = Clock.currTime + timeout;
+    while (Clock.currTime < stopAt) {
+        typeof(return) rval;
+        foreach (a; spinSql!(() => db.run(select!ServerTbl), logger.trace)(timeout)) {
+            auto h = HostLoad(Host(a.address), Load(a.loadAvg,
+                    a.accessTime.dur!"msecs", a.unknown));
+            if (!a.unknown && filterBy(a)) {
+                rval.online ~= h;
+            } else {
+                rval.unused ~= h.host;
             }
-
-            if (!rval.online.empty || filterBy_.empty)
-                return rval;
         }
-    } catch (Exception e) {
-        logger.warning("Failed reading from the database: ", e.msg).collectException;
+
+        if (!rval.online.empty || filterBy_.empty)
+            return rval;
     }
 
     return typeof(return).init;
@@ -195,11 +191,11 @@ void updateServer(ref Miniorm db, HostLoad a, SysTime updateTime = Clock.currTim
     spinSql!(() {
         // using IGNORE because the host could have been removed.
         auto stmt = db.prepare(`UPDATE OR IGNORE ServerTbl SET lastUpdate = :lastUpdate, accessTime = :accessTime, loadAvg = :loadAvg, unknown = :unknown WHERE address = :address`);
-        stmt.get.bind(":address", a[0].payload);
+        stmt.get.bind(":address", a.host.payload);
         stmt.get.bind(":lastUpdate", updateTime.toSqliteDateTime);
-        stmt.get.bind(":accessTime", a[1].accessTime.total!"msecs");
-        stmt.get.bind(":loadAvg", a[1].loadAvg);
-        stmt.get.bind(":unknown", a[1].unknown);
+        stmt.get.bind(":accessTime", a.load.accessTime.total!"msecs");
+        stmt.get.bind(":loadAvg", a.load.loadAvg);
+        stmt.get.bind(":unknown", a.load.unknown);
         stmt.get.execute;
     }, logger.trace)(timeout, 100.dur!"msecs", 300.dur!"msecs");
 }
