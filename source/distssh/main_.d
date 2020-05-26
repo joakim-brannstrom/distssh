@@ -154,22 +154,17 @@ int cli(const Config fconf, Config.LocalRun conf) {
         ProtocolEnv env;
 
         if (fconf.global.stdinMsgPackEnv) {
-            auto timers = makeTimers;
-            makeInterval(timers, () @trusted {
+            bool running = true;
+            while (running) {
                 pread.update;
-
                 try {
                     auto tmp = pread.unpack!(ProtocolEnv);
                     if (!tmp.isNull) {
                         env = tmp;
-                        return false;
+                        running = false;
                     }
                 } catch (Exception e) {
                 }
-                return true;
-            }, 10.dur!"msecs");
-            while (!timers.empty) {
-                timers.tick(10.dur!"msecs");
             }
         } else {
             env = readEnv(fconf.global.importEnv);

@@ -368,7 +368,7 @@ unittest {
 
     auto res = getServerLoads(db, db.hosts[0 .. $ / 2], 1.dur!"seconds", 10.dur!"minutes");
     res.online.length.shouldEqual(5);
-    res.online.map!(a => a[0].payload).array.shouldEqual([
+    res.online.map!(a => a.host.payload).array.shouldEqual([
             "h0", "h1", "h2", "h3", "h4"
             ]);
     res.unused.length.shouldEqual(5);
@@ -384,7 +384,7 @@ unittest {
 
     auto res = getServerLoads(db, db.hosts[0 .. $ / 2], 1.dur!"seconds", 10.dur!"minutes");
     res.online.length.shouldEqual(4);
-    res.online.map!(a => a[0].payload).array.shouldEqual([
+    res.online.map!(a => a.host.payload).array.shouldEqual([
             "h0", "h1", "h2", "h4"
             ]);
     res.unused.length.shouldEqual(6);
