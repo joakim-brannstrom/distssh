@@ -117,7 +117,7 @@ Load getLoad(Host h, Duration timeout) nothrow {
 struct RemoteHostCache {
     private {
         HostLoad[] online;
-        Host[] unused;
+        HostLoad[] unused;
     }
 
     static auto make(Path dbPath, const Host[] cluster) nothrow {
@@ -164,8 +164,7 @@ struct RemoteHostCache {
     }
 
     auto unusedRange() @safe nothrow {
-        return unused.sort!((a, b) => a < b)
-            .map!(a => HostLoad(a, Load.init));
+        return unused.sort!((a, b) => a.host < b.host);
     }
 
     /// Returns: a range over the online servers
@@ -175,8 +174,7 @@ struct RemoteHostCache {
 
     /// Returns: a range over all servers
     auto allRange() @safe nothrow {
-        return only(online, unused.map!(a => HostLoad(a, Load.init)).array).joiner.array.sort!((a,
-                b) => a.host < b.host);
+        return only(online, unused).joiner.array.sort!((a, b) => a.host < b.host);
     }
 }
 

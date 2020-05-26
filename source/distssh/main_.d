@@ -154,22 +154,17 @@ int cli(const Config fconf, Config.LocalRun conf) {
         ProtocolEnv env;
 
         if (fconf.global.stdinMsgPackEnv) {
-            auto timers = makeTimers;
-            makeInterval(timers, () @trusted {
+            bool running = true;
+            while (running) {
                 pread.update;
-
                 try {
                     auto tmp = pread.unpack!(ProtocolEnv);
                     if (!tmp.isNull) {
                         env = tmp;
-                        return false;
+                        running = false;
                     }
                 } catch (Exception e) {
                 }
-                return true;
-            }, 10.dur!"msecs");
-            while (!timers.empty) {
-                timers.tick(10.dur!"msecs");
             }
         } else {
             env = readEnv(fconf.global.importEnv);
@@ -267,46 +262,43 @@ int cli(const Config fconf, Config.MeasureHosts conf) nothrow {
 
     writeln("Host is overloaded if Load is >1").collectException;
 
-    string[3] row = ["Host", "Access Time", "Load"];
-    auto tbl = Table!3(row);
+    auto tbl = Table!4(["Host", "Load", "Access Time", "Updated"]);
+    void addRow(HostLoad a) nothrow {
+        static string toInternal(Duration d) {
+            import std.format : format;
 
-    static string toInternal(Duration d) {
-        import std.format : format;
+            int seconds;
+            short msecs;
+            d.split!("seconds", "msecs")(seconds, msecs);
+            if (seconds == 0)
+                return format("%sms", msecs);
+            else
+                return format("%ss %sms", seconds, msecs);
+        }
 
-        int seconds;
-        short msecs;
-        d.split!("seconds", "msecs")(seconds, msecs);
-        if (seconds == 0)
-            return format("%sms", msecs);
-        else
-            return format("%ss %sms", seconds, msecs);
-    }
-
-    auto hosts = RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster);
-
-    foreach (a; hosts.onlineRange.sort!((a, b) => a.load < b.load)) {
+        string[4] row;
         try {
-            row[0] = a[0];
-            row[1] = toInternal(a[1].accessTime);
-            row[2] = a[1].loadAvg.to!string;
+            row[0] = a.host;
+            row[1] = a.load.loadAvg.to!string;
+            row[2] = toInternal(a.load.accessTime);
+            row[3] = a.updated.to!string;
             tbl.put(row);
         } catch (Exception e) {
             logger.trace(e.msg).collectException;
         }
     }
 
+    auto hosts = RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster);
+
+    foreach (a; hosts.onlineRange.sort!((a, b) => a.load < b.load)) {
+        addRow(a);
+    }
+
     auto unused = hosts.unusedRange;
     if (!unused.empty) {
-        tbl.put(["-", "-", "-"]).collectException;
+        tbl.put(["-", "-", "-", "-"]).collectException;
         foreach (a; unused) {
-            try {
-                row[0] = a[0];
-                row[1] = toInternal(a[1].accessTime);
-                row[2] = a[1].loadAvg.to!string;
-                tbl.put(row);
-            } catch (Exception e) {
-                logger.trace(e.msg).collectException;
-            }
+            addRow(a);
         }
     }
 

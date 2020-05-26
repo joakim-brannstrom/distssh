@@ -244,6 +244,7 @@ immutable heartBeatDaemonTimeout = 60.dur!"seconds";
 void initMetrics(ref from.miniorm.Miniorm db, const(Host)[] cluster, Duration timeout) nothrow {
     import std.parallelism : TaskPool;
     import std.random : randomCover;
+    import std.typecons : tuple;
 
     static auto loadHost(T)(T host_timeout) nothrow {
         import std.concurrency : thisTid;
@@ -283,7 +284,10 @@ void purgeServer(ref from.miniorm.Miniorm db, ExecuteOnHostConf econf,
     logger.trace("Round robin server purge list ", clearedServers.toArray);
 
     bool clearedAServer;
-    foreach (a; servers.unused.randomCover.filter!(a => !clearedServers.contains(a))) {
+    foreach (a; servers.unused
+            .randomCover
+            .map!(a => a.host)
+            .filter!(a => !clearedServers.contains(a))) {
         logger.trace("Purge server ", a);
         clearedAServer = true;
         distssh.purge.purgeServer(econf, pconf, a);
