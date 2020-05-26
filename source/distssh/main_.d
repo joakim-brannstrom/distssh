@@ -83,7 +83,7 @@ int cli(const Config fconf, Config.Shell conf) nothrow {
     import std.process : spawnProcess, wait, escapeShellFileName;
     import std.stdio : writeln, writefln;
 
-    auto hosts = RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster);
+    auto hosts = RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster).bestSelectRange;
 
     if (hosts.empty) {
         logger.errorf("No remote host online").collectException;
@@ -91,9 +91,7 @@ int cli(const Config fconf, Config.Shell conf) nothrow {
 
     const timout_until_considered_successfull_connection = fconf.global.timeout * 2;
 
-    while (!hosts.empty) {
-        auto host = hosts.randomAndPop;
-
+    foreach (host; hosts) {
         try {
             writeln("Connecting to ", host);
 
@@ -125,17 +123,15 @@ int cli(const Config fconf, Config.Shell conf) nothrow {
 
 // #SPC-fast_env_startup
 int cli(const Config fconf, Config.Cmd conf) {
-    auto hosts = RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster);
-
-    if (hosts.empty) {
-        logger.errorf("No remote host online").collectException;
-        return 1;
+    foreach (host; RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster).bestSelectRange) {
+        logger.info("Connecting to ", host);
+        return executeOnHost(ExecuteOnHostConf(fconf.global.workDir, fconf.global.command.dup,
+                fconf.global.importEnv, fconf.global.cloneEnv, fconf.global.noImportEnv), host);
     }
 
-    auto host = hosts.randomAndPop;
-    logger.info("Connecting to ", host);
-    return executeOnHost(ExecuteOnHostConf(fconf.global.workDir, fconf.global.command.dup,
-            fconf.global.importEnv, fconf.global.cloneEnv, fconf.global.noImportEnv), host);
+    logger.error("No remote host online from the available ",
+            fconf.global.cluster).collectException;
+    return 1;
 }
 
 // #SPC-fast_env_startup
@@ -264,11 +260,10 @@ int cli(const Config fconf, Config.Install conf, void delegate(string src, strin
 
 // #SPC-measure_remote_hosts
 int cli(const Config fconf, Config.MeasureHosts conf) nothrow {
+    import std.algorithm : sort;
     import std.conv : to;
     import std.stdio : writefln, writeln;
     import distssh.table;
-
-    auto hosts = RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster);
 
     writeln("Host is overloaded if Load is >1").collectException;
 
@@ -287,7 +282,9 @@ int cli(const Config fconf, Config.MeasureHosts conf) nothrow {
             return format("%ss %sms", seconds, msecs);
     }
 
-    foreach (a; hosts.remoteByLoad) {
+    auto hosts = RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster);
+
+    foreach (a; hosts.onlineRange.sort!((a, b) => a.load < b.load)) {
         try {
             row[0] = a[0];
             row[1] = toInternal(a[1].accessTime);
@@ -295,6 +292,21 @@ int cli(const Config fconf, Config.MeasureHosts conf) nothrow {
             tbl.put(row);
         } catch (Exception e) {
             logger.trace(e.msg).collectException;
+        }
+    }
+
+    auto unused = hosts.unusedRange;
+    if (!unused.empty) {
+        tbl.put(["-", "-", "-"]).collectException;
+        foreach (a; unused) {
+            try {
+                row[0] = a[0];
+                row[1] = toInternal(a[1].accessTime);
+                row[2] = a[1].loadAvg.to!string;
+                tbl.put(row);
+            } catch (Exception e) {
+                logger.trace(e.msg).collectException;
+            }
         }
     }
 
@@ -345,11 +357,15 @@ int cli(const Config fconf, Config.RunOnAll conf) nothrow {
     import std.algorithm : sort;
     import std.stdio : writefln, writeln, stdout;
 
-    writefln("Configured hosts (%s): %(%s|%)", globalEnvHostKey, fconf.global.cluster)
+    auto hosts = RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster);
+
+    writefln("Hosts (%s): %(%s|%)", globalEnvHostKey, hosts.allRange.map!(a => a.host))
         .collectException;
 
     bool exit_status = true;
-    foreach (a; fconf.global.cluster.dup.sort) {
+    foreach (a; hosts.allRange
+            .filter!(a => !a.load.unknown)
+            .map!(a => a.host)) {
         stdout.writefln("Connecting to %s", a).collectException;
         try {
             // #SPC-flush_buffers

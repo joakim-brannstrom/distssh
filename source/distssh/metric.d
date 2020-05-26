@@ -6,10 +6,11 @@ Author: Joakim Brännström (joakim.brannstrom@gmx.com)
 module distssh.metric;
 
 import logger = std.experimental.logger;
-import std.algorithm : map, filter, splitter;
-import std.array : empty, array;
+import std.algorithm : map, filter, splitter, joiner, sort, copy;
+import std.array : empty, array, appender;
 import std.datetime : Duration, dur;
 import std.exception : collectException, ifThrown;
+import std.range : take, drop, only;
 import std.typecons : Nullable, Yes, No;
 
 import distssh.types;
@@ -86,7 +87,7 @@ Load getLoad(Host h, Duration timeout) nothrow {
                 last_line = a;
             }
 
-            rval = Load(last_line.to!double, sw.peek);
+            rval = Load(last_line.to!double, sw.peek, false);
         } catch (Exception e) {
             logger.trace(res.stdout).collectException;
             logger.trace(res.stderr).collectException;
@@ -104,7 +105,7 @@ Load getLoad(Host h, Duration timeout) nothrow {
         logger.trace(e.msg).collectException;
     }
 
-    return Load(int.max, 3600.dur!"seconds", true);
+    return Load.init;
 }
 
 /**
@@ -114,12 +115,14 @@ Load getLoad(Host h, Duration timeout) nothrow {
  * TODO: it can be empty. how to handle that?
  */
 struct RemoteHostCache {
-    HostLoad[] remoteByLoad;
+    private {
+        HostLoad[] online;
+        Host[] unused;
+    }
 
     static auto make(Path dbPath, const Host[] cluster) nothrow {
         import distssh.daemon : startDaemon, updateLeastLoadTimersInterval;
         import distssh.database;
-        import std.algorithm : sort;
 
         try {
             auto db = openDatabase(dbPath);
@@ -133,8 +136,8 @@ struct RemoteHostCache {
             // if no hosts are found in the db within the timeout then go over
             // into a fast mode. This happens if the client e.g. switches the
             // cluster it is using.
-            auto servers = db.getServerLoads(cluster, 1.dur!"seconds", updateLeastLoadTimersInterval[$ - 1])
-                .ifThrown(typeof(db.getServerLoads(cluster, Duration.zero, Duration.zero)).init);
+            auto servers = db.getServerLoads(cluster, 1.dur!"seconds",
+                    updateLeastLoadTimersInterval[$ - 1]);
             if (servers.online.empty) {
                 logger.trace("starting daemon in oneshot mode");
                 startDaemon(db, No.background);
@@ -148,51 +151,78 @@ struct RemoteHostCache {
                         updateLeastLoadTimersInterval[$ - 1]);
             }
 
-            return RemoteHostCache(servers.online.sort!((a, b) => a[1] < b[1]).array);
+            return RemoteHostCache(servers.online, servers.unused);
         } catch (Exception e) {
             logger.error(e.msg).collectException;
         }
         return RemoteHostCache.init;
     }
 
-    /// Returns: the lowest loaded server.
-    Host randomAndPop() @safe nothrow {
-        import std.range : take;
+    /// Returns: a range starting with the best server to use going to the worst.
+    auto bestSelectRange() @safe nothrow {
+        return BestSelectRange(online);
+    }
+
+    auto unusedRange() @safe nothrow {
+        return unused.sort!((a, b) => a < b)
+            .map!(a => HostLoad(a, Load.init));
+    }
+
+    /// Returns: a range over the online servers
+    auto onlineRange() @safe nothrow {
+        return online.sort!((a, b) => a.host < b.host);
+    }
+
+    /// Returns: a range over all servers
+    auto allRange() @safe nothrow {
+        return only(online, unused.map!(a => HostLoad(a, Load.init)).array).joiner.array.sort!((a,
+                b) => a.host < b.host);
+    }
+}
+
+@safe struct BestSelectRange {
+    private {
+        HostLoad[] servers;
+    }
+
+    this(HostLoad[] servers) nothrow {
+        import std.algorithm : sort;
+
+        this.servers = reorder(servers.sort!((a, b) => a.load < b.load)
+                .filter!(a => !a.load.unknown)
+                .array);
+    }
+
+    /// Reorder the first three candidates in the server list in a random order.
+    static private HostLoad[] reorder(HostLoad[] servers) @safe nothrow {
         import std.random : randomSample;
 
-        assert(!empty, "should never happen");
-
-        auto rval = remoteByLoad[0][0];
+        if (servers.length < 3)
+            return servers;
 
         try {
-            auto topX = remoteByLoad.filter!(a => !a[1].unknown).array;
-            if (topX.length == 0) {
-                rval = remoteByLoad[0][0];
-            } else if (topX.length < topCandidades) {
-                rval = topX[0][0];
-            } else {
-                rval = topX.take(topCandidades).randomSample(1).front[0];
-            }
+            auto app = appender!(HostLoad[])();
+            servers.take(topCandidades).randomSample(topCandidades).copy(app);
+            servers.drop(topCandidades).copy(app);
+            return app.data;
         } catch (Exception e) {
-            logger.trace(e.msg).collectException;
+            logger.warning(e.msg).collectException;
+            logger.warning("Random sampling failed").collectException;
         }
-
-        remoteByLoad = remoteByLoad.filter!(a => a[0] != rval).array;
-
-        return rval;
+        return servers;
     }
 
     Host front() @safe pure nothrow {
-        assert(!empty);
-        return remoteByLoad[0][0];
+        assert(!empty, "should never happen");
+        return servers[0].host;
     }
 
     void popFront() @safe pure nothrow {
-        assert(!empty);
-        remoteByLoad = remoteByLoad[1 .. $];
+        assert(!empty, "should never happen");
+        servers = servers[1 .. $];
     }
 
     bool empty() @safe pure nothrow {
-        return remoteByLoad.length == 0;
+        return servers.empty;
     }
 }

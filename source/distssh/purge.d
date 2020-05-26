@@ -100,7 +100,7 @@ int cli(const Config fconf, Config.LocalPurge conf) @trusted nothrow {
 int cli(const Config fconf, Config.Purge conf) @trusted nothrow {
     import std.algorithm : sort;
 
-    auto hosts = fconf.global.cluster.dup.sort;
+    auto hosts = RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster).allRange;
 
     if (hosts.empty) {
         logger.errorf("No remote host online").collectException;
@@ -111,7 +111,7 @@ int cli(const Config fconf, Config.Purge conf) @trusted nothrow {
     auto econf = ExecuteOnHostConf(fconf.global.workDir, null,
             fconf.global.importEnv, fconf.global.cloneEnv, fconf.global.noImportEnv);
 
-    foreach (a; hosts) {
+    foreach (a; hosts.map!(a => a.host)) {
         logger.info("Connecting to ", a).collectException;
         if (purgeServer(econf, conf, a, fconf.global.verbosity) != 0) {
             failed.put(a);
