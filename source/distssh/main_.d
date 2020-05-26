@@ -260,6 +260,7 @@ int cli(const Config fconf, Config.Install conf, void delegate(string src, strin
 
 // #SPC-measure_remote_hosts
 int cli(const Config fconf, Config.MeasureHosts conf) nothrow {
+    import std.algorithm : sort;
     import std.conv : to;
     import std.stdio : writefln, writeln;
     import distssh.table;
@@ -281,7 +282,9 @@ int cli(const Config fconf, Config.MeasureHosts conf) nothrow {
             return format("%ss %sms", seconds, msecs);
     }
 
-    foreach (a; RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster).allRange) {
+    auto hosts = RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster);
+
+    foreach (a; hosts.onlineRange.sort!((a, b) => a.load < b.load)) {
         try {
             row[0] = a[0];
             row[1] = toInternal(a[1].accessTime);
@@ -289,6 +292,21 @@ int cli(const Config fconf, Config.MeasureHosts conf) nothrow {
             tbl.put(row);
         } catch (Exception e) {
             logger.trace(e.msg).collectException;
+        }
+    }
+
+    auto unused = hosts.unusedRange;
+    if (!unused.empty) {
+        tbl.put(["-", "-", "-"]).collectException;
+        foreach (a; unused) {
+            try {
+                row[0] = a[0];
+                row[1] = toInternal(a[1].accessTime);
+                row[2] = a[1].loadAvg.to!string;
+                tbl.put(row);
+            } catch (Exception e) {
+                logger.trace(e.msg).collectException;
+            }
         }
     }
 
