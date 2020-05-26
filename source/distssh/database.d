@@ -99,7 +99,7 @@ Miniorm openDatabase(string dbFile) nothrow {
  *  timeout = max time to wait for the `online` set to contain at least one host
  *  maxAge = only hosts that have a status newer than this is added to online
  */
-Tuple!(HostLoad[], "online", Host[], "unused") getServerLoads(ref Miniorm db,
+Tuple!(HostLoad[], "online", HostLoad[], "unused") getServerLoads(ref Miniorm db,
         const Host[] filterBy_, const Duration timeout, const Duration maxAge) @trusted {
     import std.datetime : Clock, dur;
     import distssh.set;
@@ -115,11 +115,11 @@ Tuple!(HostLoad[], "online", Host[], "unused") getServerLoads(ref Miniorm db,
         typeof(return) rval;
         foreach (a; spinSql!(() => db.run(select!ServerTbl), logger.trace)(timeout)) {
             auto h = HostLoad(Host(a.address), Load(a.loadAvg,
-                    a.accessTime.dur!"msecs", a.unknown));
+                    a.accessTime.dur!"msecs", a.unknown), a.lastUpdate);
             if (!a.unknown && filterBy(a)) {
                 rval.online ~= h;
             } else {
-                rval.unused ~= h.host;
+                rval.unused ~= h;
             }
         }
 
@@ -180,9 +180,9 @@ void updateLastUse(ref Miniorm db, const Host[] cluster) {
 /// Update the data for a server.
 void newServer(ref Miniorm db, HostLoad a) {
     spinSql!(() {
-        db.run(insertOrReplace!ServerTbl, ServerTbl(a[0].payload,
-            Clock.currTime, a[1].accessTime.total!"msecs", a[1].loadAvg,
-            a[1].unknown, Clock.currTime.toUnixTime));
+        db.run(insertOrReplace!ServerTbl, ServerTbl(a.host.payload,
+            Clock.currTime, a.load.accessTime.total!"msecs", a.load.loadAvg,
+            a.load.unknown, Clock.currTime.toUnixTime));
     }, logger.trace)(timeout, 100.dur!"msecs", 300.dur!"msecs");
 }
 

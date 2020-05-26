@@ -6,10 +6,7 @@ Author: Joakim Brännström (joakim.brannstrom@gmx.com)
 module distssh.types;
 
 import core.thread : Thread;
-import core.time : dur;
-public import std.typecons : Tuple, tuple;
-
-alias HostLoad = Tuple!(Host, "host", Load, "load");
+import std.datetime : SysTime, dur;
 
 immutable globalEnvHostKey = "DISTSSH_HOSTS";
 immutable globalEnvFileKey = "DISTSSH_IMPORT_ENV";
@@ -28,6 +25,13 @@ immutable ulong defaultTimeout_s = 2;
 immutable topCandidades = 3;
 
 @safe:
+
+struct HostLoad {
+    Host host;
+    Load load;
+    /// When the host was last updated
+    SysTime updated;
+}
 
 struct Host {
     string payload;
