@@ -9,11 +9,12 @@ They more or less fully implement a command line interface command.
 module distssh.main_;
 
 import core.time : Duration;
+import logger = std.experimental.logger;
 import std.algorithm : splitter, map, filter, joiner;
+import std.array : empty;
 import std.exception : collectException;
 import std.stdio : File;
 import std.typecons : Nullable, NullableRef;
-import logger = std.experimental.logger;
 
 import colorlog;
 
@@ -123,6 +124,12 @@ int cli(const Config fconf, Config.Shell conf) nothrow {
 
 // #SPC-fast_env_startup
 int cli(const Config fconf, Config.Cmd conf) {
+    if (fconf.global.command.empty) {
+        logger.error("No command specified");
+        logger.error("Specify by adding -- <my command>");
+        return 1;
+    }
+
     foreach (host; RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster).bestSelectRange) {
         logger.info("Connecting to ", host);
         return executeOnHost(ExecuteOnHostConf(fconf.global.workDir, fconf.global.command.dup,
@@ -145,8 +152,11 @@ int cli(const Config fconf, Config.LocalRun conf) {
     import proc;
     import distssh.timer : makeTimers, makeInterval;
 
-    if (fconf.global.command.length == 0)
-        return 0;
+    if (fconf.global.command.empty) {
+        logger.error("No command specified");
+        logger.error("Specify by adding -- <my command>");
+        return 1;
+    }
 
     static auto updateEnv(const Config fconf, ref PipeReader pread, ref string[string] out_env) {
         import distssh.protocol : ProtocolEnv;
@@ -401,7 +411,7 @@ int cli(const Config fconf, Config.LocalShell conf) {
 // #SPC-modify_env
 int cli(const Config fconf, Config.Env conf) {
     import std.algorithm : map, filter;
-    import std.array : assocArray, empty, array;
+    import std.array : assocArray, array;
     import std.path : absolutePath;
     import std.stdio : writeln, writefln;
     import std.string : split;
