@@ -81,7 +81,7 @@ struct FileReadChannel {
         pollfd[1] fds;
         fds[0].fd = in_.fileno;
         fds[0].events = POLLIN;
-        const ready = () @trusted { return poll(&fds[0], 1, 0); }();
+        auto ready = () @trusted { return poll(&fds[0], 1, 0); }();
 
         // timeout triggered
         if (ready == 0) {
