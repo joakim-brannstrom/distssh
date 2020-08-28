@@ -4,11 +4,11 @@ A sum type for modern D.
 [SumType] is an alternative to `std.variant.Algebraic` that features:
 
 $(LIST
-    * [match|improved pattern-matching]
-    * full attribute correctness (`pure`, `@safe`, `@nogc`, and `nothrow` are
-      inferred whenever possible)
-    * a type-safe and memory-safe API compatible with DIP 1000 (`scope`)
-    * no dependency on runtime type information (`TypeInfo`)
+    * [match|Improved pattern-matching.]
+    * Full attribute correctness (`pure`, `@safe`, `@nogc`, and `nothrow` are
+      inferred whenever possible).
+    * A type-safe and memory-safe API compatible with DIP 1000 (`scope`).
+    * No dependency on runtime type information (`TypeInfo`).
 )
 
 License: MIT
@@ -181,7 +181,8 @@ version (D_BetterC) {
         import std.format;
 
         return expr.match!((double num) => "%g".format(num), (string var) => var,
-                (BinOp bop) => "(%s %s %s)".format(pprint(*bop.lhs), bop.op, pprint(*bop.rhs)));
+                (BinOp bop) => "(%s %s %s)".format(pprint(*bop.lhs),
+                    cast(string) bop.op, pprint(*bop.rhs)));
     }
 
     Expr* myExpr = sum(var("a"), prod(num(2), var("b")));
@@ -189,6 +190,14 @@ version (D_BetterC) {
 
     assert(eval(*myExpr, myEnv) == 11);
     assert(pprint(*myExpr) == "(a + (2 * b))");
+}
+
+// Converts an unsigned integer to a compile-time string constant.
+private enum toCtString(ulong n) = n.stringof[0 .. $ - 2];
+
+@safe unittest {
+    assert(toCtString!0 == "0");
+    assert(toCtString!123456 == "123456");
 }
 
 /// `This` placeholder, for use in self-referential types.
@@ -222,9 +231,12 @@ import std.meta : NoDuplicates;
  */
 struct SumType(TypeArgs...)
         if (is(NoDuplicates!TypeArgs == TypeArgs) && TypeArgs.length > 0) {
-    import std.meta : AliasSeq, Filter, anySatisfy, allSatisfy, staticIndexOf;
+    import std.meta : AliasSeq, Filter, staticIndexOf, staticMap;
+    import std.meta : anySatisfy, allSatisfy;
     import std.traits : hasElaborateCopyConstructor, hasElaborateDestructor;
     import std.traits : isAssignable, isCopyable, isStaticArray;
+    import std.traits : ConstOf, ImmutableOf;
+    import std.typecons : ReplaceTypeUnless;
 
     /// The types a `SumType` can hold.
     alias Types = AliasSeq!(ReplaceTypeUnless!(isSumType, This, typeof(this), TypeArgs));
@@ -238,18 +250,19 @@ private:
 
     union Storage {
         template memberName(T) if (staticIndexOf!(T, Types) >= 0) {
-            mixin("enum memberName = `values_", staticIndexOf!(T, Types), "`;");
+            enum tid = staticIndexOf!(T, Types);
+            mixin("enum memberName = `values_", toCtString!tid, "`;");
         }
 
-        static foreach (tid, T; Types) {
-            mixin("Types[tid] ", memberName!T, ";");
+        static foreach (T; Types) {
+            mixin("T ", memberName!T, ";");
         }
     }
 
-    Tag tag;
     Storage storage;
+    Tag tag;
 
-    @trusted ref inout(T) get(T)() inout if (staticIndexOf!(T, Types) >= 0) {
+    @system ref inout(T) get(T)() inout if (staticIndexOf!(T, Types) >= 0) {
         enum tid = staticIndexOf!(T, Types);
         assert(tag == tid);
         return __traits(getMember, storage, Storage.memberName!T);
@@ -263,9 +276,9 @@ public:
             import core.lifetime : forward;
 
             static if (isCopyable!T) {
-                mixin("Storage newStorage = { ", Storage.memberName!T, ": value };");
+                mixin("Storage newStorage = { ", Storage.memberName!T, ": value", " };");
             } else {
-                mixin("Storage newStorage = { ", Storage.memberName!T, " : forward!value };");
+                mixin("Storage newStorage = { ", Storage.memberName!T, " : forward!value", " };");
             }
 
             storage = newStorage;
@@ -275,14 +288,16 @@ public:
         static if (isCopyable!T) {
             /// ditto
             this()(auto ref const(T) value) const {
-                mixin("const(Storage) newStorage = { ", Storage.memberName!T, ": value };");
+                mixin("const(Storage) newStorage = { ", Storage.memberName!T, ": value", " };");
+
                 storage = newStorage;
                 tag = tid;
             }
 
             /// ditto
             this()(auto ref immutable(T) value) immutable {
-                mixin("immutable(Storage) newStorage = { ", Storage.memberName!T, ": value };");
+                mixin("immutable(Storage) newStorage = { ", Storage.memberName!T, ": value", " };");
+
                 storage = newStorage;
                 tag = tid;
             }
@@ -299,7 +314,8 @@ public:
                 storage = other.match!((ref value) {
                     alias T = typeof(value);
 
-                    mixin("Storage newStorage = { ", Storage.memberName!T, ": value };");
+                    mixin("Storage newStorage = { ", Storage.memberName!T, ": value", " };");
+
                     return newStorage;
                 });
 
@@ -308,15 +324,13 @@ public:
 
             /// ditto
             this(ref const(SumType) other) const {
-                import std.meta : staticMap;
-                import std.traits : ConstOf;
-
                 storage = other.match!((ref value) {
                     alias OtherTypes = staticMap!(ConstOf, Types);
                     enum tid = staticIndexOf!(typeof(value), OtherTypes);
                     alias T = Types[tid];
 
-                    mixin("const(Storage) newStorage = { ", Storage.memberName!T, ": value };");
+                    mixin("const(Storage) newStorage = { ", Storage.memberName!T, ": value", " };");
+
                     return newStorage;
                 });
 
@@ -325,15 +339,14 @@ public:
 
             /// ditto
             this(ref immutable(SumType) other) immutable {
-                import std.meta : staticMap;
-                import std.traits : ImmutableOf;
-
                 storage = other.match!((ref value) {
                     alias OtherTypes = staticMap!(ImmutableOf, Types);
                     enum tid = staticIndexOf!(typeof(value), OtherTypes);
                     alias T = Types[tid];
 
-                    mixin("immutable(Storage) newStorage = { ", Storage.memberName!T, ": value };");
+                    mixin("immutable(Storage) newStorage = { ",
+                        Storage.memberName!T, ": value", " };");
+
                     return newStorage;
                 });
 
@@ -364,7 +377,7 @@ public:
 			 * guarantee that there are no outstanding references to $(I any)
 			 * of the `SumType`'s members when the assignment occurs.
 			 */
-            void opAssign()(auto ref T rhs) {
+            ref SumType opAssign()(auto ref T rhs) {
                 import core.lifetime : forward;
                 import std.traits : hasIndirections, hasNested;
                 import std.meta : Or = templateOr;
@@ -381,9 +394,12 @@ public:
                     }
                 });
 
-                mixin("Storage newStorage = { ", Storage.memberName!T, ": forward!rhs };");
+                mixin("Storage newStorage = { ", Storage.memberName!T, ": forward!rhs", " };");
+
                 storage = newStorage;
                 tag = tid;
+
+                return this;
             }
         }
     }
@@ -397,11 +413,12 @@ public:
 			 *
 			 * Copy assignment is `@disable`d if any of `Types` is non-copyable.
 			 */
-            void opAssign(ref SumType rhs) {
+            ref SumType opAssign(ref SumType rhs) {
                 rhs.match!((ref value) { this = value; });
+                return this;
             }
         } else {
-            @disable void opAssign(ref SumType rhs);
+            @disable ref SumType opAssign(ref SumType rhs);
         }
 
         /**
@@ -409,10 +426,11 @@ public:
 		 *
 		 * See the value-assignment overload for details on `@safe`ty.
 		 */
-        void opAssign(SumType rhs) {
+        ref SumType opAssign(SumType rhs) {
             import core.lifetime : move;
 
             rhs.match!((ref value) { this = move(value); });
+            return this;
         }
     }
 
@@ -422,7 +440,7 @@ public:
 	 * Two `SumType`s are equal if they are the same kind of `SumType`, they
 	 * contain values of the same type, and those values are equal.
 	 */
-    bool opEquals(const SumType rhs) const {
+    bool opEquals()(auto ref const(SumType) rhs) const {
         return this.match!((ref value) {
             return rhs.match!((ref rhsValue) {
                 static if (is(typeof(value) == typeof(rhsValue))) {
@@ -466,18 +484,33 @@ public:
         });
     }
 
-    static if (allSatisfy!(isCopyable, Types)) {
-        /**
-		 * Returns a string representation of a `SumType`'s value.
+    version (D_BetterC) {
+    } else /**
+	 * Returns a string representation of the `SumType`'s current value.
+	 *
+	 * Not available when compiled with `-betterC`.
+	 */
+        string toString(this T)() {
+        import std.conv : to;
+
+        return this.match!(to!string);
+    }
+
+    // toHash is required by the language spec to be nothrow and @safe
+    private enum isHashable(T) = __traits(compiles, () nothrow @safe {
+            hashOf(T.init);
+        });
+
+    static if (allSatisfy!(isHashable, staticMap!(ConstOf, Types))) {
+        // Workaround for dlang issue 20095
+        version (D_BetterC) {
+        } else /**
+		 * Returns the hash of the `SumType`'s current value.
 		 *
 		 * Not available when compiled with `-betterC`.
 		 */
-        version (D_BetterC) {
-        } else
-            string toString(this T)() {
-            import std.conv : text;
-
-            return this.match!((auto ref value) { return value.text; });
+            size_t toHash() const {
+            return this.match!hashOf;
         }
     }
 }
@@ -764,7 +797,7 @@ version (D_BetterC) {
 // Exception-safe assignment
 version (D_BetterC) {
 } else
-    @safe unittest {
+    @system unittest {
     static struct A {
         int value = 123;
     }
@@ -809,6 +842,8 @@ version (D_BetterC) {
     assert(__traits(compiles, y = move(x)));
     assert(!__traits(compiles, y = lval));
     assert(!__traits(compiles, y = x));
+
+    assert(__traits(compiles, x == y));
 }
 
 // Github issue #22
@@ -827,7 +862,7 @@ version (D_BetterC) {
 // Static arrays of structs with postblits
 version (D_BetterC) {
 } else
-    @safe unittest {
+    @system unittest {
     static struct S {
         int n;
         this(this) {
@@ -850,7 +885,7 @@ version (D_BetterC) {
 version (D_BetterC) {
 } else
     @safe unittest {
-    import std.typecons : Tuple;
+    import std.typecons : Tuple, ReplaceTypeUnless;
 
     alias A = Tuple!(This*, SumType!(This*))[SumType!(This*, string)[This]];
     alias TR = ReplaceTypeUnless!(isSumType, This, int, A);
@@ -925,7 +960,7 @@ version (D_BetterC) {
 }
 
 // Calls value postblit on self-assignment
-@safe unittest {
+@system unittest {
     static struct S {
         int n;
         this(this) {
@@ -956,6 +991,39 @@ version (D_BetterC) {
                 A a = createA("");
             }
         }));
+}
+
+// SumTypes as associative array keys
+version (D_BetterC) {
+} else
+    @safe unittest {
+    assert(__traits(compiles, { int[SumType!(int, string)] aa; }));
+}
+
+// toString with non-copyable types
+version (D_BetterC) {
+} else
+    @safe unittest {
+    struct NoCopy {
+        @disable this(this);
+    }
+
+    SumType!NoCopy x;
+
+    assert(__traits(compiles, x.toString()));
+}
+
+// Can use the result of assignment
+@safe unittest {
+    alias MySum = SumType!(int, float);
+
+    MySum a = MySum(123);
+    MySum b = MySum(3.14);
+
+    assert((a = b) == b);
+    assert((a = MySum(123)) == MySum(123));
+    assert((a = 3.14) == MySum(3.14));
+    assert(((a = b) = MySum(123)) == MySum(123));
 }
 
 version (none) {
@@ -1006,7 +1074,7 @@ version (none) {
 }
 
 /// True if `T` is an instance of `SumType`, otherwise false.
-enum isSumType(T) = is(T == SumType!Args, Args...);
+enum bool isSumType(T) = is(T == SumType!Args, Args...);
 
 unittest {
     static struct Wrapper {
@@ -1023,12 +1091,10 @@ unittest {
  *
  * For each possible type the [SumType] can hold, the given handlers are
  * checked, in order, to see whether they accept a single argument of that type.
- * The first one that does is chosen as the match for that type.
- *
- * Implicit conversions are not taken into account, except between
- * differently-qualified versions of the same type. For example, a handler that
- * accepts a `long` will not match the type `int`, but a handler that accepts a
- * `const(int)[]` will match the type `immutable(int)[]`.
+ * The first one that does is chosen as the match for that type. (Note that the
+ * first match may not always be the most exact match.
+ * See [#avoiding-unintentional-matches|"Avoiding unintentional matches"] for
+ * one common pitfall.)
  *
  * Every type must have a matching handler, and every handler must match at
  * least one type. This is enforced at compile time.
@@ -1060,6 +1126,37 @@ template match(handlers...) {
             if (is(Self : SumType!TypeArgs, TypeArgs...)) {
         return self.matchImpl!(Yes.exhaustive, handlers);
     }
+}
+
+/** $(H3 Avoiding unintentional matches)
+ *
+ * Sometimes, implicit conversions may cause a handler to match more types than
+ * intended. The example below shows two solutions to this problem.
+ */
+@safe unittest {
+    alias Number = SumType!(double, int);
+
+    Number x;
+
+    // Problem: because int implicitly converts to double, the double
+    // handler is used for both types, and the int handler never matches.
+    assert(!__traits(compiles, x.match!((double d) => "got double", (int n) => "got int")));
+
+    // Solution 1: put the handler for the "more specialized" type (in this
+    // case, int) before the handler for the type it converts to.
+    assert(__traits(compiles, x.match!((int n) => "got int", (double d) => "got double")));
+
+    // Solution 2: use a template that only accepts the exact type it's
+    // supposed to match, instead of any type that implicitly converts to it.
+    alias exactly(T, alias fun) = function(arg) {
+        static assert(is(typeof(arg) == T));
+        return fun(arg);
+    };
+
+    // Now, even if we put the double handler first, it will only be used for
+    // doubles, not ints.
+    assert(__traits(compiles, x.match!(exactly!(double, d => "got double"),
+            exactly!(int, n => "got int"))));
 }
 
 /**
@@ -1109,55 +1206,12 @@ version (D_Exceptions) class MatchException : Exception {
 }
 
 /**
- * Checks whether a handler can match a given type.
+ * True if `handler` is a potential match for `T`, otherwise false.
  *
  * See the documentation for [match] for a full explanation of how matches are
  * chosen.
  */
-template canMatch(alias handler, T) {
-    private bool canMatchImpl() {
-        import std.traits : hasMember, isCallable, isSomeFunction, Parameters;
-
-        // Include overloads even when called from outside of matchImpl
-        alias realHandler = handlerWithOverloads!handler;
-
-        // immutable recursively overrides all other qualifiers, so the
-        // right-hand side is true if and only if the two types are the
-        // same when qualifiers are ignored.
-        enum sameUpToQuals(T, U) = is(immutable(T) == immutable(U));
-
-        alias opCallOverloads(T) = __traits(getOverloads, T, "opCall");
-
-        bool result = false;
-
-        static if (is(typeof((T arg) { realHandler(arg); }(T.init)))) {
-            // Regular handlers
-            static if (isCallable!realHandler) {
-                // Functions and delegates
-                static if (isSomeFunction!realHandler) {
-                    static if (sameUpToQuals!(T, Parameters!realHandler[0])) {
-                        result = true;
-                    }
-                    // Objects with overloaded opCall
-                } else static if (hasMember!(typeof(realHandler), "opCall")) {
-                    static foreach (overload; opCallOverloads!(typeof(realHandler))) {
-                        static if (sameUpToQuals!(T, Parameters!overload[0])) {
-                            result = true;
-                        }
-                    }
-                }
-                // Generic handlers
-            } else {
-                result = true;
-            }
-        }
-
-        return result;
-    }
-
-    /// True if `handler` is a potential match for `T`, otherwise false.
-    enum bool canMatch = canMatchImpl;
-}
+enum bool canMatch(alias handler, T) = is(typeof((T arg) => handler(arg)));
 
 // Includes all overloads of the given handler
 @safe unittest {
@@ -1173,97 +1227,75 @@ template canMatch(alias handler, T) {
     assert(canMatch!(OverloadSet.fun, double));
 }
 
-import std.traits : isFunction;
-
-// An AliasSeq of a function's overloads
-private template FunctionOverloads(alias fun) if (isFunction!fun) {
-    import std.meta : AliasSeq;
-
-    alias FunctionOverloads = AliasSeq!(__traits(getOverloads, __traits(parent,
-            fun), __traits(identifier, fun), true  // include template overloads
-            ));
-}
-
-// A function that dispatches to the overloads of `fun`
-private template overloadDispatcher(alias fun) if (isFunction!fun) {
-    import std.traits : Parameters, ReturnType;
-
-    // Merge overloads into a local overload set
-    static foreach (overload; FunctionOverloads!fun) {
-        alias overloadSet = overload;
-    }
-
-    alias overloadDispatcher = (ref arg) => overloadSet(arg);
-}
-
-// A handler that includes all overloads of the original handler, if applicable
-private template handlerWithOverloads(alias handler) {
-    // Delegates and function pointers can't have overloads
-    static if (isFunction!handler && FunctionOverloads!handler.length > 1) {
-        alias handlerWithOverloads = overloadDispatcher!handler;
-    } else {
-        alias handlerWithOverloads = handler;
-    }
-}
-
 import std.typecons : Flag;
 
 private template matchImpl(Flag!"exhaustive" exhaustive, handlers...) {
     auto matchImpl(Self)(auto ref Self self)
             if (is(Self : SumType!TypeArgs, TypeArgs...)) {
-        import std.meta : staticMap;
-
         alias Types = self.Types;
         enum noMatch = size_t.max;
 
-        alias realHandlers = staticMap!(handlerWithOverloads, handlers);
+        enum matches = () {
+            size_t[Types.length] matches;
 
-        pure size_t[Types.length] getHandlerIndices() {
-            size_t[Types.length] indices;
-
-            version (D_BetterC) {
-                // Workaround for dlang issue 19561
-                foreach (ref index; indices) {
-                    index = noMatch;
-                }
-            } else {
-                indices[] = noMatch;
+            // Workaround for dlang issue 19561
+            foreach (ref match; matches) {
+                match = noMatch;
             }
 
             static foreach (tid, T; Types) {
-                static foreach (hid, handler; realHandlers) {
+                static foreach (hid, handler; handlers) {
                     static if (canMatch!(handler, typeof(self.get!T()))) {
-                        if (indices[tid] == noMatch) {
-                            indices[tid] = hid;
+                        if (matches[tid] == noMatch) {
+                            matches[tid] = hid;
                         }
                     }
                 }
             }
 
-            return indices;
-        }
-
-        enum handlerIndices = getHandlerIndices;
+            return matches;
+        }();
 
         import std.algorithm.searching : canFind;
 
         // Check for unreachable handlers
-        static foreach (hid, handler; realHandlers) {
-            static assert(handlerIndices[].canFind(hid), "handler `" ~ __traits(identifier,
-                    handler) ~ "` " ~ "of type `" ~ (__traits(isTemplate, handler)
-                    ? "template" : typeof(handler).stringof) ~ "` " ~ "never matches");
+        static foreach (hid, handler; handlers) {
+            static assert(matches[].canFind(hid),
+                    "`handlers[" ~ toCtString!hid ~ "]` " ~ "of type `" ~ (__traits(isTemplate, handler)
+                        ? "template" : typeof(handler).stringof) ~ "` " ~ "never matches");
+        }
+
+        // Workaround for dlang issue 19993
+        static foreach (size_t hid, handler; handlers) {
+            mixin("alias handler", toCtString!hid, " = handler;");
         }
 
         final switch (self.tag) {
             static foreach (tid, T; Types) {
-        case tid:
-                static if (handlerIndices[tid] != noMatch) {
-                    return realHandlers[handlerIndices[tid]](self.get!T);
-                } else {
-                    static if (exhaustive) {
-                        static assert(false, "No matching handler for type `" ~ T.stringof ~ "`");
+        case tid: {
+                    static if (matches[tid] != noMatch) {
+                        mixin("alias handler = handler", toCtString!(matches[tid]), ";");
+
+                        /* The call to `get` can be @trusted here because
+						 *
+						 *   - @safe's prohibition against taking the address
+						 *     of a function parameter makes it impossible for
+						 *     a reference to the accessed SumType member to
+						 *     escape from the handler.
+						 *
+						 *   - SumType.opAssign's forced-@system attribute
+						 *     for SumTypes that contain pointers makes it
+						 *     impossible for unsafe aliasing to occur in
+						 *     the body of the handler.
+						 */
+                        return handler(ref() @trusted { return self.get!T; }());
                     } else {
-                        throw new MatchException("No matching handler for type `" ~ T.stringof ~ "`");
+                        static if (exhaustive) {
+                            static assert(false, "No matching handler for type `" ~ T.stringof ~ "`");
+                        } else {
+                            throw new MatchException(
+                                    "No matching handler for type `" ~ T.stringof ~ "`");
+                        }
                     }
                 }
             }
@@ -1292,15 +1324,6 @@ private template matchImpl(Flag!"exhaustive" exhaustive, handlers...) {
 
     assert(!__traits(compiles, x.match!((int x) => true)));
     assert(!__traits(compiles, x.match!()));
-}
-
-// No implicit converstion
-@safe unittest {
-    alias MySum = SumType!(int, float);
-
-    MySum x = MySum(42);
-
-    assert(!__traits(compiles, x.match!((long v) => true, (float v) => false)));
 }
 
 // Handlers with qualified parameters
@@ -1504,7 +1527,7 @@ version (D_Exceptions) @safe unittest {
 }
 
 // Handlers with ref parameters
-@safe unittest {
+@system unittest {
     import std.meta : staticIndexOf;
 
     alias Value = SumType!(long, double);
@@ -1650,6 +1673,15 @@ unittest {
         }));
 }
 
+// Github issue #31
+@safe unittest {
+    assert(__traits(compiles, () @nogc {
+            int acc = 0;
+
+            SumType!(int, string)(1).match!((int x) => acc += x, (string _) => 0,);
+        }));
+}
+
 // Types that `alias this` a SumType
 @safe unittest {
     static struct A {
@@ -1684,295 +1716,5 @@ version (SumTypeTestBetterC) {
 
         puts("All unit tests have been run successfully.");
         return 0;
-    }
-}
-
-static if (__traits(compiles, { import std.typecons : ReplaceTypeUnless; })) {
-    import std.typecons : ReplaceTypeUnless;
-} else {
-    /**
- * Replaces all occurrences of `From` into `To`, in one or more types `T`
- * whenever the predicate applied to `T` evaluates to false. For example, $(D
- * ReplaceTypeUnless!(isBoolean, int, uint, Tuple!(int, float)[string])) yields
- * $(D Tuple!(uint, float)[string]) while $(D ReplaceTypeUnless!(isTuple, int,
- * string, Tuple!(int, bool)[int])) yields $(D Tuple!(int, bool)[string]). The
- * types in which replacement is performed may be arbitrarily complex,
- * including qualifiers, built-in type constructors (pointers, arrays,
- * associative arrays, functions, and delegates), and template instantiations;
- * replacement proceeds transitively through the type definition.  However,
- * member types in `struct`s or `class`es are not replaced because there are no
- * ways to express the types resulting after replacement.
- *
- * This is an advanced type manipulation necessary e.g. for replacing the
- * placeholder type `This` in $(REF SumType).
- *
- * This template is a generalised version of the one in
- * https://github.com/dlang/phobos/blob/d1c8fb0b69dc12669554d5cb96d3045753549619/std/typecons.d
- *
- * Returns: `ReplaceTypeUnless` aliases itself to the type(s) that result after
- * replacement.
-*/
-    private template ReplaceTypeUnless(alias Pred, From, To, T...) {
-        import std.meta;
-
-        static if (T.length == 1) {
-            static if (Pred!(T[0]))
-                alias ReplaceTypeUnless = T[0];
-            else static if (is(T[0] == From))
-                alias ReplaceTypeUnless = To;
-            else static if (is(T[0] == const(U), U))
-                alias ReplaceTypeUnless = const(ReplaceTypeUnless!(Pred, From, To, U));
-            else static if (is(T[0] == immutable(U), U))
-                alias ReplaceTypeUnless = immutable(ReplaceTypeUnless!(Pred, From, To, U));
-            else static if (is(T[0] == shared(U), U))
-                alias ReplaceTypeUnless = shared(ReplaceTypeUnless!(Pred, From, To, U));
-            else static if (is(T[0] == U*, U)) {
-                static if (is(U == function))
-                    alias ReplaceTypeUnless = replaceTypeInFunctionTypeUnless!(Pred, From, To, T[0]);
-                else
-                    alias ReplaceTypeUnless = ReplaceTypeUnless!(Pred, From, To, U)*;
-            } else static if (is(T[0] == delegate)) {
-                alias ReplaceTypeUnless = replaceTypeInFunctionTypeUnless!(Pred, From, To, T[0]);
-            } else static if (is(T[0] == function)) {
-                static assert(0,
-                        "Function types not supported,"
-                        ~ " use a function pointer type instead of " ~ T[0].stringof);
-            } else static if (is(T[0] == U!V, alias U, V...)) {
-                template replaceTemplateArgs(T...) {
-                    static if (is(typeof(T[0]))) // template argument is value or symbol
-                        enum replaceTemplateArgs = T[0];
-                    else
-                        alias replaceTemplateArgs = ReplaceTypeUnless!(Pred, From, To, T[0]);
-                }
-
-                alias ReplaceTypeUnless = U!(staticMap!(replaceTemplateArgs, V));
-            } else static if (is(T[0] == struct)) // don't match with alias this struct below (Issue 15168)
-                alias ReplaceTypeUnless = T[0];
-            else static if (is(T[0] == U[], U))
-                alias ReplaceTypeUnless = ReplaceTypeUnless!(Pred, From, To, U)[];
-            else static if (is(T[0] == U[n], U, size_t n))
-                alias ReplaceTypeUnless = ReplaceTypeUnless!(Pred, From, To, U)[n];
-            else static if (is(T[0] == U[V], U, V))
-                alias ReplaceTypeUnless = ReplaceTypeUnless!(Pred, From, To, U)[ReplaceTypeUnless!(Pred,
-                            From, To, V)];
-            else
-                alias ReplaceTypeUnless = T[0];
-        } else static if (T.length > 1) {
-            alias ReplaceTypeUnless = AliasSeq!(ReplaceTypeUnless!(Pred, From,
-                    To, T[0]), ReplaceTypeUnless!(Pred, From, To, T[1 .. $]));
-        } else {
-            alias ReplaceTypeUnless = AliasSeq!();
-        }
-    }
-
-    private template replaceTypeInFunctionTypeUnless(alias Pred, From, To, fun) {
-        import std.traits;
-        import std.meta : AliasSeq;
-
-        alias RX = ReplaceTypeUnless!(Pred, From, To, ReturnType!fun);
-        alias PX = AliasSeq!(ReplaceTypeUnless!(Pred, From, To, Parameters!fun));
-        // Wrapping with AliasSeq is neccesary because ReplaceType doesn't return
-        // tuple if Parameters!fun.length == 1
-
-        string gen() {
-            enum linkage = functionLinkage!fun;
-            alias attributes = functionAttributes!fun;
-            enum variadicStyle = variadicFunctionStyle!fun;
-            alias storageClasses = ParameterStorageClassTuple!fun;
-
-            string result;
-
-            result ~= "extern(" ~ linkage ~ ") ";
-            static if (attributes & FunctionAttribute.ref_) {
-                result ~= "ref ";
-            }
-
-            result ~= "RX";
-            static if (is(fun == delegate))
-                result ~= " delegate";
-            else
-                result ~= " function";
-
-            result ~= "(";
-            static foreach (i; 0 .. PX.length) {
-                if (i)
-                    result ~= ", ";
-                if (storageClasses[i] & ParameterStorageClass.scope_)
-                    result ~= "scope ";
-                if (storageClasses[i] & ParameterStorageClass.out_)
-                    result ~= "out ";
-                if (storageClasses[i] & ParameterStorageClass.ref_)
-                    result ~= "ref ";
-                if (storageClasses[i] & ParameterStorageClass.lazy_)
-                    result ~= "lazy ";
-                if (storageClasses[i] & ParameterStorageClass.return_)
-                    result ~= "return ";
-
-                result ~= "PX[" ~ i.stringof ~ "]";
-            }
-            static if (variadicStyle == Variadic.typesafe)
-                result ~= " ...";
-            else static if (variadicStyle != Variadic.no)
-                result ~= ", ...";
-            result ~= ")";
-
-            static if (attributes & FunctionAttribute.pure_)
-                result ~= " pure";
-            static if (attributes & FunctionAttribute.nothrow_)
-                result ~= " nothrow";
-            static if (attributes & FunctionAttribute.property)
-                result ~= " @property";
-            static if (attributes & FunctionAttribute.trusted)
-                result ~= " @trusted";
-            static if (attributes & FunctionAttribute.safe)
-                result ~= " @safe";
-            static if (attributes & FunctionAttribute.nogc)
-                result ~= " @nogc";
-            static if (attributes & FunctionAttribute.system)
-                result ~= " @system";
-            static if (attributes & FunctionAttribute.const_)
-                result ~= " const";
-            static if (attributes & FunctionAttribute.immutable_)
-                result ~= " immutable";
-            static if (attributes & FunctionAttribute.inout_)
-                result ~= " inout";
-            static if (attributes & FunctionAttribute.shared_)
-                result ~= " shared";
-            static if (attributes & FunctionAttribute.return_)
-                result ~= " return";
-
-            return result;
-        }
-
-        mixin("alias replaceTypeInFunctionTypeUnless = " ~ gen() ~ ";");
-    }
-
-    // Adapted from:
-    // https://github.com/dlang/phobos/blob/d1c8fb0b69dc12669554d5cb96d3045753549619/std/typecons.d
-    @safe unittest {
-        import std.typecons : Tuple;
-
-        enum False(T) = false;
-        static assert(is(ReplaceTypeUnless!(False, int, string,
-                int[]) == string[]) && is(ReplaceTypeUnless!(False, int, string,
-                int[int]) == string[string]) && is(ReplaceTypeUnless!(False, int,
-                string, const(int)[]) == const(string)[]) && is(ReplaceTypeUnless!(False,
-                int, string, Tuple!(int[], float)) == Tuple!(string[], float)));
-    }
-
-    // Adapted from:
-    // https://github.com/dlang/phobos/blob/d1c8fb0b69dc12669554d5cb96d3045753549619/std/typecons.d
-    version (D_BetterC) {
-    } else
-        @safe unittest {
-        import std.typecons;
-
-        enum False(T) = false;
-        template Test(Ts...) {
-            static if (Ts.length) {
-                static assert(is(ReplaceTypeUnless!(False, Ts[0], Ts[1],
-                        Ts[2]) == Ts[3]), "ReplaceTypeUnless!(False, " ~ Ts[0].stringof ~ ", "
-                        ~ Ts[1].stringof ~ ", " ~ Ts[2].stringof ~ ") == " ~ ReplaceTypeUnless!(False,
-                            Ts[0], Ts[1], Ts[2]).stringof);
-                alias Test = Test!(Ts[4 .. $]);
-            } else
-                alias Test = void;
-        }
-
-        import core.stdc.stdio;
-
-        alias RefFun1 = ref int function(float, long);
-        alias RefFun2 = ref float function(float, long);
-        extern (C) int printf(const char*, ...) nothrow @nogc @system;
-        extern (C) float floatPrintf(const char*, ...) nothrow @nogc @system;
-        int func(float);
-
-        int x;
-        struct S1 {
-            void foo() {
-                x = 1;
-            }
-        }
-
-        struct S2 {
-            void bar() {
-                x = 2;
-            }
-        }
-
-        alias Pass = Test!(int, float, typeof(&func), float delegate(float),
-                int, float, typeof(&printf), typeof(&floatPrintf), int,
-                float, int function(out long, ...), float function(out long,
-                    ...), int, float, int function(ref float, long),
-                float function(ref float, long), int, float, int function(ref int, long),
-                float function(ref float, long), int, float, int function(out int, long),
-                float function(out float, long), int, float, int function(lazy int, long),
-                float function(lazy float, long), int, float, int function(out long,
-                    ref const int), float function(out long, ref const float), int,
-                int, int, int, int, float, int, float, int, float, const int,
-                const float, int, float, immutable int, immutable float, int,
-                float, shared int, shared float, int, float, int*, float*, int,
-                float, const(int)*, const(float)*, int, float, const(int*),
-                const(float*), const(int)*, float, const(int*), const(float),
-                int*, float, const(int)*, const(int)*, int, float, int[],
-                float[], int, float, int[42], float[42], int, float,
-                const(int)[42], const(float)[42], int, float, const(int[42]),
-                const(float[42]), int, float, int[int], float[float], int,
-                float, int[double], float[double], int, float, double[int],
-                double[float], int, float, int function(float, long),
-                float function(float, long), int, float, int function(float),
-                float function(float), int, float, int function(float, int),
-                float function(float, float), int, float, int delegate(float, long),
-                float delegate(float, long), int, float, int delegate(float),
-                float delegate(float), int, float, int delegate(float, int),
-                float delegate(float, float), int, float, Unique!int, Unique!float,
-                int, float, Tuple!(float, int), Tuple!(float, float), int,
-                float, RefFun1, RefFun2, S1, S2, S1[1][][S1]* function(),
-                S2[1][][S2]* function(), int, string, int[3]function(int[] arr,
-                    int[2]...) pure @trusted, string[3]function(string[] arr,
-                    string[2]...) pure @trusted,);
-
-        // Dlang Bugzilla 15168
-        static struct T1 {
-            string s;
-            alias s this;
-        }
-
-        static struct T2 {
-            char[10] s;
-            alias s this;
-        }
-
-        static struct T3 {
-            string[string] s;
-            alias s this;
-        }
-
-        alias Pass2 = Test!(ubyte, ubyte, T1, T1, ubyte, ubyte, T2, T2, ubyte, ubyte, T3, T3,);
-    }
-
-    version (D_BetterC) {
-    } else
-        @safe unittest  // Dlang Bugzilla 17116
-        {
-        enum False(T) = false;
-        alias ConstDg = void delegate(float) const;
-        alias B = void delegate(int) const;
-        alias A = ReplaceTypeUnless!(False, float, int, ConstDg);
-        static assert(is(B == A));
-    }
-
-    // Github issue #27
-    @safe unittest {
-        enum False(T) = false;
-        struct A(T) {
-        }
-
-        struct B {
-            A!int a;
-            alias a this;
-        }
-
-        static assert(is(ReplaceTypeUnless!(False, void, void, B) == B));
     }
 }
