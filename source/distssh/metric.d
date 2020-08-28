@@ -193,21 +193,18 @@ struct RemoteHostCache {
 
     /// Reorder the first three candidates in the server list in a random order.
     static private HostLoad[] reorder(HostLoad[] servers) @safe nothrow {
-        import std.random : randomSample;
+        import std.random : randomCover;
 
-        if (servers.length < 3)
-            return servers;
+        auto app = appender!(HostLoad[])();
 
-        try {
-            auto app = appender!(HostLoad[])();
-            servers.take(topCandidades).randomSample(topCandidades).copy(app);
+        if (servers.length < 3) {
+            servers.randomCover.copy(app);
+        } else {
+            servers.take(topCandidades).randomCover.copy(app);
             servers.drop(topCandidades).copy(app);
-            return app.data;
-        } catch (Exception e) {
-            logger.warning(e.msg).collectException;
-            logger.warning("Random sampling failed").collectException;
         }
-        return servers;
+
+        return app.data;
     }
 
     Host front() @safe pure nothrow {
