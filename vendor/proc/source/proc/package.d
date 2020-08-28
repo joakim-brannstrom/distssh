@@ -5,6 +5,7 @@ Author: Joakim Brännström (joakim.brannstrom@gmx.com)
 */
 module proc;
 
+import core.sys.posix.signal : SIGKILL;
 import core.thread : Thread;
 import core.time : dur, Duration;
 import logger = std.experimental.logger;
@@ -16,30 +17,48 @@ import std.typecons : Flag, Yes;
 static import std.process;
 static import std.stdio;
 
+import my.gc.refc;
+import my.from_;
+
 public import proc.channel;
 public import proc.pid;
 
 version (unittest) {
-    import unit_threaded.assertions;
     import std.file : remove;
 }
 
-/// Automatically terminate the process when it goes out of scope.
-auto scopeKill(T)(T p) {
-    return ScopeKill!T(p);
+/** Manage a process by reference counting so that it is terminated when the it
+ * stops being used such as the instance going out of scope.
+ */
+auto rcKill(T)(T p, int signal = SIGKILL) {
+    return refCounted(ScopeKill!T(p, signal));
 }
+
+// backward compatibility.
+alias scopeKill = rcKill;
 
 struct ScopeKill(T) {
     T process;
     alias process this;
 
-    ~this() {
-        process.dispose();
+    private int signal = SIGKILL;
+    private bool hasProcess;
+
+    this(T process, int signal) @safe {
+        this.process = process;
+        this.signal = signal;
+        this.hasProcess = true;
+    }
+
+    ~this() @safe {
+        if (hasProcess)
+            process.dispose();
     }
 }
 
 /// Async process wrapper for a std.process SpawnProcess
 struct SpawnProcess {
+    import core.sys.posix.signal : SIGKILL;
     import std.algorithm : among;
 
     private {
@@ -58,6 +77,9 @@ struct SpawnProcess {
     this(std.process.Pid process) @safe {
         this.process = process;
         this.pid = process.osHandle.RawPid;
+    }
+
+    ~this() @safe {
     }
 
     /// Returns: The raw OS handle for the process ID.
@@ -82,10 +104,12 @@ struct SpawnProcess {
         st = State.exitCode;
     }
 
-    /// Kill the process.
-    void kill() nothrow @trusted {
-        import core.sys.posix.signal : SIGKILL;
-
+    /** Send `signal` to the process.
+     *
+     * Param:
+     *  signal = a signal from `core.sys.posix.signal`
+     */
+    void kill(int signal = SIGKILL) nothrow @trusted {
         final switch (st) {
         case State.running:
             break;
@@ -96,7 +120,7 @@ struct SpawnProcess {
         }
 
         try {
-            std.process.kill(process, SIGKILL);
+            std.process.kill(process, signal);
         } catch (Exception e) {
         }
 
@@ -162,6 +186,7 @@ struct SpawnProcess {
 /// Async process that do not block on read from stdin/stderr.
 struct PipeProcess {
     import std.algorithm : among;
+    import core.sys.posix.signal : SIGKILL;
 
     private {
         enum State {
@@ -219,10 +244,12 @@ struct PipeProcess {
         st = State.exitCode;
     }
 
-    /// Kill the process.
-    void kill() nothrow @trusted {
-        import core.sys.posix.signal : SIGKILL;
-
+    /** Send `signal` to the process.
+     *
+     * Param:
+     *  signal = a signal from `core.sys.posix.signal`
+     */
+    void kill(int signal = SIGKILL) nothrow @trusted {
         final switch (st) {
         case State.running:
             break;
@@ -233,7 +260,7 @@ struct PipeProcess {
         }
 
         try {
-            std.process.kill(process.pid, SIGKILL);
+            std.process.kill(process.pid, signal);
         } catch (Exception e) {
         }
 
@@ -350,7 +377,9 @@ PipeProcess pipeShell(scope const(char)[] command,
 /** Moves the process to a separate process group and on exit kill it and all
  * its children.
  */
-struct Sandbox(ProcessT) {
+@safe struct Sandbox(ProcessT) {
+    import core.sys.posix.signal : SIGKILL;
+
     private {
         ProcessT p;
         RawPid pid;
@@ -386,16 +415,21 @@ struct Sandbox(ProcessT) {
         p.dispose;
     }
 
-    void kill() nothrow @safe {
+    /** Send `signal` to the process.
+     *
+     * Param:
+     *  signal = a signal from `core.sys.posix.signal`
+     */
+    void kill(int signal = SIGKILL) nothrow @safe {
         // must first retrieve the submap because after the process is killed
         // its children may have changed.
         auto pmap = makePidMap.getSubMap(pid);
 
-        p.kill;
+        p.kill(signal);
 
         // only kill and reap the children
         pmap.remove(pid);
-        proc.pid.kill(pmap, Yes.onlyCurrentUser).reap;
+        proc.pid.kill(pmap, Yes.onlyCurrentUser, signal).reap;
     }
 
     int wait() @safe {
@@ -431,26 +465,26 @@ sleep 10m
     scope (exit)
         remove(scriptName);
 
-    auto p = pipeProcess([scriptName]).sandbox.scopeKill;
+    auto p = pipeProcess([scriptName]).sandbox.rcKill;
     waitUntilChildren(p.osHandle, 3);
     const preChildren = makePidMap.getSubMap(p.osHandle).remove(p.osHandle).length;
     p.kill;
     Thread.sleep(500.dur!"msecs"); // wait for the OS to kill the children
     const postChildren = makePidMap.getSubMap(p.osHandle).remove(p.osHandle).length;
 
-    p.wait.shouldEqual(-9);
-    p.terminated.shouldBeTrue;
-    preChildren.shouldEqual(3);
-    postChildren.shouldEqual(0);
+    assert(p.wait == -9);
+    assert(p.terminated);
+    assert(preChildren == 3);
+    assert(postChildren == 0);
 }
 
 /** dispose the process after the timeout.
  */
-struct Timeout(ProcessT) {
+@safe struct Timeout(ProcessT) {
+    import core.sys.posix.signal : SIGKILL;
+    import core.thread;
     import std.algorithm : among;
     import std.datetime : Clock, Duration;
-    import core.thread;
-    import std.typecons : RefCounted, refCounted;
 
     private {
         enum Msg {
@@ -486,6 +520,10 @@ struct Timeout(ProcessT) {
         rc.background.start;
     }
 
+    ~this() @trusted {
+        rc.release;
+    }
+
     private static class Background : Thread {
         import core.sync.condition : Condition;
         import core.sync.mutex : Mutex;
@@ -496,6 +534,7 @@ struct Timeout(ProcessT) {
         Msg[] msg;
         Reply reply_;
         RawPid pid;
+        int signal = SIGKILL;
 
         this(ProcessT* p, Duration timeout) {
             this.p = p;
@@ -542,16 +581,22 @@ struct Timeout(ProcessT) {
             return reply_;
         }
 
+        void setSignal(int signal) @trusted nothrow {
+            this.mtx.lock_nothrow();
+            scope (exit)
+                this.mtx.unlock_nothrow();
+            this.signal = signal;
+        }
+
         void kill() @trusted nothrow {
             this.mtx.lock_nothrow();
             scope (exit)
                 this.mtx.unlock_nothrow();
-            p.kill;
+            p.kill(signal);
         }
     }
 
     private static void checkProcess(RawPid p, Duration timeout, Background bg) nothrow {
-        import core.sys.posix.signal : SIGKILL;
         import std.algorithm : max, min;
         import std.variant : Variant;
         static import core.sys.posix.signal;
@@ -569,7 +614,7 @@ struct Timeout(ProcessT) {
 
             final switch (msg) {
             case Msg.none:
-                Thread.sleep(sleepInterval);
+                () @trusted { Thread.sleep(sleepInterval); }();
                 break;
             case Msg.stop:
                 forceStop = true;
@@ -580,14 +625,16 @@ struct Timeout(ProcessT) {
                 break;
             }
 
-            if (core.sys.posix.signal.kill(p, 0) == -1) {
-                running = false;
-            }
+            () @trusted {
+                if (core.sys.posix.signal.kill(p, 0) == -1) {
+                    running = false;
+                }
+            }();
         }
 
         // may be children alive thus must ensure that the whole process tree
         // is killed if this is a sandbox with a timeout.
-        bg.kill;
+        bg.kill();
 
         if (!forceStop && Clock.currTime >= stopAt) {
             bg.setReply(Reply.killedByTimeout);
@@ -600,12 +647,16 @@ struct Timeout(ProcessT) {
         return rc.pid;
     }
 
-    ref Pipe pipe() nothrow @trusted {
-        return rc.p.pipe;
+    static if (__traits(hasMember, ProcessT, "pipe")) {
+        ref Pipe pipe() nothrow @trusted {
+            return rc.p.pipe;
+        }
     }
 
-    ref FileReadChannel stderr() nothrow @trusted {
-        return rc.p.stderr;
+    static if (__traits(hasMember, ProcessT, "stderr")) {
+        ref FileReadChannel stderr() nothrow @trusted {
+            return rc.p.stderr;
+        }
     }
 
     void dispose() @trusted {
@@ -617,8 +668,14 @@ struct Timeout(ProcessT) {
         rc.p.dispose;
     }
 
-    void kill() nothrow @trusted {
-        rc.background.kill;
+    /** Send `signal` to the process.
+     *
+     * Param:
+     *  signal = a signal from `core.sys.posix.signal`
+     */
+    void kill(int signal = SIGKILL) nothrow @trusted {
+        rc.background.setSignal(signal);
+        rc.background.kill();
     }
 
     int wait() @trusted {
@@ -664,17 +721,17 @@ void waitForPendingData(ProcessT)(Process p) {
 unittest {
     import std.datetime.stopwatch : StopWatch, AutoStart;
 
-    auto p = pipeProcess(["sleep", "1m"]).timeout(100.dur!"msecs").scopeKill;
+    auto p = pipeProcess(["sleep", "1m"]).timeout(100.dur!"msecs").rcKill;
     auto sw = StopWatch(AutoStart.yes);
     p.wait;
     sw.stop;
 
-    sw.peek.shouldBeGreaterThan(100.dur!"msecs");
-    sw.peek.shouldBeSmallerThan(500.dur!"msecs");
-    p.wait.shouldEqual(-9);
-    p.terminated.shouldBeTrue;
-    p.status.shouldEqual(-9);
-    p.timeoutTriggered.shouldBeTrue;
+    assert(sw.peek >= 100.dur!"msecs");
+    assert(sw.peek <= 500.dur!"msecs");
+    assert(p.wait == -9);
+    assert(p.terminated);
+    assert(p.status == -9);
+    assert(p.timeoutTriggered);
 }
 
 struct DrainElement {
@@ -843,7 +900,7 @@ struct DrainByLineCopyRange(ProcessT) {
         const(char)[] line;
     }
 
-    this(ProcessT p) @safe {
+    this(ProcessT p) {
         process = p;
         range = p.drain;
     }
@@ -906,8 +963,10 @@ struct DrainByLineCopyRange(ProcessT) {
                 while (!range.empty && idx == -1 && cnt++ < 2);
             }();
 
-            auto tmp = updateBuf(idx);
-            line = std.utf.byUTF!(const(char))(cast(const(char)[]) tmp).array;
+            if (idx != -1) {
+                auto tmp = updateBuf(idx);
+                line = std.utf.byUTF!(const(char))(cast(const(char)[]) tmp).array;
+            }
         }
 
         bool lastLine() {
@@ -954,21 +1013,21 @@ unittest {
     import std.algorithm : filter, joiner, map;
     import std.array : array;
 
-    auto p = pipeProcess(["dd", "if=/dev/zero", "bs=10", "count=3"]).scopeKill;
+    auto p = pipeProcess(["dd", "if=/dev/zero", "bs=10", "count=3"]).rcKill;
     auto res = p.process.drainByLineCopy.filter!"!a.empty".array;
 
-    res.length.shouldEqual(3);
-    res.joiner.count.shouldBeGreaterThan(30);
-    p.wait.shouldEqual(0);
-    p.terminated.shouldBeTrue;
+    assert(res.length == 3);
+    assert(res.joiner.count >= 30);
+    assert(p.wait == 0);
+    assert(p.terminated);
 }
 
-auto drainByLineCopy(T)(T p) @safe {
+auto drainByLineCopy(T)(T p) {
     return DrainByLineCopyRange!T(p);
 }
 
 /// Drain the process output until it is done executing.
-auto drainToNull(T)(T p) @safe {
+auto drainToNull(T)(T p) {
     foreach (l; p.drain()) {
     }
     return p;
@@ -984,21 +1043,20 @@ auto drain(ProcessT, T)(ProcessT p, ref T range) {
 
 @("shall drain the output of a process while it is running with a separation of stdout and stderr")
 unittest {
-    auto p = pipeProcess(["dd", "if=/dev/urandom", "bs=10", "count=3"]).scopeKill;
-    auto res = p.process.drain.array;
+    auto p = pipeProcess(["dd", "if=/dev/urandom", "bs=10", "count=3"]).rcKill;
+    auto res = p.drain.array;
 
     // this is just a sanity check. It has to be kind a high because there is
     // some wiggleroom allowed
-    res.count.shouldBeSmallerThan(50);
+    assert(res.count <= 50);
 
-    res.filter!(a => a.type == DrainElement.Type.stdout)
-        .map!(a => a.data)
-        .joiner
-        .count
-        .shouldEqual(30);
-    res.filter!(a => a.type == DrainElement.Type.stderr).count.shouldBeGreaterThan(0);
-    p.wait.shouldEqual(0);
-    p.terminated.shouldBeTrue;
+    assert(res.filter!(a => a.type == DrainElement.Type.stdout)
+            .map!(a => a.data)
+            .joiner
+            .count == 30);
+    assert(res.filter!(a => a.type == DrainElement.Type.stderr).count == 0);
+    assert(p.wait == 0);
+    assert(p.terminated);
 }
 
 @("shall kill the process tree when the timeout is reached")
@@ -1009,16 +1067,16 @@ sleep 10m
     scope (exit)
         remove(script);
 
-    auto p = pipeProcess([script]).sandbox.timeout(1.dur!"seconds").scopeKill;
+    auto p = pipeProcess([script]).sandbox.timeout(1.dur!"seconds").rcKill;
     waitUntilChildren(p.osHandle, 1);
     const preChildren = makePidMap.getSubMap(p.osHandle).remove(p.osHandle).length;
     const res = p.process.drain.array;
     const postChildren = makePidMap.getSubMap(p.osHandle).remove(p.osHandle).length;
 
-    p.wait.shouldEqual(-9);
-    p.terminated.shouldBeTrue;
-    preChildren.shouldEqual(1);
-    postChildren.shouldEqual(0);
+    assert(p.wait == -9);
+    assert(p.terminated);
+    assert(preChildren == 1);
+    assert(postChildren == 0);
 }
 
 string makeScript(string script, string file = __FILE__, uint line = __LINE__) {
