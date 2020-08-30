@@ -33,19 +33,21 @@ struct ExecuteOnHostConf {
  * #SPC-automatic_env_import
  */
 int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
-    import distssh.protocol : ProtocolEnv;
     import core.thread : Thread;
     import core.time : dur, MonoTime;
     import std.file : thisExePath;
+    import std.format : format;
     import std.path : absolutePath;
     import std.process : tryWait, Redirect, pipeProcess, escapeShellFileName;
+
+    import distssh.protocol : ProtocolEnv;
 
     // #SPC-draft_remote_cmd_spec
     try {
         auto args = ["ssh"] ~ sshNoLoginArgs ~ [
             host, thisExePath, "localrun", "--workdir",
             conf.workDir.escapeShellFileName, "--stdin-msgpack-env", "--"
-        ] ~ conf.command;
+        ] ~ format!"'%-(%s %)'"(conf.command);
 
         logger.tracef("Connecting to %s. Run %s", host, args.joiner(" "));
 

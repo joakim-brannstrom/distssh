@@ -196,10 +196,6 @@ int cli(const Config fconf, Config.LocalRun conf) {
         }
 
         auto res = () {
-            if (exists(fconf.global.command[0]) && fconf.global.command.length == 1) {
-                return spawnProcess(fconf.global.command, env, PConfig.none, fconf.global.workDir)
-                    .sandbox.scopeKill;
-            }
             return spawnShell(fconf.global.command.dup.joiner(" ").toUTF8, env,
                     PConfig.none, fconf.global.workDir).sandbox.scopeKill;
         }();
