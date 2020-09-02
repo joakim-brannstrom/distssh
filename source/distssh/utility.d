@@ -41,6 +41,7 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
     import std.process : tryWait, Redirect, pipeProcess, escapeShellFileName;
 
     import distssh.protocol : ProtocolEnv;
+    import distssh.timer : makeTimers, makeInterval;
 
     // #SPC-draft_remote_cmd_spec
     try {
@@ -62,17 +63,26 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
             env = readEnv(conf.importEnv.absolutePath);
         pwriter.pack(env);
 
+        auto timers = makeTimers;
+        makeInterval(timers, () @trusted {
+            try {
+                Watchdog.ping(pwriter);
+            } catch (Exception e) {
+            }
+            return true;
+        }, 250.dur!"msecs");
+        // a dummy event that ensure that it tick each 50 msec.
+        makeInterval(timers, () => true, 50.dur!"msecs");
+
         while (true) {
             try {
                 auto st = p.pid.tryWait;
                 if (st.terminated)
                     return st.status;
-
-                Watchdog.ping(pwriter);
             } catch (Exception e) {
             }
 
-            Thread.sleep(50.dur!"msecs");
+            timers.tick(50.dur!"msecs");
         }
     } catch (Exception e) {
         logger.error(e.msg).collectException;
