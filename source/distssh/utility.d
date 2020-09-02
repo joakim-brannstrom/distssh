@@ -15,6 +15,7 @@ import logger = std.experimental.logger;
 import colorlog;
 
 import from_;
+import my.path;
 
 import distssh.config;
 import distssh.metric;
@@ -41,6 +42,7 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
     import std.process : tryWait, Redirect, pipeProcess, escapeShellFileName;
 
     import distssh.protocol : ProtocolEnv;
+    import distssh.timer : makeTimers, makeInterval;
 
     // #SPC-draft_remote_cmd_spec
     try {
@@ -62,17 +64,26 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
             env = readEnv(conf.importEnv.absolutePath);
         pwriter.pack(env);
 
+        auto timers = makeTimers;
+        makeInterval(timers, () @trusted {
+            try {
+                Watchdog.ping(pwriter);
+            } catch (Exception e) {
+            }
+            return true;
+        }, 250.dur!"msecs");
+        // a dummy event that ensure that it tick each 50 msec.
+        makeInterval(timers, () => true, 50.dur!"msecs");
+
         while (true) {
             try {
                 auto st = p.pid.tryWait;
                 if (st.terminated)
                     return st.status;
-
-                Watchdog.ping(pwriter);
             } catch (Exception e) {
             }
 
-            Thread.sleep(50.dur!"msecs");
+            timers.tick(50.dur!"msecs");
         }
     } catch (Exception e) {
         logger.error(e.msg).collectException;
@@ -264,5 +275,55 @@ struct Watchdog {
         import distssh.protocol : HeartBeat;
 
         f.pack!HeartBeat;
+    }
+}
+
+/// Update the client beat in a separate thread, slowely, to keep the daemon
+/// running if the client is executing a long running job.
+struct BackgroundClientBeat {
+    import std.concurrency : send, spawn, receiveTimeout, Tid;
+
+    private {
+        bool isRunning;
+        Tid bg;
+
+        enum Msg {
+            stop,
+        }
+    }
+
+    this(AbsolutePath dbPath) {
+        bg = spawn(&tick, dbPath);
+        isRunning = true;
+    }
+
+    ~this() @trusted {
+        if (!isRunning)
+            return;
+
+        isRunning = false;
+        send(bg, Msg.stop);
+    }
+
+    private static void tick(AbsolutePath dbPath) nothrow {
+        import core.time : dur;
+        import distssh.database;
+
+        const tickInterval = 10.dur!"minutes";
+
+        bool running = true;
+        while (running) {
+            try {
+                receiveTimeout(tickInterval, (Msg x) { running = false; });
+            } catch (Exception e) {
+                running = false;
+            }
+
+            try {
+                auto db = openDatabase(dbPath);
+                db.clientBeat;
+            } catch (Exception e) {
+            }
+        }
     }
 }

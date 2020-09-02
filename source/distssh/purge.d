@@ -20,12 +20,12 @@ import std.typecons : Flag;
 
 import core.sys.posix.sys.types : uid_t;
 
-import proc;
 import colorlog;
+import my.set;
+import proc;
 
 import distssh.config;
 import distssh.metric;
-import distssh.set;
 import distssh.types;
 import distssh.utility;
 
@@ -133,7 +133,6 @@ int purgeServer(ExecuteOnHostConf econf, const Config.Purge pconf, Host host,
         VerboseMode vmode = VerboseMode.init) @safe nothrow {
     import std.file : thisExePath;
     import std.process : escapeShellFileName;
-    import distssh.set;
 
     econf.command = () {
         string[] r;
