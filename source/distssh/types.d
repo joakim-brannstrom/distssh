@@ -8,6 +8,8 @@ module distssh.types;
 import core.thread : Thread;
 import std.datetime : SysTime, dur;
 
+public import my.path : Path;
+
 immutable globalEnvHostKey = "DISTSSH_HOSTS";
 immutable globalEnvFileKey = "DISTSSH_IMPORT_ENV";
 immutable globalEnvFilterKey = "DISTSSH_ENV_EXPORT_FILTER";

@@ -19,6 +19,7 @@ import std.typecons : Nullable, NullableRef;
 import colorlog;
 
 import from_;
+import my.path;
 
 import distssh.config;
 import distssh.metric;
@@ -78,7 +79,7 @@ int cli(Config conf) {
     return 0;
 }
 
-int cli(const Config fconf, Config.Shell conf) nothrow {
+int cli(const Config fconf, Config.Shell conf) {
     import std.datetime.stopwatch : StopWatch, AutoStart;
     import std.file : thisExePath;
     import std.process : spawnProcess, wait, escapeShellFileName;
@@ -89,6 +90,8 @@ int cli(const Config fconf, Config.Shell conf) nothrow {
     if (hosts.empty) {
         logger.errorf("No remote host online").collectException;
     }
+
+    auto bgBeat = BackgroundClientBeat(AbsolutePath(fconf.global.dbPath));
 
     const timout_until_considered_successfull_connection = fconf.global.timeout * 2;
 
@@ -129,6 +132,8 @@ int cli(const Config fconf, Config.Cmd conf) {
         logger.error("Specify by adding -- <my command>");
         return 1;
     }
+
+    auto bgBeat = BackgroundClientBeat(AbsolutePath(fconf.global.dbPath));
 
     foreach (host; RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster).bestSelectRange) {
         logger.info("Connecting to ", host);
