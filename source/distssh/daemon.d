@@ -33,13 +33,13 @@ import std.typecons : Flag;
 
 import colorlog;
 import miniorm : SpinSqlTimeout;
+import my.set;
 
 import from_;
 
 import distssh.config;
 import distssh.database;
 import distssh.metric;
-import distssh.set;
 import distssh.timer;
 import distssh.types;
 import distssh.utility;
@@ -297,7 +297,7 @@ void purgeServer(ref from.miniorm.Miniorm db, ExecuteOnHostConf econf,
 
     if (!clearedAServer) {
         logger.trace("Reset server purge list ");
-        () @trusted { clearedServers.clear; }();
+        clearedServers = Set!Host.init;
     }
 }
 

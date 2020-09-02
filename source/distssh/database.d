@@ -102,7 +102,7 @@ Miniorm openDatabase(string dbFile) nothrow {
 Tuple!(HostLoad[], "online", HostLoad[], "unused") getServerLoads(ref Miniorm db,
         const Host[] filterBy_, const Duration timeout, const Duration maxAge) @trusted {
     import std.datetime : Clock, dur;
-    import distssh.set;
+    import my.set;
 
     const lastUseLimit = Clock.currTime - maxAge;
     auto onlineHostSet = toSet(filterBy_.map!(a => a.payload));
