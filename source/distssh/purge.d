@@ -16,7 +16,6 @@ import std.exception : collectException;
 import std.file;
 import std.path;
 import std.range : only;
-import std.stdio : writefln;
 import std.typecons : Flag;
 
 import core.sys.posix.sys.types : uid_t;
@@ -75,13 +74,15 @@ int cli(const Config fconf, Config.LocalPurge conf) @trusted nothrow {
     }
 
     void purgePrint(bool hasWhiteListProc, ref PidMap pmap, RawPid root) {
+        import std.stdio : writeln;
+
         if (conf.print) {
             if (hasWhiteListProc && fconf.global.verbosity >= VerboseMode.info) {
                 logger.info("whitelist".color(Color.green), " process tree");
-                printTree!(writefln)(pmap, root);
+                writeln(toTreeString(pmap));
             } else if (!hasWhiteListProc) {
                 logger.info("terminate".color(Color.red), " process tree");
-                printTree!(writefln)(pmap, root);
+                writeln(toTreeString(pmap));
             }
         }
     }
@@ -186,14 +187,6 @@ string[] readPurgeEnvWhiteList() @safe nothrow {
 }
 
 private:
-
-void printTree(alias printT)(ref PidMap pmap, RawPid root) {
-    printT("root:%s %s", root.to!string.color(Color.magenta).mode(Mode.bold),
-            pmap.getProc(root).color(Color.cyan).mode(Mode.underline));
-    foreach (p; pmap.pids.filter!(a => a != root)) {
-        printT("  pid:%s %s", p.to!string.color(Color.magenta), pmap.getProc(p));
-    }
-}
 
 struct Whitelist {
     import std.regex : regex, matchFirst, Regex;
