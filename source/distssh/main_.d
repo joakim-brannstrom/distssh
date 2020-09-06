@@ -49,9 +49,14 @@ int rmain(string[] args) {
     confLogger(conf.global.verbosity);
     logger.trace(conf);
 
+    import core.stdc.signal : signal;
     import std.file : symlink;
     import std.stdio : writeln;
     import std.variant : visit;
+
+    // register a handler for writing to a closed pipe in case it ever happens.
+    // the handler ignores it.
+    signal(13, &handleSIGPIPE);
 
     // dfmt off
     return conf.data.visit!(
@@ -73,6 +78,10 @@ int rmain(string[] args) {
 }
 
 private:
+
+/// dummy used to ignore SIGPIPE
+extern (C) void handleSIGPIPE(int sig) nothrow @nogc @system {
+}
 
 int cli(Config conf) {
     conf.printHelp;
