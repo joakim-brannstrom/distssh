@@ -18,7 +18,7 @@ import std.typecons : Nullable, NullableRef;
 
 import colorlog;
 
-import from_;
+import my.from_;
 import my.path;
 
 import distssh.config;

@@ -14,7 +14,7 @@ import logger = std.experimental.logger;
 
 import colorlog;
 
-import from_;
+import my.from_;
 import my.path;
 
 import distssh.config;
