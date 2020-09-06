@@ -33,9 +33,8 @@ import std.typecons : Flag;
 
 import colorlog;
 import miniorm : SpinSqlTimeout;
+import my.from_;
 import my.set;
-
-import from_;
 
 import distssh.config;
 import distssh.database;
