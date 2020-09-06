@@ -25,6 +25,8 @@ enum Kind : ubyte {
     command,
     /// All configuration data has been sent.
     confDone,
+    /// One or more key strokes to be written to stdin
+    key,
 }
 
 enum KindSize = DataSize!(MsgpackType.uint8);
@@ -58,7 +60,7 @@ struct Serialize(WriterT) {
         formatType!(MsgpackType.array16)(cast(ushort) value.length, hdr);
         put(w, hdr[]);
         foreach (v; value) {
-            put(w, cast(const(ubyte)[]) v);
+            put(w, v);
         }
     }
 
@@ -89,6 +91,22 @@ struct Serialize(WriterT) {
         pack(Kind.workdir);
         pack!(MsgpackType.uint32)(cast(uint) sz);
         pack(wd.value);
+    }
+
+    void pack(const Key key) {
+        import std.algorithm : map, sum;
+
+        // dfmt off
+        const sz =
+            KindSize +
+            DataSize!(MsgpackType.uint32) +
+            DataSize!(MsgpackType.array16) +
+            (cast(const(ubyte)[]) key.value).length;
+        // dfmt on
+
+        pack(Kind.command);
+        pack!(MsgpackType.uint32)(cast(uint) sz);
+        packArray(key.value);
     }
 
     void pack(const Command cmd) {
@@ -138,7 +156,7 @@ struct Serialize(WriterT) {
 struct Deserialize {
     import std.conv : to;
 
-    alias Result = SumType!(None, HeartBeat, ProtocolEnv, ConfDone, Command, Workdir);
+    alias Result = SumType!(None, HeartBeat, ProtocolEnv, ConfDone, Command, Workdir, Key);
 
     ubyte[] buf;
 
@@ -182,6 +200,9 @@ struct Deserialize {
             break;
         case Kind.workdir:
             rval = unpackWorkdir;
+            break;
+        case Kind.key:
+            rval = unpackKey;
             break;
         }
 
@@ -299,6 +320,33 @@ struct Deserialize {
         return Workdir(demux!string);
     }
 
+    private Key unpackKey() {
+        const hdrTotalSz = KindSize + DataSize!(MsgpackType.uint32);
+        if (buf.length < hdrTotalSz)
+            return Key.init;
+
+        const totalSz = () {
+            auto s = buf[KindSize .. $];
+            return peek!(MsgpackType.uint32, uint)(s);
+        }();
+
+        debug logger.trace("Bytes to unpack: ", totalSz);
+
+        if (buf.length < totalSz)
+            return typeof(return)();
+
+        // all data is received, start unpacking
+        demux!(MsgpackType.uint8, ubyte);
+        demux!(MsgpackType.uint32, uint);
+
+        Key key;
+        const elems = demux!(MsgpackType.array16, ushort);
+        key.value = buf[0 .. elems];
+        buf = buf[elems .. $];
+
+        return key;
+    }
+
 private:
     void consume(MsgpackType type)() {
         buf = buf[DataSize!type .. $];
@@ -377,6 +425,10 @@ struct Command {
 
 struct Workdir {
     string value;
+}
+
+struct Key {
+    const(ubyte)[] value;
 }
 
 @("shall pack and unpack a HeartBeat")

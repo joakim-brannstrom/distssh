@@ -186,7 +186,7 @@ from.distssh.protocol.ProtocolEnv readEnv(string filename) nothrow {
 
         deser.unpack.match!((None x) {}, (ConfDone x) {}, (ProtocolEnv x) {
             rval = x;
-        }, (HeartBeat x) {}, (Command x) {}, (Workdir x) {});
+        }, (HeartBeat x) {}, (Command x) {}, (Workdir x) {}, (Key x) {});
     } catch (Exception e) {
         logger.error(e.msg).collectException;
         logger.errorf("Unable to import environment from '%s'", filename).collectException;

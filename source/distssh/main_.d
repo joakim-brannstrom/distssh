@@ -206,7 +206,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
                 }, (ProtocolEnv x) { conf.env = readEnvFromStdin(x); }, (HeartBeat x) {
                 }, (Command x) { conf.cmd = x.value; }, (Workdir x) {
                     conf.workdir = x.value;
-                });
+                }, (Key x) {});
             }
 
             if (!fconf.global.stdinMsgPackEnv) {
@@ -252,7 +252,8 @@ int cli(const Config fconf, Config.LocalRun conf) {
                 }
 
                 pread.unpack().match!((None x) {}, (ConfDone x) {}, (ProtocolEnv x) {
-                }, (HeartBeat x) { wd.beat; }, (Command x) {}, (Workdir x) {});
+                }, (HeartBeat x) { wd.beat; }, (Command x) {}, (Workdir x) {}, (Key x) {
+                });
             } catch (Exception e) {
             }
 
