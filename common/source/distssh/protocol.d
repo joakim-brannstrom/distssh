@@ -17,7 +17,12 @@ import sumtype;
 enum Kind : ubyte {
     none,
     heartBeat,
+    /// The shell environment.
     environment,
+    /// The working directory to execute the command in.
+    workdir,
+    /// Command to execute
+    command,
     /// All configuration data has been sent.
     confDone,
 }
@@ -45,6 +50,18 @@ struct Serialize(WriterT) {
         put(w, cast(const(ubyte)[]) s);
     }
 
+    void packArray(T)(T[] value)
+    in (value.length < ushort.max) {
+        import msgpack_ll;
+
+        ubyte[DataSize!(MsgpackType.array16)] hdr;
+        formatType!(MsgpackType.array16)(cast(ushort) value.length, hdr);
+        put(w, hdr[]);
+        foreach (v; value) {
+            put(w, cast(const(ubyte)[]) v);
+        }
+    }
+
     void pack(MsgpackType Type, T)(T v) {
         import msgpack_ll;
 
@@ -61,6 +78,39 @@ struct Serialize(WriterT) {
         pack(Kind.confDone);
     }
 
+    void pack(const Workdir wd) {
+        // dfmt off
+        const sz =
+            KindSize +
+            DataSize!(MsgpackType.str32) +
+            (cast(const(ubyte)[]) wd.value).length;
+        // dfmt on
+
+        pack(Kind.workdir);
+        pack!(MsgpackType.uint32)(cast(uint) sz);
+        pack(wd.value);
+    }
+
+    void pack(const Command cmd) {
+        import std.algorithm : map, sum;
+
+        // dfmt off
+        const sz =
+            KindSize +
+            DataSize!(MsgpackType.uint32) +
+            DataSize!(MsgpackType.uint32) +
+            cmd.value.map!(a => (cast(const(ubyte)[]) a).length).sum;
+        // dfmt on
+
+        pack(Kind.command);
+        pack!(MsgpackType.uint32)(cast(uint) sz);
+        pack!(MsgpackType.uint32)(cast(uint) cmd.value.length);
+
+        foreach (a; cmd.value) {
+            pack(a);
+        }
+    }
+
     void pack(const ProtocolEnv env) {
         import std.algorithm : map, sum;
 
@@ -69,7 +119,9 @@ struct Serialize(WriterT) {
             KindSize +
             DataSize!(MsgpackType.uint32) +
             DataSize!(MsgpackType.uint32) +
-            env.value.map!(a => 2*DataSize!(MsgpackType.str32) + a.key.length + a.value.length).sum;
+            env.value.map!(a => 2*DataSize!(MsgpackType.str32) +
+                           (cast(const(ubyte)[]) a.key).length +
+                           (cast(const(ubyte)[]) a.value).length).sum;
         // dfmt on
 
         pack(Kind.environment);
@@ -86,7 +138,7 @@ struct Serialize(WriterT) {
 struct Deserialize {
     import std.conv : to;
 
-    alias Result = SumType!(None, HeartBeat, ProtocolEnv, ConfDone);
+    alias Result = SumType!(None, HeartBeat, ProtocolEnv, ConfDone, Command, Workdir);
 
     ubyte[] buf;
 
@@ -124,6 +176,12 @@ struct Deserialize {
         case Kind.confDone:
             consume!(MsgpackType.uint8);
             rval = ConfDone.init;
+            break;
+        case Kind.command:
+            rval = unpackCommand;
+            break;
+        case Kind.workdir:
+            rval = unpackWorkdir;
             break;
         }
 
@@ -189,6 +247,56 @@ struct Deserialize {
         }
 
         return typeof(return)(env);
+    }
+
+    private Command unpackCommand() {
+        const hdrTotalSz = KindSize + DataSize!(MsgpackType.uint32);
+        if (buf.length < hdrTotalSz)
+            return Command.init;
+
+        const totalSz = () {
+            auto s = buf[KindSize .. $];
+            return peek!(MsgpackType.uint32, uint)(s);
+        }();
+
+        debug logger.trace("Bytes to unpack: ", totalSz);
+
+        if (buf.length < totalSz)
+            return typeof(return)();
+
+        // all data is received, start unpacking
+        demux!(MsgpackType.uint8, ubyte);
+        demux!(MsgpackType.uint32, uint);
+
+        Command cmd;
+        const elems = demux!(MsgpackType.uint32, uint);
+        foreach (_; 0 .. elems) {
+            cmd.value ~= demux!string();
+        }
+
+        return cmd;
+    }
+
+    private Workdir unpackWorkdir() {
+        const hdrTotalSz = KindSize + DataSize!(MsgpackType.uint32);
+        if (buf.length < hdrTotalSz)
+            return Workdir.init;
+
+        const totalSz = () {
+            auto s = buf[KindSize .. $];
+            return peek!(MsgpackType.uint32, uint)(s);
+        }();
+
+        debug logger.trace("Bytes to unpack: ", totalSz);
+
+        if (buf.length < totalSz)
+            return typeof(return)();
+
+        // all data is received, start unpacking
+        demux!(MsgpackType.uint8, ubyte);
+        demux!(MsgpackType.uint32, uint);
+
+        return Workdir(demux!string);
     }
 
 private:
@@ -261,6 +369,14 @@ struct EnvVariable {
 struct ProtocolEnv {
     EnvVariable[] value;
     alias value this;
+}
+
+struct Command {
+    string[] value;
+}
+
+struct Workdir {
+    string value;
 }
 
 @("shall pack and unpack a HeartBeat")
