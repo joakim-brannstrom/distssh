@@ -10,13 +10,16 @@ module distssh.protocol;
 import std.array : appender;
 import std.range : put;
 import logger = std.experimental.logger;
+
 import msgpack_ll;
+import sumtype;
 
 enum Kind : ubyte {
     none,
     heartBeat,
     environment,
-    remoteHost,
+    /// All configuration data has been sent.
+    confDone,
 }
 
 enum KindSize = DataSize!(MsgpackType.uint8);
@@ -54,6 +57,10 @@ struct Serialize(WriterT) {
         pack(Kind.heartBeat);
     }
 
+    void pack(T)() if (is(T == ConfDone)) {
+        pack(Kind.confDone);
+    }
+
     void pack(const ProtocolEnv env) {
         import std.algorithm : map, sum;
 
@@ -74,16 +81,12 @@ struct Serialize(WriterT) {
             pack(kv.value);
         }
     }
-
-    void pack(const RemoteHost host) {
-        pack(Kind.remoteHost);
-        pack(host.address);
-    }
 }
 
 struct Deserialize {
     import std.conv : to;
-    import std.typecons : Nullable;
+
+    alias Result = SumType!(None, HeartBeat, ProtocolEnv, ConfDone);
 
     ubyte[] buf;
 
@@ -91,16 +94,52 @@ struct Deserialize {
         buf ~= v;
     }
 
+    Result unpack() {
+        cleanupUntilKind();
+
+        Result rval;
+        if (buf.length < KindSize)
+            return rval;
+
+        const k = () {
+            auto raw = peek!(MsgpackType.uint8, ubyte)();
+            if (raw > Kind.max)
+                return Kind.none;
+            return cast(Kind) raw;
+        }();
+
+        debug logger.tracef("%-(%X, %)", buf);
+
+        final switch (k) {
+        case Kind.none:
+            consume!(MsgpackType.uint8);
+            return rval;
+        case Kind.heartBeat:
+            consume!(MsgpackType.uint8);
+            rval = HeartBeat.init;
+            break;
+        case Kind.environment:
+            rval = unpackProtocolEnv;
+            break;
+        case Kind.confDone:
+            consume!(MsgpackType.uint8);
+            rval = ConfDone.init;
+            break;
+        }
+
+        return rval;
+    }
+
     /** Consume from the buffer until a valid kind is found.
      */
-    void cleanupUntilKind() nothrow {
+    private void cleanupUntilKind() nothrow {
         while (buf.length != 0) {
             if (buf.length < KindSize)
                 break;
 
             try {
                 auto raw = peek!(MsgpackType.uint8, ubyte)();
-                if (raw <= Kind.max && raw != Kind.none)
+                if (raw <= Kind.max)
                     break;
                 debug logger.trace("dropped ", raw);
             } catch (Exception e) {
@@ -110,29 +149,7 @@ struct Deserialize {
         }
     }
 
-    Kind nextKind() {
-        if (buf.length < KindSize)
-            return Kind.none;
-        auto raw = peek!(MsgpackType.uint8, ubyte)();
-        if (raw > Kind.max)
-            throw new Exception("Malformed packet kind: " ~ raw.to!string);
-        return cast(Kind) raw;
-    }
-
-    Nullable!HeartBeat unpack(T)() if (is(T == HeartBeat)) {
-        if (buf.length < KindSize)
-            return typeof(return)();
-
-        auto k = demux!(MsgpackType.uint8, ubyte)();
-        if (k == Kind.heartBeat)
-            return typeof(return)(HeartBeat());
-        return typeof(return)();
-    }
-
-    Nullable!ProtocolEnv unpack(T)() if (is(T == ProtocolEnv)) {
-        if (nextKind != Kind.environment)
-            return typeof(return)();
-
+    private ProtocolEnv unpackProtocolEnv() {
         const kind_totsize = KindSize + DataSize!(MsgpackType.uint32);
         if (buf.length < kind_totsize)
             return typeof(return)();
@@ -172,22 +189,6 @@ struct Deserialize {
         }
 
         return typeof(return)(env);
-    }
-
-    Nullable!RemoteHost unpack(T)() if (is(T == RemoteHost)) {
-        if (nextKind != Kind.remoteHost)
-            return typeof(return)();
-
-        // strip the kind
-        demux!(MsgpackType.uint8, ubyte);
-
-        try {
-            auto host = RemoteHost(demux!string());
-            return typeof(return)(host);
-        } catch (Exception e) {
-        }
-
-        return typeof(return)();
     }
 
 private:
@@ -243,7 +244,13 @@ private:
     }
 }
 
+struct None {
+}
+
 struct HeartBeat {
+}
+
+struct ConfDone {
 }
 
 struct EnvVariable {
@@ -256,10 +263,6 @@ struct ProtocolEnv {
     alias value this;
 }
 
-struct RemoteHost {
-    string address;
-}
-
 @("shall pack and unpack a HeartBeat")
 unittest {
     auto app = appender!(ubyte[])();
@@ -269,9 +272,9 @@ unittest {
     assert(app.data.length > 0);
 
     auto deser = Deserialize(app.data);
-    assert(deser.nextKind == Kind.heartBeat);
-    const hb = deser.unpack!HeartBeat;
-    assert(!hb.isNull);
+    deser.unpack.match!((None x) { assert(false); }, (ConfDone x) {
+        assert(false);
+    }, (ProtocolEnv x) { assert(false); }, (HeartBeat) { assert(true); });
 }
 
 @("shall clean the buffer until a valid kind is found")
@@ -298,5 +301,9 @@ unittest {
     assert(app.data.length > 0);
 
     auto deser = Deserialize(app.data);
-    logger.trace(deser.unpack!ProtocolEnv);
+    deser.unpack.match!((None x) { assert(false); }, (ConfDone x) {
+        assert(false);
+    }, (ProtocolEnv x) { assert(true); logger.trace(x); }, (HeartBeat) {
+        assert(false);
+    });
 }

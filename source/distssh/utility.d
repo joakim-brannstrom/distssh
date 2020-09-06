@@ -41,7 +41,7 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
     import std.path : absolutePath;
     import std.process : tryWait, Redirect, pipeProcess, escapeShellFileName;
 
-    import distssh.protocol : ProtocolEnv;
+    import distssh.protocol : ProtocolEnv, ConfDone;
 
     // #SPC-draft_remote_cmd_spec
     try {
@@ -62,6 +62,7 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
         else if (!conf.noImportEnv)
             env = readEnv(conf.importEnv.absolutePath);
         pwriter.pack(env);
+        pwriter.pack!ConfDone;
 
         while (true) {
             try {
@@ -71,7 +72,7 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
 
                 // important that this is never called after the process has
                 // terminated
-                Watchdog.ping(pwriter);
+                HeartBeatMonitor.ping(pwriter);
             } catch (Exception e) {
             }
 
@@ -106,8 +107,6 @@ struct PipeReader {
                 deser.put(s);
         } catch (Exception e) {
         }
-
-        deser.cleanupUntilKind;
     }
 }
 
@@ -163,6 +162,8 @@ from.distssh.protocol.ProtocolEnv readEnv(string filename) nothrow {
     import distssh.protocol : ProtocolEnv, EnvVariable, Deserialize;
     import std.file : exists;
     import std.stdio : File;
+    import sumtype;
+    import distssh.protocol;
 
     ProtocolEnv rval;
 
@@ -176,13 +177,15 @@ from.distssh.protocol.ProtocolEnv readEnv(string filename) nothrow {
         auto fin = File(filename);
         Deserialize deser;
 
-        ubyte[128] buf;
+        ubyte[4096] buf;
         while (!fin.eof) {
             auto read_ = fin.rawRead(buf[]);
             deser.put(read_);
         }
 
-        rval = deser.unpack!(ProtocolEnv);
+        deser.unpack.match!((None x) {}, (ConfDone x) {}, (ProtocolEnv x) {
+            rval = x;
+        }, (HeartBeat x) {});
     } catch (Exception e) {
         logger.error(e.msg).collectException;
         logger.errorf("Unable to import environment from '%s'", filename).collectException;
@@ -227,40 +230,31 @@ auto cloneEnv() nothrow {
     return app;
 }
 
-struct Watchdog {
+/// Monitor the heartbeats from the client.
+struct HeartBeatMonitor {
     import std.datetime.stopwatch : StopWatch;
 
-    enum State {
-        ok,
-        timeout
-    }
-
     private {
-        State st;
         Duration timeout;
-        NullableRef!PipeReader pread;
         StopWatch sw;
     }
 
-    this(ref PipeReader pread, Duration timeout) {
-        this.pread = &pread;
+    this(Duration timeout) {
         this.timeout = timeout;
         sw.start;
     }
 
-    void update() {
-        import distssh.protocol : HeartBeat;
-
-        if (!pread.unpack!HeartBeat.isNull) {
-            sw.reset;
-            sw.start;
-        } else if (sw.peek > timeout) {
-            st = State.timeout;
-        }
+    /// A heartbeat has been received.
+    void beat() {
+        sw.reset;
+        sw.start;
     }
 
     bool isTimeout() {
-        return State.timeout == st;
+        if (sw.peek > timeout) {
+            return true;
+        }
+        return false;
     }
 
     static void ping(ref PipeWriter f) {

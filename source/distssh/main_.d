@@ -155,7 +155,9 @@ int cli(const Config fconf, Config.LocalRun conf) {
     import std.process : PConfig = Config;
     import std.utf : toUTF8;
     import proc;
+    import sumtype;
     import distssh.timer : makeTimers, makeInterval;
+    import distssh.protocol;
 
     if (fconf.global.command.empty) {
         logger.error("No command specified");
@@ -163,46 +165,51 @@ int cli(const Config fconf, Config.LocalRun conf) {
         return 1;
     }
 
-    static auto updateEnv(const Config fconf, ref PipeReader pread, ref string[string] out_env) {
-        import distssh.protocol : ProtocolEnv;
+    static struct LocalRunConf {
+        string[string] env;
+    }
 
-        ProtocolEnv env;
-
-        if (fconf.global.stdinMsgPackEnv) {
-            bool running = true;
-            while (running) {
-                pread.update;
-                try {
-                    auto tmp = pread.unpack!(ProtocolEnv);
-                    if (!tmp.isNull) {
-                        env = tmp;
-                        running = false;
-                    }
-                } catch (Exception e) {
-                }
-            }
-        } else {
-            env = readEnv(fconf.global.importEnv);
+    static string[string] readEnvFromStdin(ProtocolEnv src) {
+        string[string] rval;
+        foreach (kv; src) {
+            rval[kv.key] = kv.value;
         }
+        return rval;
+    }
 
-        foreach (kv; env) {
-            out_env[kv.key] = kv.value;
+    static string[string] readEnvFromFile(const Config fconf) {
+        string[string] rval;
+        foreach (kv; readEnv(fconf.global.importEnv)) {
+            rval[kv.key] = kv.value;
         }
+        return rval;
     }
 
     try {
-        string[string] env;
         auto pread = PipeReader(stdin.fileno);
 
-        try {
-            updateEnv(fconf, pread, env);
-        } catch (Exception e) {
-            logger.trace(e.msg).collectException;
-        }
+        auto localConf = () {
+            LocalRunConf conf;
+
+            bool running = fconf.global.stdinMsgPackEnv;
+            while (running) {
+                pread.update;
+                pread.unpack().match!((None x) {}, (ConfDone x) {
+                    running = false;
+                }, (ProtocolEnv x) { conf.env = readEnvFromStdin(x); }, (HeartBeat x) {
+                });
+            }
+
+            if (!fconf.global.stdinMsgPackEnv) {
+                conf.env = readEnvFromFile(fconf);
+            }
+
+            return conf;
+        }();
 
         auto res = () {
-            return spawnShell(fconf.global.command.dup.joiner(" ").toUTF8, env,
-                    PConfig.none, fconf.global.workDir).sandbox.scopeKill;
+            return spawnShell(fconf.global.command.dup.joiner(" ").toUTF8,
+                    localConf.env, PConfig.none, fconf.global.workDir).sandbox.scopeKill;
         }();
 
         import core.sys.posix.unistd : getppid;
@@ -224,7 +231,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
 
         int exit_status = 1;
 
-        auto wd = Watchdog(pread, fconf.global.timeout * 2);
+        auto wd = HeartBeatMonitor(fconf.global.timeout * 2);
 
         while (!wd.isTimeout && loop_running) {
             pread.update;
@@ -234,7 +241,9 @@ int cli(const Config fconf, Config.LocalRun conf) {
                     exit_status = res.status;
                     loop_running = false;
                 }
-                wd.update;
+
+                pread.unpack().match!((None x) {}, (ConfDone x) {}, (ProtocolEnv x) {
+                }, (HeartBeat x) { wd.beat; });
             } catch (Exception e) {
             }
 
@@ -244,6 +253,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
 
         return exit_status;
     } catch (Exception e) {
+        () @trusted { logger.trace(e).collectException; }();
         logger.error(e.msg).collectException;
     }
 
