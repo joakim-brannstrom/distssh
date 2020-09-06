@@ -1,20 +1,17 @@
 /**
-Copyright: Copyright (c) 2018, Joakim Brännström. All rights reserved.
+Copyright: Copyright (c) 2020, Joakim Brännström. All rights reserved.
 License: $(LINK2 http://www.boost.org/LICENSE_1_0.txt, Boost Software License 1.0)
 Author: Joakim Brännström (joakim.brannstrom@gmx.com)
 */
-module distssh.process;
+module my.process;
 
-import std.algorithm : filter, splitter, map;
-import std.exception : collectException;
-import std.stdio : File;
-import std.string : fromStringz;
-import logger = std.experimental.logger;
+import std.process : spawnProcess, Config;
 
-import from_;
-
+/** Spawn `args` as a daemon.
+ *
+ * stdin and stdout is set to `/dev/null`.
+ */
 auto spawnDaemon(scope const(char[])[] args, scope const char[] workDir = null) {
-    import std.process : spawnProcess, Config;
     import std.stdio : File;
 
     auto devNullIn = File("/dev/null");

@@ -38,10 +38,10 @@ module my.fswatch;
 
 import core.sys.linux.errno : errno;
 import core.sys.linux.fcntl : fcntl, F_SETFD, FD_CLOEXEC;
-import core.sys.linux.sys.inotify : inotify_rm_watch, inotify_init1,
-    inotify_add_watch, inotify_event, IN_NONBLOCK, IN_ACCESS,
-    IN_MODIFY, IN_ATTRIB, IN_CLOSE_WRITE, IN_CLOSE_NOWRITE, IN_OPEN, IN_MOVED_FROM, IN_MOVED_TO, IN_CREATE,
-    IN_DELETE, IN_DELETE_SELF, IN_MOVE_SELF, IN_UNMOUNT, IN_IGNORED, IN_EXCL_UNLINK;
+import core.sys.linux.sys.inotify : inotify_rm_watch, inotify_init1, inotify_add_watch, inotify_event, IN_CLOEXEC,
+    IN_NONBLOCK, IN_ACCESS, IN_MODIFY, IN_ATTRIB, IN_CLOSE_WRITE,
+    IN_CLOSE_NOWRITE, IN_OPEN, IN_MOVED_FROM, IN_MOVED_TO,
+    IN_CREATE, IN_DELETE, IN_DELETE_SELF, IN_MOVE_SELF, IN_UNMOUNT, IN_IGNORED, IN_EXCL_UNLINK;
 import core.sys.linux.unistd : close, read;
 import core.sys.posix.poll : pollfd, poll, POLLIN, POLLNVAL;
 import core.thread : Thread;
@@ -157,7 +157,7 @@ alias FileChangeEvent = SumType!(Event.Access, Event.Attribute, Event.CloseWrite
 
 /// Construct a FileWatch.
 auto fileWatch() {
-    int fd = inotify_init1(IN_NONBLOCK);
+    int fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
     if (fd == -1) {
         throw new Exception(
                 "inotify_init1 returned invalid file descriptor. Error code " ~ errno.to!string);

@@ -213,8 +213,8 @@ int cli(const Config fconf, Config.Daemon conf) {
  * Returns: true if the daemon where started.
  */
 bool startDaemon(ref from.miniorm.Miniorm db, Flag!"background" bg) nothrow {
-    import distssh.process : spawnDaemon;
     import std.file : thisExePath;
+    import my.process : spawnDaemon;
 
     try {
         if (bg && db.getDaemonBeat < heartBeatDaemonTimeout) {
