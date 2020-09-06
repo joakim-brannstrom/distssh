@@ -162,6 +162,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
     static struct LocalRunConf {
         string[string] env;
         string[] cmd;
+        string workdir;
     }
 
     static string[string] readEnvFromStdin(ProtocolEnv src) {
@@ -186,6 +187,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
         auto localConf = () {
             LocalRunConf conf;
             conf.cmd = fconf.global.command.dup;
+            conf.workdir = fconf.global.workDir;
 
             bool running = fconf.global.stdinMsgPackEnv;
             while (running) {
@@ -193,7 +195,9 @@ int cli(const Config fconf, Config.LocalRun conf) {
                 pread.unpack().match!((None x) {}, (ConfDone x) {
                     running = false;
                 }, (ProtocolEnv x) { conf.env = readEnvFromStdin(x); }, (HeartBeat x) {
-                }, (Command x) { conf.cmd = x.value; });
+                }, (Command x) { conf.cmd = x.value; }, (Workdir x) {
+                    conf.workdir = x.value;
+                });
             }
 
             if (!fconf.global.stdinMsgPackEnv) {
@@ -205,7 +209,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
 
         auto res = () {
             return spawnShell(localConf.cmd.joiner(" ").toUTF8, localConf.env,
-                    PConfig.none, fconf.global.workDir).sandbox.scopeKill;
+                    PConfig.none, localConf.workdir).sandbox.scopeKill;
         }();
 
         import core.sys.posix.unistd : getppid;
@@ -239,7 +243,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
                 }
 
                 pread.unpack().match!((None x) {}, (ConfDone x) {}, (ProtocolEnv x) {
-                }, (HeartBeat x) { wd.beat; }, (Command x) {});
+                }, (HeartBeat x) { wd.beat; }, (Command x) {}, (Workdir x) {});
             } catch (Exception e) {
             }
 

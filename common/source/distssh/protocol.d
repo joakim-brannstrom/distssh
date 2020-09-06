@@ -17,7 +17,10 @@ import sumtype;
 enum Kind : ubyte {
     none,
     heartBeat,
+    /// The shell environment.
     environment,
+    /// The working directory to execute the command in.
+    workdir,
     /// Command to execute
     command,
     /// All configuration data has been sent.
@@ -75,6 +78,19 @@ struct Serialize(WriterT) {
         pack(Kind.confDone);
     }
 
+    void pack(const Workdir wd) {
+        // dfmt off
+        const sz =
+            KindSize +
+            DataSize!(MsgpackType.str32) +
+            (cast(const(ubyte)[]) wd.value).length;
+        // dfmt on
+
+        pack(Kind.workdir);
+        pack!(MsgpackType.uint32)(cast(uint) sz);
+        pack(wd.value);
+    }
+
     void pack(const Command cmd) {
         import std.algorithm : map, sum;
 
@@ -122,7 +138,7 @@ struct Serialize(WriterT) {
 struct Deserialize {
     import std.conv : to;
 
-    alias Result = SumType!(None, HeartBeat, ProtocolEnv, ConfDone, Command);
+    alias Result = SumType!(None, HeartBeat, ProtocolEnv, ConfDone, Command, Workdir);
 
     ubyte[] buf;
 
@@ -163,6 +179,9 @@ struct Deserialize {
             break;
         case Kind.command:
             rval = unpackCommand;
+            break;
+        case Kind.workdir:
+            rval = unpackWorkdir;
             break;
         }
 
@@ -258,6 +277,28 @@ struct Deserialize {
         return cmd;
     }
 
+    private Workdir unpackWorkdir() {
+        const hdrTotalSz = KindSize + DataSize!(MsgpackType.uint32);
+        if (buf.length < hdrTotalSz)
+            return Workdir.init;
+
+        const totalSz = () {
+            auto s = buf[KindSize .. $];
+            return peek!(MsgpackType.uint32, uint)(s);
+        }();
+
+        debug logger.trace("Bytes to unpack: ", totalSz);
+
+        if (buf.length < totalSz)
+            return typeof(return)();
+
+        // all data is received, start unpacking
+        demux!(MsgpackType.uint8, ubyte);
+        demux!(MsgpackType.uint32, uint);
+
+        return Workdir(demux!string);
+    }
+
 private:
     void consume(MsgpackType type)() {
         buf = buf[DataSize!type .. $];
@@ -332,6 +373,10 @@ struct ProtocolEnv {
 
 struct Command {
     string[] value;
+}
+
+struct Workdir {
+    string value;
 }
 
 @("shall pack and unpack a HeartBeat")
