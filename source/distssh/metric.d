@@ -136,7 +136,7 @@ struct RemoteHostCache {
             // if no hosts are found in the db within the timeout then go over
             // into a fast mode. This happens if the client e.g. switches the
             // cluster it is using.
-            auto servers = db.getServerLoads(cluster, 1.dur!"seconds",
+            auto servers = db.getServerLoads(cluster, 2.dur!"seconds",
                     updateLeastLoadTimersInterval[$ - 1]);
             if (servers.online.empty) {
                 logger.trace("starting daemon in oneshot mode");
