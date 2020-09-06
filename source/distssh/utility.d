@@ -69,6 +69,8 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
                 if (st.terminated)
                     return st.status;
 
+                // important that this is never called after the process has
+                // terminated
                 Watchdog.ping(pwriter);
             } catch (Exception e) {
             }
