@@ -41,14 +41,14 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
     import std.path : absolutePath;
     import std.process : tryWait, Redirect, pipeProcess, escapeShellFileName;
 
-    import distssh.protocol : ProtocolEnv, ConfDone;
+    import distssh.protocol : ProtocolEnv, ConfDone, Command;
 
     // #SPC-draft_remote_cmd_spec
     try {
         auto args = ["ssh"] ~ sshNoLoginArgs ~ [
             host, thisExePath, "localrun", "--workdir",
-            conf.workDir.escapeShellFileName, "--stdin-msgpack-env", "--"
-        ] ~ format!"'%-(%s %)'"(conf.command);
+            conf.workDir.escapeShellFileName, "--stdin-msgpack-env"
+        ];
 
         logger.tracef("Connecting to %s. Run %s", host, args.joiner(" "));
 
@@ -62,6 +62,7 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
         else if (!conf.noImportEnv)
             env = readEnv(conf.importEnv.absolutePath);
         pwriter.pack(env);
+        pwriter.pack(Command(conf.command.dup));
         pwriter.pack!ConfDone;
 
         while (true) {
@@ -185,7 +186,7 @@ from.distssh.protocol.ProtocolEnv readEnv(string filename) nothrow {
 
         deser.unpack.match!((None x) {}, (ConfDone x) {}, (ProtocolEnv x) {
             rval = x;
-        }, (HeartBeat x) {});
+        }, (HeartBeat x) {}, (Command x) {});
     } catch (Exception e) {
         logger.error(e.msg).collectException;
         logger.errorf("Unable to import environment from '%s'", filename).collectException;

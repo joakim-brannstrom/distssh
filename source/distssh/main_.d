@@ -159,14 +159,9 @@ int cli(const Config fconf, Config.LocalRun conf) {
     import distssh.timer : makeTimers, makeInterval;
     import distssh.protocol;
 
-    if (fconf.global.command.empty) {
-        logger.error("No command specified");
-        logger.error("Specify by adding -- <my command>");
-        return 1;
-    }
-
     static struct LocalRunConf {
         string[string] env;
+        string[] cmd;
     }
 
     static string[string] readEnvFromStdin(ProtocolEnv src) {
@@ -190,6 +185,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
 
         auto localConf = () {
             LocalRunConf conf;
+            conf.cmd = fconf.global.command.dup;
 
             bool running = fconf.global.stdinMsgPackEnv;
             while (running) {
@@ -197,7 +193,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
                 pread.unpack().match!((None x) {}, (ConfDone x) {
                     running = false;
                 }, (ProtocolEnv x) { conf.env = readEnvFromStdin(x); }, (HeartBeat x) {
-                });
+                }, (Command x) { conf.cmd = x.value; });
             }
 
             if (!fconf.global.stdinMsgPackEnv) {
@@ -208,8 +204,8 @@ int cli(const Config fconf, Config.LocalRun conf) {
         }();
 
         auto res = () {
-            return spawnShell(fconf.global.command.dup.joiner(" ").toUTF8,
-                    localConf.env, PConfig.none, fconf.global.workDir).sandbox.scopeKill;
+            return spawnShell(localConf.cmd.joiner(" ").toUTF8, localConf.env,
+                    PConfig.none, fconf.global.workDir).sandbox.scopeKill;
         }();
 
         import core.sys.posix.unistd : getppid;
@@ -243,7 +239,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
                 }
 
                 pread.unpack().match!((None x) {}, (ConfDone x) {}, (ProtocolEnv x) {
-                }, (HeartBeat x) { wd.beat; });
+                }, (HeartBeat x) { wd.beat; }, (Command x) {});
             } catch (Exception e) {
             }
 
