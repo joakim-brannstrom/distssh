@@ -17,6 +17,7 @@ import colorlog;
 
 import my.from_;
 import my.path;
+import my.fswatch : FdPoller, PollStatus, PollEvent, PollResult, FdPoll;
 
 import distssh.config;
 import distssh.metric;
@@ -40,10 +41,11 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
     import std.file : thisExePath;
     import std.format : format;
     import std.path : absolutePath;
+    import std.stdio : stdin;
     import std.process : tryWait, Redirect, pipeProcess;
 
     import my.timer : makeInterval, makeTimers;
-    import distssh.protocol : ProtocolEnv, ConfDone, Command, Workdir;
+    import distssh.protocol : ProtocolEnv, ConfDone, Command, Workdir, Key;
 
     // #SPC-draft_remote_cmd_spec
     try {
@@ -67,11 +69,32 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
         pwriter.pack(Workdir(conf.workDir));
         pwriter.pack!ConfDone;
 
+        FdPoller poller;
+        poller.put(FdPoll(stdin.fileno), [PollEvent.in_]);
+
+        setCBreak(stdin.fileno);
+
         auto timers = makeTimers;
         makeInterval(timers, () @trusted {
             HeartBeatMonitor.ping(pwriter);
             return 250.dur!"msecs";
         }, 50.dur!"msecs");
+
+        // send stdin to the other side
+        ubyte[4096] stdinBuf;
+        makeInterval(timers, () @trusted {
+            static import core.sys.posix.unistd;
+
+            auto res = poller.wait(25.dur!"msecs");
+            if (!res.empty && res[0].status[PollStatus.in_]) {
+                auto len = core.sys.posix.unistd.read(stdin.fileno, stdinBuf.ptr, stdinBuf.length);
+                if (len > 0) {
+                    pwriter.pack(Key(stdinBuf[0 .. len]));
+                }
+            }
+            return 25.dur!"msecs";
+        }, 25.dur!"msecs");
+
         // dummy event to force the timer to return after 50ms
         makeInterval(timers, () @safe { return 50.dur!"msecs"; }, 50.dur!"msecs");
 
@@ -92,7 +115,6 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
 }
 
 struct PipeReader {
-    import my.fswatch : FdPoller, PollStatus, PollEvent, PollResult, FdPoll;
     import distssh.protocol : Deserialize;
 
     private {
@@ -313,5 +335,19 @@ struct BackgroundClientBeat {
             } catch (Exception e) {
             }
         }
+    }
+}
+
+/// Set the terminal to cbreak mode which mean it is change from line mode to
+/// character mode.
+void setCBreak(int fd) {
+    import core.sys.posix.termios;
+
+    termios mode;
+    if (tcgetattr(fd, &mode) == 0) {
+        mode.c_lflag = mode.c_lflag & ~(ECHO | ICANON);
+        mode.c_cc[VMIN] = 1;
+        mode.c_cc[VTIME] = 0;
+        tcsetattr(fd, TCSAFLUSH, &mode);
     }
 }

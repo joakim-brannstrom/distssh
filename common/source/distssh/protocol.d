@@ -104,7 +104,7 @@ struct Serialize(WriterT) {
             (cast(const(ubyte)[]) key.value).length;
         // dfmt on
 
-        pack(Kind.command);
+        pack(Kind.key);
         pack!(MsgpackType.uint32)(cast(uint) sz);
         packArray(key.value);
     }
@@ -442,7 +442,9 @@ unittest {
     auto deser = Deserialize(app.data);
     deser.unpack.match!((None x) { assert(false); }, (ConfDone x) {
         assert(false);
-    }, (ProtocolEnv x) { assert(false); }, (HeartBeat) { assert(true); });
+    }, (ProtocolEnv x) { assert(false); }, (HeartBeat x) { assert(true); }, (Key x) {
+        assert(false);
+    }, (Command x) { assert(false); }, (Workdir x) { assert(false); });
 }
 
 @("shall clean the buffer until a valid kind is found")
@@ -471,7 +473,27 @@ unittest {
     auto deser = Deserialize(app.data);
     deser.unpack.match!((None x) { assert(false); }, (ConfDone x) {
         assert(false);
-    }, (ProtocolEnv x) { assert(true); logger.trace(x); }, (HeartBeat) {
+    }, (ProtocolEnv x) { assert(true); logger.trace(x); }, (HeartBeat x) {
+        assert(false);
+    }, (Key x) { assert(false); }, (Command x) { assert(false); }, (Workdir x) {
         assert(false);
     });
+}
+
+@("shall pack and unpack a key")
+unittest {
+    auto app = appender!(ubyte[])();
+    auto ser = Serialize!(typeof(app))(app);
+
+    ser.pack(Key([1, 2, 3]));
+    logger.trace(app.data);
+    logger.trace(app.data.length);
+    assert(app.data.length > 0);
+
+    auto deser = Deserialize(app.data);
+    deser.unpack.match!((None x) { assert(false); }, (ConfDone x) {
+        assert(false);
+    }, (ProtocolEnv x) { assert(false); }, (HeartBeat x) { assert(false); }, (Workdir x) {
+        assert(false);
+    }, (Command x) { assert(false); }, (Key x) { assert(true); logger.trace(x); });
 }

@@ -161,7 +161,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
     import std.stdio : File, stdin;
     import std.file : exists;
     import std.process : thisProcessID;
-    import std.process : PConfig = Config;
+    import std.process : PConfig = Config, Redirect;
     import std.utf : toUTF8;
     import proc;
     import sumtype;
@@ -217,8 +217,8 @@ int cli(const Config fconf, Config.LocalRun conf) {
         }();
 
         auto res = () {
-            return spawnShell(localConf.cmd.joiner(" ").toUTF8, localConf.env,
-                    PConfig.none, localConf.workdir).sandbox.scopeKill;
+            return pipeShell(localConf.cmd.joiner(" ").toUTF8, Redirect.stdin,
+                    localConf.env, PConfig.none, localConf.workdir).sandbox.scopeKill;
         }();
 
         import core.sys.posix.unistd : getppid;
@@ -226,17 +226,16 @@ int cli(const Config fconf, Config.LocalRun conf) {
         const parent_pid = getppid;
         bool loop_running = true;
 
-        Duration sigintEvent() {
+        auto timers = makeTimers;
+        makeInterval(timers, () {
+            // detect ctrl+c on the client side
             if (getppid != parent_pid) {
                 loop_running = false;
             }
             return 500.dur!"msecs";
-        }
-
-        auto timers = makeTimers;
-        makeInterval(timers, &sigintEvent, 500.dur!"msecs");
+        }, 50.dur!"msecs");
         // a dummy event that ensure that it tick each 50 msec.
-        makeInterval(timers, () => 50.dur!"msecs", 50.dur!"msecs");
+        makeInterval(timers, () => 25.dur!"msecs", 50.dur!"msecs");
 
         int exit_status = 1;
 
@@ -253,12 +252,16 @@ int cli(const Config fconf, Config.LocalRun conf) {
 
                 pread.unpack().match!((None x) {}, (ConfDone x) {}, (ProtocolEnv x) {
                 }, (HeartBeat x) { wd.beat; }, (Command x) {}, (Workdir x) {}, (Key x) {
+                    auto data = x.value;
+                    while (!data.empty) {
+                        auto written = res.stdin.write(x.value);
+                        data = data[written.length .. $];
+                    }
                 });
             } catch (Exception e) {
             }
 
-            // #SPC-sigint_detection
-            timers.tick(50.dur!"msecs");
+            timers.tick(25.dur!"msecs");
         }
 
         return exit_status;
