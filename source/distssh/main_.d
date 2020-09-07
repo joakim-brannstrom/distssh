@@ -165,7 +165,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
     import std.utf : toUTF8;
     import proc;
     import sumtype;
-    import distssh.timer : makeTimers, makeInterval;
+    import my.timer : makeTimers, makeInterval;
     import distssh.protocol;
 
     static struct LocalRunConf {
@@ -226,17 +226,17 @@ int cli(const Config fconf, Config.LocalRun conf) {
         const parent_pid = getppid;
         bool loop_running = true;
 
-        bool sigintEvent() {
+        Duration sigintEvent() {
             if (getppid != parent_pid) {
                 loop_running = false;
             }
-            return true;
+            return 500.dur!"msecs";
         }
 
         auto timers = makeTimers;
         makeInterval(timers, &sigintEvent, 500.dur!"msecs");
         // a dummy event that ensure that it tick each 50 msec.
-        makeInterval(timers, () => true, 50.dur!"msecs");
+        makeInterval(timers, () => 50.dur!"msecs", 50.dur!"msecs");
 
         int exit_status = 1;
 

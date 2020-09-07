@@ -35,15 +35,15 @@ import colorlog;
 import miniorm : SpinSqlTimeout;
 import my.from_;
 import my.set;
+import my.timer;
 
 import distssh.config;
 import distssh.database;
 import distssh.metric;
-import distssh.timer;
 import distssh.types;
 import distssh.utility;
 
-immutable updateLeastLoadTimersInterval = [
+Duration[3] updateLeastLoadTimersInterval = [
     10.dur!"seconds", 20.dur!"seconds", 60.dur!"seconds"
 ];
 
@@ -86,21 +86,24 @@ int cli(const Config fconf, Config.Daemon conf) {
         clientBeat = db.getClientBeat;
         logger.tracef("client beat: %s timeout: %s", clientBeat, conf.timeout);
         // no client is interested in the metric so stop collecting
-        if (clientBeat > conf.timeout)
+        if (clientBeat > conf.timeout) {
             running = false;
-        if (Clock.currTime > forceShutdown)
+        }
+        if (Clock.currTime > forceShutdown) {
             running = false;
-        return running;
+        }
+        return 5.dur!"seconds";
     }, 5.dur!"seconds");
 
     makeInterval(timers, () @safe {
         // the database may have been removed/recreated
-        if (getInode(fconf.global.dbPath) != origNode)
+        if (getInode(fconf.global.dbPath) != origNode) {
             running = false;
-        return running;
+        }
+        return 5.dur!"seconds";
     }, 5.dur!"seconds");
 
-    makeInterval(timers, () @trusted { db.daemonBeat; return running; }, 15.dur!"seconds");
+    makeInterval(timers, () @trusted { db.daemonBeat; return 15.dur!"seconds"; }, 15.dur!"seconds");
 
     // the times are arbitrarily chosen.
     // assumption. The oldest statistic do not have to be updated that often
@@ -108,21 +111,16 @@ int cli(const Config fconf, Config.Daemon conf) {
     // assumption. If a user use distssh slower than five minutes it mean that
     // a long running processes is used and the user wont interact with distssh
     // for a while.
-    bool updateOldestTimer(Duration begin, Duration end) @trusted {
-        if (clientBeat >= begin && clientBeat < end) {
-            auto host = db.getOldestServer;
-            if (!host.isNull)
-                updateServer(db, host.get, fconf.global.timeout);
+    makeInterval(timers, () @trusted {
+        auto host = db.getOldestServer;
+        if (!host.isNull) {
+            updateServer(db, host.get, fconf.global.timeout);
         }
-        return running;
-    }
 
-    makeInterval(timers, () @safe {
-        return updateOldestTimer(0.dur!"seconds", 5.dur!"minutes");
-    }, 30.dur!"seconds");
-    makeInterval(timers, () @safe {
-        return updateOldestTimer(5.dur!"minutes", Duration.max);
-    }, 60.dur!"seconds");
+        if (clientBeat < 5.dur!"minutes")
+            return 30.dur!"seconds";
+        return 60.dur!"seconds";
+    }, 15.dur!"seconds");
 
     // the times are arbitrarily chosen.
     // assumption. The least loaded server will be getting jobs put on it not
@@ -133,31 +131,24 @@ int cli(const Config fconf, Config.Daemon conf) {
     // distssh interactively/in quick succession. By backing of/slowing down
     // the update it lowers the network load.
     long updateLeastLoadedTimerTick;
-    bool updateLeastLoadedTimer(Duration begin, Duration end) @trusted {
+    makeInterval(timers, () @trusted {
         import std.range : drop, take;
 
-        if (clientBeat >= begin && clientBeat < end) {
-            auto hosts = db.getLeastLoadedServer;
-            // if the servers ever are less than topCandidades it will start
-            // updating slower.
-            foreach (h; hosts.drop(updateLeastLoadedTimerTick).take(1)) {
-                updateServer(db, h, fconf.global.timeout);
-            }
-
-            updateLeastLoadedTimerTick = ++updateLeastLoadedTimerTick % topCandidades;
+        auto hosts = db.getLeastLoadedServer;
+        // if the servers ever are less than topCandidades it will start
+        // updating slower.
+        foreach (h; hosts.drop(updateLeastLoadedTimerTick).take(1)) {
+            updateServer(db, h, fconf.global.timeout);
         }
-        return running;
-    }
 
-    makeInterval(timers, () @safe {
-        return updateLeastLoadedTimer(0.dur!"seconds", 30.dur!"seconds");
-    }, updateLeastLoadTimersInterval[0]);
-    makeInterval(timers, () @safe {
-        return updateLeastLoadedTimer(30.dur!"seconds", 90.dur!"seconds");
-    }, updateLeastLoadTimersInterval[1]);
-    makeInterval(timers, () @safe {
-        return updateLeastLoadedTimer(90.dur!"seconds", Duration.max);
-    }, updateLeastLoadTimersInterval[2]);
+        updateLeastLoadedTimerTick = ++updateLeastLoadedTimerTick % topCandidades;
+
+        if (clientBeat < 30.dur!"seconds")
+            return updateLeastLoadTimersInterval[0];
+        if (clientBeat < 90.dur!"seconds")
+            return updateLeastLoadTimersInterval[1];
+        return updateLeastLoadTimersInterval[2];
+    }, 10.dur!"seconds");
 
     makeInterval(timers, () @trusted nothrow{
         try {
@@ -165,7 +156,7 @@ int cli(const Config fconf, Config.Daemon conf) {
         } catch (Exception e) {
             logger.warning(e.msg).collectException;
         }
-        return true;
+        return 1.dur!"minutes";
     }, 1.dur!"minutes");
 
     if (globalEnvPurge in environment && globalEnvPurgeWhiteList in environment) {
@@ -186,7 +177,9 @@ int cli(const Config fconf, Config.Daemon conf) {
             } catch (Exception e) {
                 logger.warning(e.msg).collectException;
             }
-            return true;
+            if (clientBeat < 2.dur!"minutes")
+                return 1.dur!"minutes";
+            return 2.dur!"minutes";
         }, 2.dur!"minutes");
     } else {
         logger.tracef("Automatic purge not running because both %s and %s must be set",
