@@ -29,6 +29,7 @@ targetType "executable"
 sourcePath "source"
 
 //dflags "-preview=dip1000" "-verrors=context"
+libs "util"
 
 configuration "application" {
 }
