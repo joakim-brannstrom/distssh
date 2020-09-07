@@ -7,6 +7,7 @@ module distssh.utility;
 
 import core.time : Duration;
 import std.algorithm : splitter, map, filter, joiner;
+import std.array : empty;
 import std.exception : collectException;
 import std.stdio : File;
 import std.typecons : Nullable, NullableRef;
@@ -86,28 +87,52 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
 }
 
 struct PipeReader {
+    import my.fswatch : FdPoller, PollStatus, PollEvent, PollResult, FdPoll;
     import distssh.protocol : Deserialize;
 
-    NonblockingFd nfd;
+    private {
+        FdPoller poller;
+        ubyte[4096] buf;
+        int fd;
+    }
+
     Deserialize deser;
 
     alias deser this;
 
     this(int fd) {
-        this.nfd = NonblockingFd(fd);
+        this.fd = fd;
+        poller.put(FdPoll(fd), [PollEvent.in_]);
     }
 
     // Update the buffer with data from the pipe.
     void update() nothrow {
-        ubyte[128] buf;
-        ubyte[] s = buf[];
-
         try {
-            nfd.read(s);
-            if (s.length > 0)
+            auto s = read;
+            if (!s.empty)
                 deser.put(s);
         } catch (Exception e) {
         }
+    }
+
+    /// The returned slice is to a local, static array. It must be used/copied
+    /// before next call to read.
+    private ubyte[] read() return  {
+        static import core.sys.posix.unistd;
+
+        auto res = poller.wait();
+        if (res.empty) {
+            return null;
+        }
+
+        if (!res[0].status[PollStatus.in_]) {
+            return null;
+        }
+
+        auto len = core.sys.posix.unistd.read(fd, buf.ptr, buf.length);
+        if (len > 0)
+            return buf[0 .. len];
+        return null;
     }
 }
 
@@ -127,35 +152,6 @@ struct PipeWriter {
     void put(const(ubyte)[] v) @safe {
         fout.rawWrite(v);
         fout.flush;
-    }
-}
-
-struct NonblockingFd {
-    int fileno;
-
-    private const int old_fcntl;
-
-    this(int fd) {
-        this.fileno = fd;
-
-        import core.sys.posix.fcntl : fcntl, F_SETFL, F_GETFL, O_NONBLOCK;
-
-        old_fcntl = fcntl(fileno, F_GETFL);
-        fcntl(fileno, F_SETFL, old_fcntl | O_NONBLOCK);
-    }
-
-    ~this() {
-        import core.sys.posix.fcntl : fcntl, F_SETFL;
-
-        fcntl(fileno, F_SETFL, old_fcntl);
-    }
-
-    void read(ref ubyte[] buf) {
-        static import core.sys.posix.unistd;
-
-        auto len = core.sys.posix.unistd.read(fileno, buf.ptr, buf.length);
-        if (len > 0)
-            buf = buf[0 .. len];
     }
 }
 
