@@ -42,6 +42,7 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
     import std.path : absolutePath;
     import std.process : tryWait, Redirect, pipeProcess;
 
+    import my.timer : makeInterval, makeTimers;
     import distssh.protocol : ProtocolEnv, ConfDone, Command, Workdir;
 
     // #SPC-draft_remote_cmd_spec
@@ -66,19 +67,23 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
         pwriter.pack(Workdir(conf.workDir));
         pwriter.pack!ConfDone;
 
+        auto timers = makeTimers;
+        makeInterval(timers, () @trusted {
+            HeartBeatMonitor.ping(pwriter);
+            return 250.dur!"msecs";
+        }, 50.dur!"msecs");
+        // dummy event to force the timer to return after 50ms
+        makeInterval(timers, () @safe { return 50.dur!"msecs"; }, 50.dur!"msecs");
+
         while (true) {
             try {
                 auto st = p.pid.tryWait;
                 if (st.terminated)
                     return st.status;
 
-                // important that this is never called after the process has
-                // terminated
-                HeartBeatMonitor.ping(pwriter);
+                timers.tick(50.dur!"msecs");
             } catch (Exception e) {
             }
-
-            Thread.sleep(50.dur!"msecs");
         }
     } catch (Exception e) {
         logger.error(e.msg).collectException;
