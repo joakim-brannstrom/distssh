@@ -27,6 +27,8 @@ enum Kind : ubyte {
     confDone,
     /// One or more key strokes to be written to stdin
     key,
+    /// terminal capabilities
+    terminalCapability,
 }
 
 enum KindSize = DataSize!(MsgpackType.uint8);
@@ -94,8 +96,6 @@ struct Serialize(WriterT) {
     }
 
     void pack(const Key key) {
-        import std.algorithm : map, sum;
-
         // dfmt off
         const sz =
             KindSize +
@@ -151,12 +151,53 @@ struct Serialize(WriterT) {
             pack(kv.value);
         }
     }
+
+    void pack(const TerminalCapability t) {
+        // modelled after:
+        // struct termios {
+        //     tcflag_t   c_iflag;
+        //     tcflag_t   c_oflag;
+        //     tcflag_t   c_cflag;
+        //     tcflag_t   c_lflag;
+        //     cc_t       c_line;
+        //     cc_t[NCCS] c_cc;
+        //     speed_t    c_ispeed;
+        //     speed_t    c_ospeed;
+        // }
+
+        // dfmt off
+        const uint sz =
+            KindSize +
+            DataSize!(MsgpackType.uint32) +
+
+            DataSize!(MsgpackType.uint32) +
+            DataSize!(MsgpackType.uint32) +
+            DataSize!(MsgpackType.uint32) +
+            DataSize!(MsgpackType.uint32) +
+            DataSize!(MsgpackType.uint8) +
+            DataSize!(MsgpackType.array16) + t.value.c_cc.length +
+            DataSize!(MsgpackType.uint32) +
+            DataSize!(MsgpackType.uint32);
+        // dfmt on
+
+        pack(Kind.terminalCapability);
+        pack!(MsgpackType.uint32)(sz);
+        pack!(MsgpackType.uint32)(t.value.c_iflag);
+        pack!(MsgpackType.uint32)(t.value.c_oflag);
+        pack!(MsgpackType.uint32)(t.value.c_cflag);
+        pack!(MsgpackType.uint32)(t.value.c_lflag);
+        pack!(MsgpackType.uint8)(t.value.c_line);
+        packArray(t.value.c_cc[]);
+        pack!(MsgpackType.uint32)(t.value.c_ispeed);
+        pack!(MsgpackType.uint32)(t.value.c_ospeed);
+    }
 }
 
 struct Deserialize {
     import std.conv : to;
 
-    alias Result = SumType!(None, HeartBeat, ProtocolEnv, ConfDone, Command, Workdir, Key);
+    alias Result = SumType!(None, HeartBeat, ProtocolEnv, ConfDone, Command,
+            Workdir, Key, TerminalCapability);
 
     ubyte[] buf;
 
@@ -204,9 +245,29 @@ struct Deserialize {
         case Kind.key:
             rval = unpackKey;
             break;
+        case Kind.terminalCapability:
+            rval = unpackTerminalCapability;
+            break;
         }
 
         return rval;
+    }
+
+    private bool enoughData() {
+        const hdrTotalSz = KindSize + DataSize!(MsgpackType.uint32);
+        if (buf.length < hdrTotalSz)
+            return false;
+
+        const totalSz = () {
+            auto s = buf[KindSize .. $];
+            return peek!(MsgpackType.uint32, uint)(s);
+        }();
+
+        debug logger.trace("Bytes to unpack: ", totalSz);
+
+        if (buf.length < totalSz)
+            return false;
+        return true;
     }
 
     /** Consume from the buffer until a valid kind is found.
@@ -347,6 +408,32 @@ struct Deserialize {
         return key;
     }
 
+    private TerminalCapability unpackTerminalCapability() {
+        if (!enoughData)
+            return TerminalCapability.init;
+
+        // all data is received, start unpacking
+        demux!(MsgpackType.uint8, ubyte);
+        demux!(MsgpackType.uint32, uint);
+
+        TerminalCapability t;
+
+        t.value.c_iflag = demux!(MsgpackType.uint32, uint);
+        t.value.c_oflag = demux!(MsgpackType.uint32, uint);
+        t.value.c_cflag = demux!(MsgpackType.uint32, uint);
+        t.value.c_lflag = demux!(MsgpackType.uint32, uint);
+        t.value.c_line = demux!(MsgpackType.uint8, ubyte);
+
+        const elems = demux!(MsgpackType.array16, ushort);
+        t.value.c_cc = buf[0 .. elems];
+        buf = buf[elems .. $];
+
+        t.value.c_ispeed = demux!(MsgpackType.uint32, uint);
+        t.value.c_ospeed = demux!(MsgpackType.uint32, uint);
+
+        return t;
+    }
+
 private:
     void consume(MsgpackType type)() {
         buf = buf[DataSize!type .. $];
@@ -431,6 +518,12 @@ struct Key {
     const(ubyte)[] value;
 }
 
+struct TerminalCapability {
+    import core.sys.posix.termios;
+
+    termios value;
+}
+
 @("shall pack and unpack a HeartBeat")
 unittest {
     auto app = appender!(ubyte[])();
@@ -444,7 +537,9 @@ unittest {
         assert(false);
     }, (ProtocolEnv x) { assert(false); }, (HeartBeat x) { assert(true); }, (Key x) {
         assert(false);
-    }, (Command x) { assert(false); }, (Workdir x) { assert(false); });
+    }, (Command x) { assert(false); }, (Workdir x) { assert(false); }, (TerminalCapability x) {
+        assert(false);
+    });
 }
 
 @("shall clean the buffer until a valid kind is found")
@@ -466,8 +561,6 @@ unittest {
     auto ser = Serialize!(typeof(app))(app);
 
     ser.pack(ProtocolEnv([EnvVariable("foo", "bar")]));
-    logger.trace(app.data);
-    logger.trace(app.data.length);
     assert(app.data.length > 0);
 
     auto deser = Deserialize(app.data);
@@ -477,7 +570,7 @@ unittest {
         assert(false);
     }, (Key x) { assert(false); }, (Command x) { assert(false); }, (Workdir x) {
         assert(false);
-    });
+    }, (TerminalCapability x) { assert(false); });
 }
 
 @("shall pack and unpack a key")
@@ -486,8 +579,6 @@ unittest {
     auto ser = Serialize!(typeof(app))(app);
 
     ser.pack(Key([1, 2, 3]));
-    logger.trace(app.data);
-    logger.trace(app.data.length);
     assert(app.data.length > 0);
 
     auto deser = Deserialize(app.data);
@@ -495,5 +586,32 @@ unittest {
         assert(false);
     }, (ProtocolEnv x) { assert(false); }, (HeartBeat x) { assert(false); }, (Workdir x) {
         assert(false);
-    }, (Command x) { assert(false); }, (Key x) { assert(true); logger.trace(x); });
+    }, (Command x) { assert(false); }, (Key x) { assert(true); logger.trace(x); },
+            (TerminalCapability x) { assert(false); });
+}
+
+@("shall pack and unpack a termio")
+unittest {
+    import core.sys.posix.termios;
+
+    auto app = appender!(ubyte[])();
+    auto ser = Serialize!(typeof(app))(app);
+
+    termios mode;
+    if (tcgetattr(0, &mode) != 0) {
+        assert(false);
+    }
+
+    ser.pack(TerminalCapability(mode));
+    assert(app.data.length > 0);
+
+    auto deser = Deserialize(app.data);
+    deser.unpack.match!((None x) { assert(false); }, (ConfDone x) {
+        assert(false);
+    }, (ProtocolEnv x) { assert(false); }, (HeartBeat x) { assert(false); }, (Workdir x) {
+        assert(false);
+    }, (Command x) { assert(false); }, (Key x) { assert(false); }, (TerminalCapability x) {
+        assert(true);
+        assert(x.value == mode);
+    });
 }

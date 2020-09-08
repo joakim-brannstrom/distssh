@@ -158,10 +158,9 @@ int cli(const Config fconf, Config.Cmd conf) {
 // #SPC-fast_env_startup
 int cli(const Config fconf, Config.LocalRun conf) {
     import core.time : dur;
-    import std.stdio : File, stdin;
+    import std.stdio : File, stdin, stdout;
     import std.file : exists;
-    import std.process : thisProcessID;
-    import std.process : PConfig = Config, Redirect;
+    import std.process : PConfig = Config, Redirect, userShell, thisProcessID;
     import std.utf : toUTF8;
     import proc;
     import sumtype;
@@ -169,9 +168,12 @@ int cli(const Config fconf, Config.LocalRun conf) {
     import distssh.protocol;
 
     static struct LocalRunConf {
+        import core.sys.posix.termios;
+
         string[string] env;
         string[] cmd;
         string workdir;
+        termios mode;
     }
 
     static string[string] readEnvFromStdin(ProtocolEnv src) {
@@ -206,7 +208,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
                 }, (ProtocolEnv x) { conf.env = readEnvFromStdin(x); }, (HeartBeat x) {
                 }, (Command x) { conf.cmd = x.value; }, (Workdir x) {
                     conf.workdir = x.value;
-                }, (Key x) {});
+                }, (Key x) {}, (TerminalCapability x) { conf.mode = x.value; });
             }
 
             if (!fconf.global.stdinMsgPackEnv) {
@@ -217,7 +219,18 @@ int cli(const Config fconf, Config.LocalRun conf) {
         }();
 
         auto res = () {
-            return pipeShell(localConf.cmd.joiner(" ").toUTF8, Redirect.stdin,
+            if (conf.useFakeTerminal) {
+                import core.sys.posix.termios : tcsetattr, TCSAFLUSH;
+
+                auto p = ttyProcess([
+                        userShell, "-c", localConf.cmd.joiner(" ").toUTF8
+                        ], localConf.env, PConfig.none, localConf.workdir).sandbox.scopeKill;
+                tcsetattr(p.stdin.file.fileno, TCSAFLUSH, &localConf.mode);
+                setCBreak(p.stdin.file.fileno);
+                return p;
+            }
+            return pipeShell(localConf.cmd.joiner(" ").toUTF8,
+                    Redirect.stdin | Redirect.stdout | Redirect.stderrToStdout,
                     localConf.env, PConfig.none, localConf.workdir).sandbox.scopeKill;
         }();
 
@@ -234,8 +247,20 @@ int cli(const Config fconf, Config.LocalRun conf) {
             }
             return 500.dur!"msecs";
         }, 50.dur!"msecs");
+
+        ubyte[4096] buf;
+        makeInterval(timers, () @trusted {
+            auto r = buf[];
+            if (res.stdout.hasPendingData) {
+                res.stdout.read(r);
+                stdout.rawWrite(r);
+                stdout.flush;
+            }
+            return 25.dur!"msecs";
+        }, 25.dur!"msecs");
+
         // a dummy event that ensure that it tick each 50 msec.
-        makeInterval(timers, () => 25.dur!"msecs", 50.dur!"msecs");
+        makeInterval(timers, () => 50.dur!"msecs", 50.dur!"msecs");
 
         int exit_status = 1;
 
@@ -257,7 +282,9 @@ int cli(const Config fconf, Config.LocalRun conf) {
                         auto written = res.stdin.write(x.value);
                         data = data[written.length .. $];
                     }
-                });
+                    stdout.rawWrite(x.value);
+                    stdout.flush;
+                }, (TerminalCapability x) {});
             } catch (Exception e) {
             }
 
@@ -275,10 +302,17 @@ int cli(const Config fconf, Config.LocalRun conf) {
 
 int cli(const Config fconf, Config.Install conf, void delegate(string src, string dst) symlink) nothrow {
     import std.path : buildPath;
+    import std.file : exists, remove;
+
+    void replace(string src, string dst) {
+        if (exists(dst))
+            remove(dst);
+        symlink(src, dst);
+    }
 
     try {
-        symlink(fconf.global.selfBinary, buildPath(fconf.global.selfDir, distShell));
-        symlink(fconf.global.selfBinary, buildPath(fconf.global.selfDir, distCmd));
+        replace(fconf.global.selfBinary, buildPath(fconf.global.selfDir, distShell));
+        replace(fconf.global.selfBinary, buildPath(fconf.global.selfDir, distCmd));
         return 0;
     } catch (Exception e) {
         logger.error(e.msg).collectException;

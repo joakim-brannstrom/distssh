@@ -69,6 +69,7 @@ struct Config {
     struct LocalRun {
         std.getopt.GetoptResult helpInfo;
         static string helpDescription = "import env and run the command locally";
+        bool useFakeTerminal;
     }
 
     struct Install {
@@ -294,7 +295,15 @@ Config parseUserArgs(string[] args) {
         }
 
         void localrunParse() {
-            conf.data = Config.LocalRun.init;
+            Config.LocalRun data;
+            scope (success)
+                conf.data = data;
+
+            // dfmt off
+            data.helpInfo = std.getopt.getopt(args, std.getopt.config.passThrough, std.getopt.config.keepEndOfOptions,
+                "pseudo-terminal", "force that a pseudo-terminal is used when running the command", &data.useFakeTerminal,
+            );
+            // dfmt on
         }
 
         void installParse() {
@@ -331,7 +340,7 @@ Config parseUserArgs(string[] args) {
                 "b|background", "persist in the background", &data.background,
                 "force-start", "force the server to start", &data.forceStart,
                 "t|timeout", "shutdown background process if unused not used for this time (default: 30 minutes)", &timeout,
-                );
+            );
             // dfmt on
             data.timeout = timeout.dur!"minutes";
         }

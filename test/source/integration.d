@@ -42,8 +42,9 @@ unittest {
     mkdirRecurse(wdir);
     File(buildPath(wdir, "my_dummy_file.txt"), "w");
 
-    assert(spawnProcess([distssh, "cmd", "--", "cat", "my_dummy_file.txt"], null,
-            Config.none, wdir).wait == 0, "failed to cat my_dummy_file.txt via distssh --");
+    assert(spawnProcess([
+                distssh, "cmd", "-vtrace", "--", "cat", "my_dummy_file.txt"
+            ], null, Config.none, wdir).wait == 0, "failed to cat my_dummy_file.txt via distssh --");
     assert(spawnProcess([distcmd, "cat", "my_dummy_file.txt"], null, Config.none,
             wdir).wait == 0, "failed to cat my_dummy_file.txt via distcmd");
 }
