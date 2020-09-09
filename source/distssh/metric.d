@@ -30,7 +30,7 @@ Load getLoad(Host h, Duration timeout) nothrow {
     import std.range : takeOne, retro;
     import std.stdio : writeln;
     import core.sys.posix.signal : SIGKILL;
-    import distssh.timer : makeTimers, makeInterval;
+    import my.timer : makeTimers, makeInterval;
 
     enum ExitCode {
         none,
@@ -49,7 +49,7 @@ Load getLoad(Host h, Duration timeout) nothrow {
                 h, abs_distssh.escapeShellFileName, "localload"
                 ]);
 
-        bool checkExitCode() @trusted {
+        Duration checkExitCode() @trusted {
             auto st = res.pid.tryWait;
 
             if (st.terminated && st.status == 0) {
@@ -62,7 +62,10 @@ Load getLoad(Host h, Duration timeout) nothrow {
                 // must read the exit or a zombie process is left behind
                 res.pid.wait;
             }
-            return exit_code == ExitCode.none;
+
+            if (exit_code == ExitCode.none)
+                return 25.dur!"msecs";
+            return Duration.min;
         }
 
         // 25 because it is at the perception of human "lag" and less than the 100

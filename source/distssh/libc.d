@@ -23,6 +23,3 @@ DIAGNOSTICS
      ber of samples actually retrieved is returned.
  */
 extern (C) int getloadavg(double* loadavg, int nelem);
-
-extern (C) static int forkpty(int* master, char* name, void* termp, void* winp);
-extern (C) static char* ttyname(int fd);

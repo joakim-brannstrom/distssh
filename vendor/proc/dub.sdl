@@ -12,5 +12,7 @@ dependency "distssh:my" version="*"
 dflags "-verrors=context" platform="dmd"
 dflags "--verrors-context" platform="ldc"
 
+libs "util"
+
 configuration "library" {
 }

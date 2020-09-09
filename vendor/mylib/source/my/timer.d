@@ -5,7 +5,7 @@ Author: Joakim Brännström (joakim.brannstrom@gmx.com)
 
 This module contain timer utilities.
 */
-module distssh.timer;
+module my.timer;
 
 import logger = std.experimental.logger;
 import core.time : Duration, dur;
@@ -129,14 +129,16 @@ unittest {
     assert(timerPopped == 2);
 }
 
-alias IntervalAction = bool delegate();
+/// A negative duration mean it will be removed.
+alias IntervalAction = Duration delegate();
 
-/// Timers that fire each interval as long as the action return true.
+/// Timers that fire each interval. The intervals is adjusted by `action` and
+/// removed if the interval is < 0.
 auto makeInterval(ref Timers ts, IntervalAction action, Duration interval) {
     void repeatFn(ref Timers ts) @safe {
         const res = action();
-        if (res) {
-            ts.put(&repeatFn, interval);
+        if (res >= Duration.zero) {
+            ts.put(&repeatFn, res);
         }
     }
 
@@ -148,7 +150,12 @@ unittest {
     int ticks;
     auto timers = makeTimers;
 
-    makeInterval(timers, () { ticks++; return ticks < 3; }, 2.dur!"msecs");
+    makeInterval(timers, () {
+        ticks++;
+        if (ticks < 3)
+            return 2.dur!"msecs";
+        return -1.dur!"seconds";
+    }, 2.dur!"msecs");
     while (!timers.empty) {
         timers.tick(Duration.zero);
     }

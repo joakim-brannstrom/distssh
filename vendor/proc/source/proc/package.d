@@ -22,6 +22,7 @@ import my.from_;
 
 public import proc.channel;
 public import proc.pid;
+public import proc.tty;
 
 version (unittest) {
     import std.file : remove;
@@ -196,28 +197,51 @@ struct PipeProcess {
         }
 
         std.process.ProcessPipes process;
-        Pipe pipe_;
+        std.process.Pid pid;
+
         FileReadChannel stderr_;
+        FileReadChannel stdout_;
+        FileWriteChannel stdin_;
         int status_;
         State st;
-        RawPid pid;
     }
 
-    this(std.process.ProcessPipes process) @safe {
+    this(std.process.Pid pid, File stdin, File stdout, File stderr) @safe {
+        this.pid = pid;
+
+        this.stdin_ = FileWriteChannel(stdin);
+        this.stdout_ = FileReadChannel(stdout);
+        this.stderr_ = FileReadChannel(stderr);
+    }
+
+    this(std.process.ProcessPipes process, std.process.Redirect r) @safe {
         this.process = process;
-        this.pipe_ = Pipe(this.process.stdout, this.process.stdin);
-        this.stderr_ = FileReadChannel(this.process.stderr);
-        this.pid = process.pid.osHandle.RawPid;
+        this.pid = process.pid;
+
+        if (r & std.process.Redirect.stdin) {
+            stdin_ = FileWriteChannel(this.process.stdin);
+        }
+        if (r & std.process.Redirect.stdout) {
+            stdout_ = FileReadChannel(this.process.stdout);
+        }
+        if (r & std.process.Redirect.stderr) {
+            this.stderr_ = FileReadChannel(this.process.stderr);
+        }
     }
 
     /// Returns: The raw OS handle for the process ID.
     RawPid osHandle() nothrow @safe {
-        return this.pid;
+        return pid.osHandle.RawPid;
     }
 
-    /// Access to stdin and stdout.
-    ref Pipe pipe() return scope nothrow @safe {
-        return pipe_;
+    /// Access to stdout.
+    ref FileWriteChannel stdin() return scope nothrow @safe {
+        return stdin_;
+    }
+
+    /// Access to stdout.
+    ref FileReadChannel stdout() return scope nothrow @safe {
+        return stdout_;
     }
 
     /// Access stderr.
@@ -260,7 +284,7 @@ struct PipeProcess {
         }
 
         try {
-            std.process.kill(process.pid, signal);
+            std.process.kill(pid, signal);
         } catch (Exception e) {
         }
 
@@ -272,10 +296,10 @@ struct PipeProcess {
     int wait() @safe {
         final switch (st) {
         case State.running:
-            status_ = std.process.wait(process.pid);
+            status_ = std.process.wait(pid);
             break;
         case State.terminated:
-            status_ = std.process.wait(process.pid);
+            status_ = std.process.wait(pid);
             break;
         case State.exitCode:
             break;
@@ -291,14 +315,14 @@ struct PipeProcess {
     bool tryWait() @safe {
         final switch (st) {
         case State.running:
-            auto s = std.process.tryWait(process.pid);
+            auto s = std.process.tryWait(pid);
             if (s.terminated) {
                 st = State.exitCode;
                 status_ = s.status;
             }
             break;
         case State.terminated:
-            status_ = std.process.wait(process.pid);
+            status_ = std.process.wait(pid);
             st = State.exitCode;
             break;
         case State.exitCode:
@@ -364,14 +388,15 @@ PipeProcess pipeProcess(scope const(char[])[] args,
         std.process.Redirect redirect = std.process.Redirect.all,
         const string[string] env = null, std.process.Config config = std.process.Config.none,
         scope const(char)[] workDir = null) @safe {
-    return PipeProcess(std.process.pipeProcess(args, redirect, env, config, workDir));
+    return PipeProcess(std.process.pipeProcess(args, redirect, env, config, workDir), redirect);
 }
 
 PipeProcess pipeShell(scope const(char)[] command,
         std.process.Redirect redirect = std.process.Redirect.all,
         const string[string] env = null, std.process.Config config = std.process.Config.none,
         scope const(char)[] workDir = null, string shellPath = std.process.nativeShell) @safe {
-    return PipeProcess(std.process.pipeShell(command, redirect, env, config, workDir, shellPath));
+    return PipeProcess(std.process.pipeShell(command, redirect, env, config,
+            workDir, shellPath), redirect);
 }
 
 /** Moves the process to a separate process group and on exit kill it and all
@@ -397,9 +422,15 @@ PipeProcess pipeShell(scope const(char)[] command,
         return pid;
     }
 
-    static if (__traits(hasMember, ProcessT, "pipe")) {
-        ref Pipe pipe() nothrow @safe {
-            return p.pipe;
+    static if (__traits(hasMember, ProcessT, "stdin")) {
+        ref FileWriteChannel stdin() nothrow @safe {
+            return p.stdin;
+        }
+    }
+
+    static if (__traits(hasMember, ProcessT, "stdout")) {
+        ref FileReadChannel stdout() nothrow @safe {
+            return p.stdout;
         }
     }
 
@@ -647,9 +678,15 @@ sleep 10m
         return rc.pid;
     }
 
-    static if (__traits(hasMember, ProcessT, "pipe")) {
-        ref Pipe pipe() nothrow @trusted {
-            return rc.p.pipe;
+    static if (__traits(hasMember, ProcessT, "stdin")) {
+        ref FileWriteChannel stdin() nothrow @safe {
+            return rc.p.stdin;
+        }
+    }
+
+    static if (__traits(hasMember, ProcessT, "stdout")) {
+        ref FileReadChannel stdout() nothrow @safe {
+            return rc.p.stdout;
         }
     }
 
@@ -790,14 +827,14 @@ struct DrainRange(ProcessT) {
         assert(!empty, "Can't pop front of an empty range");
 
         static bool isAnyPipeOpen(ref ProcessT p) {
-            return p.pipe.isOpen || p.stderr.isOpen;
+            return p.stdout.isOpen || p.stderr.isOpen;
         }
 
         DrainElement readData(ref ProcessT p) @safe {
             if (p.stderr.hasPendingData) {
                 return DrainElement(DrainElement.Type.stderr, p.stderr.read(buf));
-            } else if (p.pipe.hasPendingData) {
-                return DrainElement(DrainElement.Type.stdout, p.pipe.read(buf));
+            } else if (p.stdout.hasPendingData) {
+                return DrainElement(DrainElement.Type.stdout, p.stdout.read(buf));
             }
             return DrainElement.init;
         }
@@ -851,8 +888,8 @@ struct DrainRange(ProcessT) {
             }
             break;
         case State.lastStdout:
-            if (p.pipe.hasPendingData) {
-                front_ = DrainElement(DrainElement.Type.stdout, p.pipe.read(buf).dup);
+            if (p.stdout.hasPendingData) {
+                front_ = DrainElement(DrainElement.Type.stdout, p.stdout.read(buf).dup);
             } else {
                 st = State.lastStderr;
             }

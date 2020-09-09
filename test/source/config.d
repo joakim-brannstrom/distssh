@@ -39,10 +39,6 @@ void prepareDistssh() {
             return;
         g_isDistsshPrepared = true;
 
-        // prepare by cleaning up
-        if (exists(buildDir))
-            dirEntries(buildDir, SpanMode.shallow).each!(a => remove(a));
-
         auto es = spawnShell("cd .. && dub build").wait;
         assert(es == 0, "failed compilation");
 

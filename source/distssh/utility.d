@@ -7,6 +7,7 @@ module distssh.utility;
 
 import core.time : Duration;
 import std.algorithm : splitter, map, filter, joiner;
+import std.array : empty;
 import std.exception : collectException;
 import std.stdio : File;
 import std.typecons : Nullable, NullableRef;
@@ -16,6 +17,7 @@ import colorlog;
 
 import my.from_;
 import my.path;
+import my.fswatch : FdPoller, PollStatus, PollEvent, PollResult, FdPoll;
 
 import distssh.config;
 import distssh.metric;
@@ -40,14 +42,30 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
     import std.format : format;
     import std.path : absolutePath;
     import std.process : tryWait, Redirect, pipeProcess;
+    import std.stdio : stdin;
+    static import core.sys.posix.unistd;
 
-    import distssh.protocol : ProtocolEnv, ConfDone, Command, Workdir;
+    import my.timer : makeInterval, makeTimers;
+    import my.tty : setCBreak, CBreak;
+    import distssh.protocol : ProtocolEnv, ConfDone, Command, Workdir, Key, TerminalCapability;
 
-    // #SPC-draft_remote_cmd_spec
     try {
+        const isInteractive = core.sys.posix.unistd.isatty(stdin.fileno) == 1;
+
+        CBreak consoleChange;
+        scope (exit)
+            () {
+            if (isInteractive)
+                consoleChange.reset(stdin.fileno);
+        }();
+
         auto args = ["ssh"] ~ sshNoLoginArgs ~ [
             host, thisExePath, "localrun", "--stdin-msgpack-env"
         ];
+
+        if (isInteractive) {
+            args ~= "--pseudo-terminal";
+        }
 
         logger.tracef("Connecting to %s. Run %s", host, args.joiner(" "));
 
@@ -63,7 +81,44 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
         pwriter.pack(env);
         pwriter.pack(Command(conf.command.dup));
         pwriter.pack(Workdir(conf.workDir));
+        if (isInteractive) {
+            import core.sys.posix.termios;
+
+            termios mode;
+            if (tcgetattr(1, &mode) == 0) {
+                pwriter.pack(TerminalCapability(mode));
+            }
+        }
         pwriter.pack!ConfDone;
+
+        FdPoller poller;
+        poller.put(FdPoll(stdin.fileno), [PollEvent.in_]);
+
+        if (isInteractive) {
+            consoleChange = setCBreak(stdin.fileno);
+        }
+
+        auto timers = makeTimers;
+        makeInterval(timers, () @trusted {
+            HeartBeatMonitor.ping(pwriter);
+            return 250.dur!"msecs";
+        }, 50.dur!"msecs");
+
+        // send stdin to the other side
+        ubyte[4096] stdinBuf;
+        makeInterval(timers, () @trusted {
+            auto res = poller.wait(25.dur!"msecs");
+            if (!res.empty && res[0].status[PollStatus.in_]) {
+                auto len = core.sys.posix.unistd.read(stdin.fileno, stdinBuf.ptr, stdinBuf.length);
+                if (len > 0) {
+                    pwriter.pack(Key(stdinBuf[0 .. len]));
+                }
+            }
+            return 25.dur!"msecs";
+        }, 25.dur!"msecs");
+
+        // dummy event to force the timer to return after 50ms
+        makeInterval(timers, () @safe { return 50.dur!"msecs"; }, 50.dur!"msecs");
 
         while (true) {
             try {
@@ -71,13 +126,9 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
                 if (st.terminated)
                     return st.status;
 
-                // important that this is never called after the process has
-                // terminated
-                HeartBeatMonitor.ping(pwriter);
+                timers.tick(50.dur!"msecs");
             } catch (Exception e) {
             }
-
-            Thread.sleep(50.dur!"msecs");
         }
     } catch (Exception e) {
         logger.error(e.msg).collectException;
@@ -88,26 +139,49 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
 struct PipeReader {
     import distssh.protocol : Deserialize;
 
-    NonblockingFd nfd;
+    private {
+        FdPoller poller;
+        ubyte[4096] buf;
+        int fd;
+    }
+
     Deserialize deser;
 
     alias deser this;
 
     this(int fd) {
-        this.nfd = NonblockingFd(fd);
+        this.fd = fd;
+        poller.put(FdPoll(fd), [PollEvent.in_]);
     }
 
     // Update the buffer with data from the pipe.
     void update() nothrow {
-        ubyte[128] buf;
-        ubyte[] s = buf[];
-
         try {
-            nfd.read(s);
-            if (s.length > 0)
+            auto s = read;
+            if (!s.empty)
                 deser.put(s);
         } catch (Exception e) {
         }
+    }
+
+    /// The returned slice is to a local, static array. It must be used/copied
+    /// before next call to read.
+    private ubyte[] read() return  {
+        static import core.sys.posix.unistd;
+
+        auto res = poller.wait();
+        if (res.empty) {
+            return null;
+        }
+
+        if (!res[0].status[PollStatus.in_]) {
+            return null;
+        }
+
+        auto len = core.sys.posix.unistd.read(fd, buf.ptr, buf.length);
+        if (len > 0)
+            return buf[0 .. len];
+        return null;
     }
 }
 
@@ -127,35 +201,6 @@ struct PipeWriter {
     void put(const(ubyte)[] v) @safe {
         fout.rawWrite(v);
         fout.flush;
-    }
-}
-
-struct NonblockingFd {
-    int fileno;
-
-    private const int old_fcntl;
-
-    this(int fd) {
-        this.fileno = fd;
-
-        import core.sys.posix.fcntl : fcntl, F_SETFL, F_GETFL, O_NONBLOCK;
-
-        old_fcntl = fcntl(fileno, F_GETFL);
-        fcntl(fileno, F_SETFL, old_fcntl | O_NONBLOCK);
-    }
-
-    ~this() {
-        import core.sys.posix.fcntl : fcntl, F_SETFL;
-
-        fcntl(fileno, F_SETFL, old_fcntl);
-    }
-
-    void read(ref ubyte[] buf) {
-        static import core.sys.posix.unistd;
-
-        auto len = core.sys.posix.unistd.read(fileno, buf.ptr, buf.length);
-        if (len > 0)
-            buf = buf[0 .. len];
     }
 }
 
@@ -186,7 +231,8 @@ from.distssh.protocol.ProtocolEnv readEnv(string filename) nothrow {
 
         deser.unpack.match!((None x) {}, (ConfDone x) {}, (ProtocolEnv x) {
             rval = x;
-        }, (HeartBeat x) {}, (Command x) {}, (Workdir x) {});
+        }, (HeartBeat x) {}, (Command x) {}, (Workdir x) {}, (Key x) {}, (TerminalCapability x) {
+        });
     } catch (Exception e) {
         logger.error(e.msg).collectException;
         logger.errorf("Unable to import environment from '%s'", filename).collectException;
