@@ -221,6 +221,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
         auto res = () {
             if (conf.useFakeTerminal) {
                 import core.sys.posix.termios : tcsetattr, TCSAFLUSH;
+                import my.tty : setCBreak;
 
                 auto p = ttyProcess([
                         userShell, "-c", localConf.cmd.joiner(" ").toUTF8
