@@ -158,7 +158,7 @@ int cli(const Config fconf, Config.Cmd conf) {
 // #SPC-fast_env_startup
 int cli(const Config fconf, Config.LocalRun conf) {
     import core.time : dur;
-    import std.stdio : File, stdin, stdout;
+    import std.stdio : File, stdin, stdout, writeln;
     import std.file : exists;
     import std.process : PConfig = Config, Redirect, userShell, thisProcessID;
     import std.utf : toUTF8;
@@ -166,6 +166,10 @@ int cli(const Config fconf, Config.LocalRun conf) {
     import sumtype;
     import my.timer : makeTimers, makeInterval;
     import distssh.protocol;
+
+    // force a newline to always be printed
+    scope(exit)
+        writeln;
 
     static struct LocalRunConf {
         import core.sys.posix.termios;
@@ -250,13 +254,17 @@ int cli(const Config fconf, Config.LocalRun conf) {
         }, 50.dur!"msecs");
 
         ubyte[4096] buf;
-        makeInterval(timers, () @trusted {
+        void pipeOutputToUser() @trusted {
             auto r = buf[];
             if (res.stdout.hasPendingData) {
                 res.stdout.read(r);
                 stdout.rawWrite(r);
                 stdout.flush;
             }
+        }
+        scope(exit) pipeOutputToUser;
+        makeInterval(timers, () @safe {
+            pipeOutputToUser;
             return 25.dur!"msecs";
         }, 25.dur!"msecs");
 
