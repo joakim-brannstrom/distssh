@@ -227,8 +227,8 @@ int cli(const Config fconf, Config.LocalRun conf) {
                 import core.sys.posix.termios : tcsetattr, TCSAFLUSH;
                 import my.tty : setCBreak;
 
-                auto p = ttyProcess([
-                        userShell, "-c", localConf.cmd.joiner(" ").toUTF8
+                auto p = ttyProcess([userShell] ~ shellSwitch(userShell) ~ [
+                        localConf.cmd.joiner(" ").toUTF8
                         ], localConf.env, PConfig.none, localConf.workdir).sandbox.scopeKill;
                 tcsetattr(p.stdin.file.fileno, TCSAFLUSH, &localConf.mode);
                 setCBreak(p.stdin.file.fileno);
