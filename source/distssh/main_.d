@@ -254,18 +254,30 @@ int cli(const Config fconf, Config.LocalRun conf) {
         }, 50.dur!"msecs");
 
         ubyte[4096] buf;
-        void pipeOutputToUser() @trusted {
+        bool pipeOutputToUser() @trusted {
+            bool hasWritten;
             while (res.stdout.hasPendingData) {
                 auto r = res.stdout.read(buf[]);
                 stdout.rawWrite(r);
+                hasWritten = true;
             }
-            stdout.flush;
+
+            if (hasWritten) {
+                stdout.flush;
+            }
+            return hasWritten;
         }
 
         scope (exit)
             pipeOutputToUser;
 
-        makeInterval(timers, () @safe { pipeOutputToUser; return 25.dur!"msecs"; }, 25.dur!"msecs");
+        makeInterval(timers, () @safe {
+            if (pipeOutputToUser) {
+                return 25.dur!"msecs";
+            }
+            // slower if not much is happening
+            return 100.dur!"msecs";
+        }, 25.dur!"msecs");
 
         // a dummy event that ensure that it tick each 50 msec.
         makeInterval(timers, () => 50.dur!"msecs", 50.dur!"msecs");

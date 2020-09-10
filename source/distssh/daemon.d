@@ -92,8 +92,8 @@ int cli(const Config fconf, Config.Daemon conf) {
         if (Clock.currTime > forceShutdown) {
             running = false;
         }
-        return 5.dur!"seconds";
-    }, 5.dur!"seconds");
+        return conf.timeout;
+    }, 30.dur!"seconds");
 
     makeInterval(timers, () @safe {
         // the database may have been removed/recreated
@@ -117,6 +117,8 @@ int cli(const Config fconf, Config.Daemon conf) {
             updateServer(db, host.get, fconf.global.timeout);
         }
 
+        if (clientBeat < 30.dur!"seconds")
+            return 10.dur!"seconds";
         if (clientBeat < 5.dur!"minutes")
             return 30.dur!"seconds";
         return 60.dur!"seconds";
