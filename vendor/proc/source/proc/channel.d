@@ -106,7 +106,7 @@ struct FileReadChannel {
      *
      * buf is not resized. Use the returned value.
      */
-    ubyte[] read(ref ubyte[] buf) return scope @trusted {
+    ubyte[] read(ubyte[] buf) return scope @trusted {
         static import core.sys.posix.unistd;
 
         if (st == State.eof || buf.length == 0) {

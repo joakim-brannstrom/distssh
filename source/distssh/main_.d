@@ -168,7 +168,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
     import distssh.protocol;
 
     // force a newline to always be printed
-    scope(exit)
+    scope (exit)
         writeln;
 
     static struct LocalRunConf {
@@ -255,18 +255,17 @@ int cli(const Config fconf, Config.LocalRun conf) {
 
         ubyte[4096] buf;
         void pipeOutputToUser() @trusted {
-            auto r = buf[];
-            if (res.stdout.hasPendingData) {
-                res.stdout.read(r);
+            while (res.stdout.hasPendingData) {
+                auto r = res.stdout.read(buf[]);
                 stdout.rawWrite(r);
-                stdout.flush;
             }
+            stdout.flush;
         }
-        scope(exit) pipeOutputToUser;
-        makeInterval(timers, () @safe {
+
+        scope (exit)
             pipeOutputToUser;
-            return 25.dur!"msecs";
-        }, 25.dur!"msecs");
+
+        makeInterval(timers, () @safe { pipeOutputToUser; return 25.dur!"msecs"; }, 25.dur!"msecs");
 
         // a dummy event that ensure that it tick each 50 msec.
         makeInterval(timers, () => 50.dur!"msecs", 50.dur!"msecs");
