@@ -42,7 +42,7 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
     import std.format : format;
     import std.path : absolutePath;
     import std.process : tryWait, Redirect, pipeProcess;
-    import std.stdio : stdin;
+    import std.stdio : stdin, stdout, stderr;
     static import core.sys.posix.unistd;
 
     import my.timer : makeInterval, makeTimers;
@@ -55,8 +55,11 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
         CBreak consoleChange;
         scope (exit)
             () {
-            if (isInteractive)
+            if (isInteractive) {
                 consoleChange.reset(stdin.fileno);
+                consoleChange.reset(stdout.fileno);
+                consoleChange.reset(stderr.fileno);
+            }
         }();
 
         auto args = ["ssh"] ~ sshNoLoginArgs ~ [
@@ -107,14 +110,14 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
         // send stdin to the other side
         ubyte[4096] stdinBuf;
         makeInterval(timers, () @trusted {
-            auto res = poller.wait();
+            auto res = poller.wait(10.dur!"msecs");
             if (!res.empty && res[0].status[PollStatus.in_]) {
                 auto len = core.sys.posix.unistd.read(stdin.fileno, stdinBuf.ptr, stdinBuf.length);
                 if (len > 0) {
                     pwriter.pack(Key(stdinBuf[0 .. len]));
                 }
 
-                return 25.dur!"msecs";
+                return 1.dur!"msecs";
             }
 
             // slower if not much is happening
