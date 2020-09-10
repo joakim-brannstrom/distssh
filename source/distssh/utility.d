@@ -364,3 +364,12 @@ struct BackgroundClientBeat {
         }
     }
 }
+
+/// Returns: the switches to use to execute the shell.
+string[] shellSwitch(string shell) {
+    import std.path : baseName;
+
+    if (shell.baseName == "bash")
+        return ["--noprofile", "--norc", "-c"];
+    return ["-c"];
+}
