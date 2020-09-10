@@ -107,14 +107,14 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
         // send stdin to the other side
         ubyte[4096] stdinBuf;
         makeInterval(timers, () @trusted {
-            auto res = poller.wait();
+            auto res = poller.wait(10.dur!"msecs");
             if (!res.empty && res[0].status[PollStatus.in_]) {
                 auto len = core.sys.posix.unistd.read(stdin.fileno, stdinBuf.ptr, stdinBuf.length);
                 if (len > 0) {
                     pwriter.pack(Key(stdinBuf[0 .. len]));
                 }
 
-                return 25.dur!"msecs";
+                return 1.dur!"msecs";
             }
 
             // slower if not much is happening

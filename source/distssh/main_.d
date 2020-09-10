@@ -225,13 +225,11 @@ int cli(const Config fconf, Config.LocalRun conf) {
         auto res = () {
             if (conf.useFakeTerminal) {
                 import core.sys.posix.termios : tcsetattr, TCSAFLUSH;
-                import my.tty : setCBreak;
 
                 auto p = ttyProcess([userShell] ~ shellSwitch(userShell) ~ [
                         localConf.cmd.joiner(" ").toUTF8
                         ], localConf.env, PConfig.none, localConf.workdir).sandbox.scopeKill;
                 tcsetattr(p.stdin.file.fileno, TCSAFLUSH, &localConf.mode);
-                setCBreak(p.stdin.file.fileno);
                 return p;
             }
             return pipeShell(localConf.cmd.joiner(" ").toUTF8,
@@ -273,7 +271,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
 
         makeInterval(timers, () @safe {
             if (pipeOutputToUser) {
-                return 25.dur!"msecs";
+                return 10.dur!"msecs";
             }
             // slower if not much is happening
             return 100.dur!"msecs";
@@ -302,8 +300,6 @@ int cli(const Config fconf, Config.LocalRun conf) {
                         auto written = res.stdin.write(x.value);
                         data = data[written.length .. $];
                     }
-                    stdout.rawWrite(x.value);
-                    stdout.flush;
                 }, (TerminalCapability x) {});
             } catch (Exception e) {
             }
