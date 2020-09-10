@@ -42,7 +42,7 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
     import std.format : format;
     import std.path : absolutePath;
     import std.process : tryWait, Redirect, pipeProcess;
-    import std.stdio : stdin;
+    import std.stdio : stdin, stdout, stderr;
     static import core.sys.posix.unistd;
 
     import my.timer : makeInterval, makeTimers;
@@ -55,8 +55,11 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
         CBreak consoleChange;
         scope (exit)
             () {
-            if (isInteractive)
+            if (isInteractive) {
                 consoleChange.reset(stdin.fileno);
+                consoleChange.reset(stdout.fileno);
+                consoleChange.reset(stderr.fileno);
+            }
         }();
 
         auto args = ["ssh"] ~ sshNoLoginArgs ~ [
