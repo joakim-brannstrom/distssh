@@ -136,6 +136,8 @@ int cli(const Config fconf, Config.Shell conf) {
 
 // #SPC-fast_env_startup
 int cli(const Config fconf, Config.Cmd conf) {
+    import std.stdio : stdout;
+
     if (fconf.global.command.empty) {
         logger.error("No command specified");
         logger.error("Specify by adding -- <my command>");
@@ -146,6 +148,9 @@ int cli(const Config fconf, Config.Cmd conf) {
 
     foreach (host; RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster).bestSelectRange) {
         logger.info("Connecting to ", host);
+        // to ensure connecting to is at the top of e.g. logfiles when the user run
+        // distcmd env > log.txt
+        stdout.flush;
         return executeOnHost(ExecuteOnHostConf(fconf.global.workDir, fconf.global.command.dup,
                 fconf.global.importEnv, fconf.global.cloneEnv, fconf.global.noImportEnv), host);
     }
@@ -158,7 +163,7 @@ int cli(const Config fconf, Config.Cmd conf) {
 // #SPC-fast_env_startup
 int cli(const Config fconf, Config.LocalRun conf) {
     import core.time : dur;
-    import std.stdio : File, stdin, stdout, writeln;
+    import std.stdio : File, stdin, stdout;
     import std.file : exists;
     import std.process : PConfig = Config, Redirect, userShell, thisProcessID;
     import std.utf : toUTF8;
@@ -166,10 +171,6 @@ int cli(const Config fconf, Config.LocalRun conf) {
     import sumtype;
     import my.timer : makeTimers, makeInterval;
     import distssh.protocol;
-
-    // force a newline to always be printed
-    scope (exit)
-        writeln;
 
     static struct LocalRunConf {
         import core.sys.posix.termios;
