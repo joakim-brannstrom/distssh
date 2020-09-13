@@ -68,7 +68,7 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
             if (isInteractive) {
                 a ~= "--pseudo-terminal";
             }
-            return sshArgs(host, null, a);
+            return sshArgs(host, null, a).toArgs;
         }();
 
         logger.tracef("Connecting to %s. Run %s", host, args.joiner(" "));

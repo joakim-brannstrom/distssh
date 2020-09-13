@@ -20,13 +20,13 @@ immutable sshNoLoginArgs = [
     "-oStrictHostKeyChecking=no", "-oPasswordAuthentication=no"
 ];
 
-string[] sshArgs(Host host, string[] ssh, string[] cmd) {
-    return ["ssh"] ~ ssh ~ sshNoLoginArgs ~ [
-        host, thisExePath.escapeShellFileName
-    ] ~ cmd;
+SshArgs sshArgs(Host host, string[] ssh, string[] cmd) {
+    return SshArgs("ssh", ssh ~ sshNoLoginArgs ~ [
+            host, thisExePath.escapeShellFileName
+            ], cmd);
 }
 
-string[] sshShellArgs(Host host, Path workDir) {
+SshArgs sshShellArgs(Host host, Path workDir) {
     // two -t forces a tty to be created and used which mean that the remote
     // shell will *think* it is an interactive shell
     return sshArgs(host, ["-q", "-t", "-t"], [
@@ -34,6 +34,29 @@ string[] sshShellArgs(Host host, Path workDir) {
             ]);
 }
 
-string[] sshLoadArgs(Host host) {
+SshArgs sshLoadArgs(Host host) {
     return sshArgs(host, ["-q"], ["localload"]);
+}
+
+/// Arguments for creating a ssh connection and execute a command.
+struct SshArgs {
+    string ssh;
+    string[] sshArgs;
+    string[] cmd;
+
+    ///
+    ///
+    /// Params:
+    /// ssh     = command to use for establishing the ssh connection
+    /// sshArgs = arguments to the `ssh`
+    /// cmd     = command to execute
+    this(string ssh, string[] sshArgs, string[] cmd) @safe pure nothrow @nogc {
+        this.ssh = ssh;
+        this.sshArgs = sshArgs;
+        this.cmd = cmd;
+    }
+
+    string[] toArgs() @safe pure nothrow const {
+        return [ssh] ~ sshArgs.dup ~ cmd.dup;
+    }
 }
