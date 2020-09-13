@@ -44,7 +44,7 @@ Load getLoad(Host h, Duration timeout) nothrow {
     Nullable!Load measure() {
         auto sw = StopWatch(AutoStart.yes);
 
-        auto res = pipeProcess(sshLoadArgs(h));
+        auto res = pipeProcess(sshLoadArgs(h).toArgs);
 
         Duration checkExitCode() @trusted {
             auto st = res.pid.tryWait;

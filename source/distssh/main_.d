@@ -110,7 +110,8 @@ int cli(const Config fconf, Config.Shell conf) {
 
             auto sw = StopWatch(AutoStart.yes);
 
-            auto exit_status = spawnProcess(sshShellArgs(host, fconf.global.workDir.Path)).wait;
+            auto exit_status = spawnProcess(sshShellArgs(host, fconf.global.workDir.Path).toArgs)
+                .wait;
 
             // #SPC-fallback_remote_host
             if (exit_status == 0 || sw.peek > timout_until_considered_successfull_connection) {
