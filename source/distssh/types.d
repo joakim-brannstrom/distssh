@@ -18,10 +18,6 @@ immutable globalEnvPurgeWhiteList = "DISTSSH_PURGE_WLIST";
 immutable distShell = "distshell";
 immutable distCmd = "distcmd";
 immutable distsshEnvExport = "distssh_env.export";
-// arguments to ssh that turn off warning that a host key is new or requies a password to login
-immutable sshNoLoginArgs = [
-    "-oStrictHostKeyChecking=no", "-oPasswordAuthentication=no"
-];
 immutable ulong defaultTimeout_s = 2;
 /// Number of the top X candidates to choose a server from to put the work on.
 immutable topCandidades = 3;

@@ -90,9 +90,9 @@ int cli(Config conf) {
 
 int cli(const Config fconf, Config.Shell conf) {
     import std.datetime.stopwatch : StopWatch, AutoStart;
-    import std.file : thisExePath;
-    import std.process : spawnProcess, wait, escapeShellFileName;
+    import std.process : spawnProcess, wait;
     import std.stdio : writeln, writefln;
+    import distssh.connection : sshShellArgs;
 
     auto hosts = RemoteHostCache.make(fconf.global.dbPath, fconf.global.cluster).bestSelectRange;
 
@@ -110,12 +110,7 @@ int cli(const Config fconf, Config.Shell conf) {
 
             auto sw = StopWatch(AutoStart.yes);
 
-            // two -t forces a tty to be created and used which mean that the remote shell will *think* it is an interactive shell
-            auto exit_status = spawnProcess(["ssh", "-q", "-t",
-                    "-t"] ~ sshNoLoginArgs ~ [
-                    host, thisExePath.escapeShellFileName, "localshell",
-                    "--workdir", fconf.global.workDir.escapeShellFileName
-                    ]).wait;
+            auto exit_status = spawnProcess(sshShellArgs(host, fconf.global.workDir.Path)).wait;
 
             // #SPC-fallback_remote_host
             if (exit_status == 0 || sw.peek > timout_until_considered_successfull_connection) {
