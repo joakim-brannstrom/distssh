@@ -62,11 +62,13 @@ import my.path : AbsolutePath, Path;
 import my.set;
 
 struct Event {
+    /// An overflow occured. Unknown what events actually triggered.
+    static struct Overflow {
+    }
+
     /// File was accessed (e.g., read(2), execve(2)).
     static struct Access {
         AbsolutePath path;
-        this(this) {
-        }
     }
 
     /** Metadata changed—for example, permissions (e.g., chmod(2)), timestamps
@@ -76,22 +78,16 @@ struct Event {
      */
     static struct Attribute {
         AbsolutePath path;
-        this(this) {
-        }
     }
 
     /// File opened for writing was closed.
     static struct CloseWrite {
         AbsolutePath path;
-        this(this) {
-        }
     }
 
     /// File or directory not opened for writing was closed.
     static struct CloseNoWrite {
         AbsolutePath path;
-        this(this) {
-        }
     }
 
     /** File/directory created in watched directory (e.g., open(2) O_CREAT,
@@ -99,15 +95,11 @@ struct Event {
      */
     static struct Create {
         AbsolutePath path;
-        this(this) {
-        }
     }
 
     /// File/directory deleted from watched directory.
     static struct Delete {
         AbsolutePath path;
-        this(this) {
-        }
     }
 
     /** Watched file/directory was itself deleted. (This event also occurs if
@@ -118,43 +110,33 @@ struct Event {
      */
     static struct DeleteSelf {
         AbsolutePath path;
-        this(this) {
-        }
     }
 
     /// File was modified (e.g., write(2), truncate(2)).
     static struct Modify {
         AbsolutePath path;
-        this(this) {
-        }
     }
 
     /// Watched file/directory was itself moved.
     static struct MoveSelf {
         AbsolutePath path;
-        this(this) {
-        }
     }
 
     /// Occurs when a file or folder inside a folder is renamed.
     static struct Rename {
         AbsolutePath from;
         AbsolutePath to;
-        this(this) {
-        }
     }
 
     /// File or directory was opened.
     static struct Open {
         AbsolutePath path;
-        this(this) {
-        }
     }
 }
 
 alias FileChangeEvent = SumType!(Event.Access, Event.Attribute, Event.CloseWrite,
         Event.CloseNoWrite, Event.Create, Event.Delete, Event.DeleteSelf,
-        Event.Modify, Event.MoveSelf, Event.Rename, Event.Open);
+        Event.Modify, Event.MoveSelf, Event.Rename, Event.Open, Event.Overflow);
 
 /// Construct a FileWatch.
 auto fileWatch() {
@@ -332,6 +314,9 @@ struct FileWatch {
         while (true) {
             auto info = cast(inotify_event*)(eventBuffer.ptr + i);
 
+            if (info.wd == -1) {
+                events ~= FileChangeEvent(Event.Overflow.init);
+            }
             if (info.wd !in directoryMap)
                 continue;
 
@@ -613,6 +598,7 @@ struct MonitorResult {
         MoveSelf,
         Rename,
         Open,
+        Overflow,
     }
 
     Kind kind;
@@ -708,7 +694,9 @@ struct Monitor {
 
         try {
             foreach (e; fw.getEvents(timeout)) {
-                e.match!((Event.Access x) {
+                e.match!((Event.Overflow x) {
+                    rval.put(MonitorResult(MonitorResult.Kind.Overflow));
+                }, (Event.Access x) {
                     rval.put(MonitorResult(MonitorResult.Kind.Access, x.path));
                 }, (Event.Attribute x) {
                     rval.put(MonitorResult(MonitorResult.Kind.Attribute, x.path));
