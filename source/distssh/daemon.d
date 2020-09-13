@@ -71,7 +71,7 @@ int cli(const Config fconf, Config.Daemon conf) {
         return 0;
 
     // when starting the daemon for the first time we assume that if there are
-    // any data in the database that it is old.
+    // any data in the database that is old.
     db.removeUnusedServers(1.dur!"minutes");
 
     bool running = true;
@@ -160,6 +160,23 @@ int cli(const Config fconf, Config.Daemon conf) {
         }
         return 1.dur!"minutes";
     }, 1.dur!"minutes");
+
+    makeInterval(timers, () @trusted nothrow{
+        import std.range : take;
+        import distssh.connection;
+
+        try {
+            foreach (h; db.getLeastLoadedServer.take(3)) {
+                auto m = makeMaster(h);
+                if (!m.isAlive) {
+                    m.connect;
+                }
+            }
+        } catch (Exception e) {
+            logger.trace(e.msg).collectException;
+        }
+        return 1.dur!"minutes";
+    }, 5.dur!"seconds");
 
     if (globalEnvPurge in environment && globalEnvPurgeWhiteList in environment) {
         import distssh.purge : readPurgeEnvWhiteList;
