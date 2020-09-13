@@ -48,6 +48,7 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
     import my.timer : makeInterval, makeTimers;
     import my.tty : setCBreak, CBreak;
     import distssh.protocol : ProtocolEnv, ConfDone, Command, Workdir, Key, TerminalCapability;
+    import distssh.connection : sshArgs;
 
     try {
         const isInteractive = core.sys.posix.unistd.isatty(stdin.fileno) == 1;
@@ -62,13 +63,13 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
             }
         }();
 
-        auto args = ["ssh"] ~ sshNoLoginArgs ~ [
-            host, thisExePath, "localrun", "--stdin-msgpack-env"
-        ];
-
-        if (isInteractive) {
-            args ~= "--pseudo-terminal";
-        }
+        auto args = () {
+            auto a = ["localrun", "--stdin-msgpack-env"];
+            if (isInteractive) {
+                a ~= "--pseudo-terminal";
+            }
+            return sshArgs(host, null, a);
+        }();
 
         logger.tracef("Connecting to %s. Run %s", host, args.joiner(" "));
 

@@ -25,12 +25,12 @@ import distssh.types;
 Load getLoad(Host h, Duration timeout) nothrow {
     import std.conv : to;
     import std.datetime.stopwatch : StopWatch, AutoStart;
-    import std.file : thisExePath;
-    import std.process : tryWait, pipeProcess, kill, wait, escapeShellFileName;
+    import std.process : tryWait, pipeProcess, kill, wait;
     import std.range : takeOne, retro;
     import std.stdio : writeln;
     import core.sys.posix.signal : SIGKILL;
     import my.timer : makeTimers, makeInterval;
+    import distssh.connection : sshLoadArgs;
 
     enum ExitCode {
         none,
@@ -44,10 +44,7 @@ Load getLoad(Host h, Duration timeout) nothrow {
     Nullable!Load measure() {
         auto sw = StopWatch(AutoStart.yes);
 
-        immutable abs_distssh = thisExePath;
-        auto res = pipeProcess(["ssh", "-q"] ~ sshNoLoginArgs ~ [
-                h, abs_distssh.escapeShellFileName, "localload"
-                ]);
+        auto res = pipeProcess(sshLoadArgs(h));
 
         Duration checkExitCode() @trusted {
             auto st = res.pid.tryWait;
@@ -68,8 +65,8 @@ Load getLoad(Host h, Duration timeout) nothrow {
             return Duration.min;
         }
 
-        // 25 because it is at the perception of human "lag" and less than the 100
-        // msecs that is the intention of the average delay.
+        // 25 because it is at the perception of human "lag" and less than the
+        // 100 msecs that is the intention of the average delay.
         auto timers = makeTimers;
         makeInterval(timers, &checkExitCode, 25.dur!"msecs");
 
