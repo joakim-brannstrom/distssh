@@ -340,10 +340,11 @@ int cli(const Config fconf, Config.MeasureHosts conf) nothrow {
     import std.conv : to;
     import std.stdio : writefln, writeln;
     import distssh.table;
+    import distssh.connection;
 
     writeln("Host is overloaded if Load is >1").collectException;
 
-    auto tbl = Table!4(["Host", "Load", "Access Time", "Updated"]);
+    auto tbl = Table!5(["Host", "Load", "Access Time", "Updated", "Multiplex"]);
     void addRow(HostLoad a) nothrow {
         static string toInternal(Duration d) {
             import std.format : format;
@@ -357,12 +358,13 @@ int cli(const Config fconf, Config.MeasureHosts conf) nothrow {
                 return format("%ss %sms", seconds, msecs);
         }
 
-        string[4] row;
+        string[5] row;
         try {
             row[0] = a.host;
             row[1] = a.load.loadAvg.to!string;
             row[2] = toInternal(a.load.accessTime);
             row[3] = a.updated.to!string;
+            row[4] = makeMaster(a.host).isAlive ? "yes" : "no";
             tbl.put(row);
         } catch (Exception e) {
             logger.trace(e.msg).collectException;
@@ -377,7 +379,7 @@ int cli(const Config fconf, Config.MeasureHosts conf) nothrow {
 
     auto unused = hosts.unusedRange;
     if (!unused.empty) {
-        tbl.put(["-", "-", "-", "-"]).collectException;
+        tbl.put(["-", "-", "-", "-", "-"]).collectException;
         foreach (a; unused) {
             addRow(a);
         }
