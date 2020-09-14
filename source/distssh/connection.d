@@ -21,8 +21,10 @@ immutable sshNoLoginArgs = [
     "-oStrictHostKeyChecking=no", "-oPasswordAuthentication=no"
 ];
 
+immutable sshMultiplexClient = ["-oControlMaster=auto", "-oControlPersist=1200"];
+
 SshArgs sshArgs(Host host, string[] ssh, string[] cmd) {
-    return SshArgs("ssh", MultiplexPath(multiplexDir)
+    return SshArgs("ssh", sshMultiplexClient ~ MultiplexPath(multiplexDir)
             .toArgs ~ ssh ~ sshNoLoginArgs ~ [
                 host, thisExePath.escapeShellFileName
             ], cmd);
