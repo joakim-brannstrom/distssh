@@ -166,7 +166,8 @@ int cli(const Config fconf, Config.Daemon conf) {
         import distssh.connection;
 
         try {
-            foreach (h; db.getLeastLoadedServer.take(3)) {
+            // setup to four servers to reduce perceived lag when changing among the top candidates.
+            foreach (h; db.getLeastLoadedServer.take(4)) {
                 auto m = makeMaster(h);
                 if (!m.isAlive) {
                     m.connect;
@@ -286,7 +287,9 @@ void updateServer(ref from.miniorm.Miniorm db, Host host, Duration timeout) {
 /// Round robin clearing of the servers.
 void purgeServer(ref from.miniorm.Miniorm db, ExecuteOnHostConf econf,
         const Config.Purge pconf, ref Set!Host clearedServers, const Duration timeout) @safe {
+    import std.algorithm : joiner;
     import std.random : randomCover;
+    import std.range : only;
     import distssh.purge;
 
     auto servers = distssh.database.getServerLoads(db, clearedServers.toArray,
@@ -295,7 +298,8 @@ void purgeServer(ref from.miniorm.Miniorm db, ExecuteOnHostConf econf,
     logger.trace("Round robin server purge list ", clearedServers.toArray);
 
     bool clearedAServer;
-    foreach (a; servers.unused
+    foreach (a; only(servers.online, servers.unused).joiner
+            .array
             .randomCover
             .map!(a => a.host)
             .filter!(a => !clearedServers.contains(a))) {
