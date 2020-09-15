@@ -25,7 +25,7 @@ import core.thread : Thread;
 import core.time : dur;
 import logger = std.experimental.logger;
 import std.algorithm : map, filter;
-import std.array : array;
+import std.array : array, empty;
 import std.datetime;
 import std.exception : collectException;
 import std.process : environment;
@@ -134,13 +134,11 @@ int cli(const Config fconf, Config.Daemon conf) {
     // the update it lowers the network load.
     long updateLeastLoadedTimerTick;
     makeInterval(timers, () @trusted {
-        import std.range : drop, take;
-
-        auto hosts = db.getLeastLoadedServer;
-        // if the servers ever are less than topCandidades it will start
-        // updating slower.
-        foreach (h; hosts.drop(updateLeastLoadedTimerTick).take(1)) {
-            updateServer(db, h, fconf.global.timeout);
+        auto s = db.getLeastLoadedServer;
+        if (s.length > 0 && s.length < topCandidades) {
+            updateServer(db, s[updateLeastLoadedTimerTick % s.length], fconf.global.timeout);
+        } else if (s.length >= topCandidades) {
+            updateServer(db, s[updateLeastLoadedTimerTick], fconf.global.timeout);
         }
 
         updateLeastLoadedTimerTick = ++updateLeastLoadedTimerTick % topCandidades;
