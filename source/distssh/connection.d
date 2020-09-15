@@ -24,10 +24,14 @@ immutable sshNoLoginArgs = [
 immutable sshMultiplexClient = ["-oControlMaster=auto", "-oControlPersist=1200"];
 
 SshArgs sshArgs(Host host, string[] ssh, string[] cmd) {
-    return SshArgs("ssh", sshMultiplexClient ~ MultiplexPath(multiplexDir)
+    return SshArgs("ssh", MultiplexPath(multiplexDir)
             .toArgs ~ ssh ~ sshNoLoginArgs ~ [
                 host, thisExePath.escapeShellFileName
             ], cmd);
+}
+
+SshArgs sshCmdArgs(Host host, string[] cmd) {
+    return sshArgs(host, sshMultiplexClient.dup, cmd);
 }
 
 SshArgs sshShellArgs(Host host, Path workDir) {
