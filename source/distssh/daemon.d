@@ -24,7 +24,7 @@ module distssh.daemon;
 import core.thread : Thread;
 import core.time : dur;
 import logger = std.experimental.logger;
-import std.algorithm : map, filter;
+import std.algorithm : map, filter, max;
 import std.array : array, empty;
 import std.datetime;
 import std.exception : collectException;
@@ -85,6 +85,12 @@ int cli(const Config fconf, Config.Daemon conf) {
     makeInterval(timers, () @trusted {
         clientBeat = db.getClientBeat;
         logger.tracef("client beat: %s timeout: %s", clientBeat, conf.timeout);
+        return 10.dur!"seconds";
+    }, 10.dur!"seconds");
+
+    makeInterval(timers, () @trusted {
+        clientBeat = db.getClientBeat;
+        logger.tracef("client beat: %s timeout: %s", clientBeat, conf.timeout);
         // no client is interested in the metric so stop collecting
         if (clientBeat > conf.timeout) {
             running = false;
@@ -92,8 +98,8 @@ int cli(const Config fconf, Config.Daemon conf) {
         if (Clock.currTime > forceShutdown) {
             running = false;
         }
-        return conf.timeout;
-    }, 30.dur!"seconds");
+        return max(1.dur!"minutes", conf.timeout - clientBeat);
+    }, 10.dur!"seconds");
 
     makeInterval(timers, () @safe {
         // the database may have been removed/recreated
