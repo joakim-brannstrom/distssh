@@ -24,14 +24,13 @@ immutable sshNoLoginArgs = [
 immutable sshMultiplexClient = ["-oControlMaster=auto", "-oControlPersist=1200"];
 
 SshArgs sshArgs(Host host, string[] ssh, string[] cmd) {
-    return SshArgs("ssh", MultiplexPath(multiplexDir)
-            .toArgs ~ ssh ~ sshNoLoginArgs ~ [
-                host, thisExePath.escapeShellFileName
+    return SshArgs("ssh", ssh ~ sshNoLoginArgs ~ [
+            host, thisExePath.escapeShellFileName
             ], cmd);
 }
 
 SshArgs sshCmdArgs(Host host, string[] cmd) {
-    return sshArgs(host, sshMultiplexClient.dup, cmd);
+    return sshArgs(host, MultiplexPath(multiplexDir).toArgs ~ sshMultiplexClient.dup, cmd);
 }
 
 SshArgs sshShellArgs(Host host, Path workDir) {
@@ -43,9 +42,7 @@ SshArgs sshShellArgs(Host host, Path workDir) {
 }
 
 SshArgs sshLoadArgs(Host host) {
-    return sshArgs(host, MultiplexPath(multiplexDir).toArgs ~ ["-q"], [
-            "localload"
-            ]);
+    return sshArgs(host, ["-q"], ["localload"]);
 }
 
 /// Arguments for creating a ssh connection and execute a command.
@@ -117,7 +114,7 @@ struct MultiplexMaster {
         auto p = pipeProcess(a.toArgs);
         const ec = p.wait;
         if (ec != 0) {
-            logger.trace("Started multiplex master exit code: ", ec);
+            logger.trace("Failed starting multiplex master. Exit code ", ec);
             logger.trace(p.drainByLineCopy);
         }
     }
