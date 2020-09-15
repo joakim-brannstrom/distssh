@@ -170,8 +170,8 @@ int cli(const Config fconf, Config.Daemon conf) {
         import distssh.connection;
 
         try {
-            // setup to four servers to reduce perceived lag when changing among the top candidates.
-            foreach (h; db.getLeastLoadedServer.take(4)) {
+            // keep the multiplex connections open to the top candidates
+            foreach (h; db.getLeastLoadedServer.take(topCandidades)) {
                 auto m = makeMaster(h);
                 if (!m.isAlive) {
                     m.connect;
