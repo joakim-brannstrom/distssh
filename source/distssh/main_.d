@@ -363,7 +363,7 @@ int cli(const Config fconf, Config.MeasureHosts conf) nothrow {
             row[0] = a.host;
             row[1] = a.load.loadAvg.to!string;
             row[2] = toInternal(a.load.accessTime);
-            row[3] = a.updated.to!string;
+            row[3] = a.updated.toLocalTime.to!string;
             row[4] = makeMaster(a.host).isAlive ? "yes" : "no";
             tbl.put(row);
         } catch (Exception e) {
