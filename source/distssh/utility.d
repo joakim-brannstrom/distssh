@@ -48,7 +48,7 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
     import my.timer : makeInterval, makeTimers;
     import my.tty : setCBreak, CBreak;
     import distssh.protocol : ProtocolEnv, ConfDone, Command, Workdir, Key, TerminalCapability;
-    import distssh.connection : sshArgs;
+    import distssh.connection : sshCmdArgs;
 
     try {
         const isInteractive = core.sys.posix.unistd.isatty(stdin.fileno) == 1;
@@ -68,7 +68,7 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
             if (isInteractive) {
                 a ~= "--pseudo-terminal";
             }
-            return sshArgs(host, null, a).toArgs;
+            return sshCmdArgs(host, a).toArgs;
         }();
 
         logger.tracef("Connecting to %s. Run %s", host, args.joiner(" "));
