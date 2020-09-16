@@ -7,9 +7,10 @@ ssh connection for both normal and multiplex.
 */
 module distssh.connection;
 
+import logger = std.experimental.logger;
+import std.exception : collectException;
 import std.file : thisExePath;
 import std.process : escapeShellFileName;
-import logger = std.experimental.logger;
 
 import my.path;
 
@@ -30,6 +31,8 @@ SshArgs sshArgs(Host host, string[] ssh, string[] cmd) {
 }
 
 SshArgs sshCmdArgs(Host host, string[] cmd) {
+    // must ensure it exists
+    setupMultiplexDir;
     return sshArgs(host, MultiplexPath(multiplexDir).toArgs ~ sshMultiplexClient.dup, cmd);
 }
 
@@ -68,7 +71,7 @@ struct SshArgs {
     }
 }
 
-AbsolutePath multiplexDir() {
+AbsolutePath multiplexDir() @safe {
     import my.xdg : xdgRuntimeDir;
 
     return (xdgRuntimeDir ~ "distssh/multiplex").AbsolutePath;
@@ -140,16 +143,26 @@ struct MultiplexMaster {
 }
 
 MultiplexMaster makeMaster(Host host) {
-    import std.file : mkdirRecurse, exists;
+    setupMultiplexDir;
 
     MultiplexMaster master;
     master.socket = MultiplexPath(multiplexDir);
-    if (!exists(master.socket.dir)) {
-        mkdirRecurse(master.socket.dir);
-    }
     master.ssh = SshArgs("ssh", master.socket.toArgs ~ [
             "-oControlPersist=1200", host
             ], null);
 
     return master;
+}
+
+void setupMultiplexDir() @safe nothrow {
+    import std.file : mkdirRecurse, exists;
+
+    try {
+        const p = multiplexDir;
+        if (!exists(p)) {
+            mkdirRecurse(p);
+        }
+    } catch (Exception e) {
+        logger.warning(e.msg).collectException;
+    }
 }
