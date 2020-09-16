@@ -48,7 +48,7 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
     import my.timer : makeInterval, makeTimers;
     import my.tty : setCBreak, CBreak;
     import distssh.protocol : ProtocolEnv, ConfDone, Command, Workdir, Key, TerminalCapability;
-    import distssh.connection : sshCmdArgs;
+    import distssh.connection : sshCmdArgs, setupMultiplexDir;
 
     try {
         const isInteractive = core.sys.posix.unistd.isatty(stdin.fileno) == 1;
