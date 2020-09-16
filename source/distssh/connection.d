@@ -22,7 +22,7 @@ immutable sshNoLoginArgs = [
     "-oStrictHostKeyChecking=no", "-oPasswordAuthentication=no"
 ];
 
-immutable sshMultiplexClient = ["-oControlMaster=auto", "-oControlPersist=1200"];
+immutable sshMultiplexClient = ["-oControlMaster=auto", "-oControlPersist=300"];
 
 SshArgs sshArgs(Host host, string[] ssh, string[] cmd) {
     return SshArgs("ssh", ssh ~ sshNoLoginArgs ~ [
@@ -148,7 +148,7 @@ MultiplexMaster makeMaster(Host host) {
     MultiplexMaster master;
     master.socket = MultiplexPath(multiplexDir);
     master.ssh = SshArgs("ssh", master.socket.toArgs ~ [
-            "-oControlPersist=1200", host
+            "-oControlPersist=300", host
             ], null);
 
     return master;
