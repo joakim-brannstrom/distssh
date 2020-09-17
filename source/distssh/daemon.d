@@ -180,6 +180,10 @@ int cli(const Config fconf, Config.Daemon conf) {
         } catch (Exception e) {
             logger.trace(e.msg).collectException;
         }
+
+        // open connections fast to the cluster while the client is using them
+        if (clientBeat < 5.dur!"minutes")
+            return 15.dur!"seconds";
         return 1.dur!"minutes";
     }, 5.dur!"seconds");
 
