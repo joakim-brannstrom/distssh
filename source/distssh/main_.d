@@ -159,9 +159,10 @@ int cli(const Config fconf, Config.Cmd conf) {
 // #SPC-fast_env_startup
 int cli(const Config fconf, Config.LocalRun conf) {
     import core.time : dur;
-    import std.stdio : File, stdin, stdout;
+    import std.datetime : Clock;
     import std.file : exists;
     import std.process : PConfig = Config, Redirect, userShell, thisProcessID;
+    import std.stdio : File, stdin, stdout;
     import std.utf : toUTF8;
     import proc;
     import sumtype;
@@ -201,8 +202,12 @@ int cli(const Config fconf, Config.LocalRun conf) {
             conf.cmd = fconf.global.command.dup;
             conf.workdir = fconf.global.workDir;
 
+            // guard against an error occuring when transfering the data such
+            // that ConfDone is trashed.
+            const timeout = Clock.currTime + 5.dur!"minutes";
+
             bool running = fconf.global.stdinMsgPackEnv;
-            while (running) {
+            while (running && Clock.currTime < timeout) {
                 pread.update;
                 pread.unpack().match!((None x) {}, (ConfDone x) {
                     running = false;
@@ -250,8 +255,12 @@ int cli(const Config fconf, Config.LocalRun conf) {
 
         ubyte[4096] buf;
         bool pipeOutputToUser() @trusted {
+            // guard against an error occuring when writing to the users
+            // stdout.
+            const timeout = Clock.currTime + 5.dur!"minutes";
+
             bool hasWritten;
-            while (res.stdout.hasPendingData) {
+            while (res.stdout.hasPendingData && Clock.currTime < timeout) {
                 auto r = res.stdout.read(buf[]);
                 stdout.rawWrite(r);
                 hasWritten = true;
@@ -295,6 +304,10 @@ int cli(const Config fconf, Config.LocalRun conf) {
                     auto data = x.value;
                     while (!data.empty) {
                         auto written = res.stdin.write(x.value);
+                        if (written.empty) {
+                            // closed so break.
+                            break;
+                        }
                         data = data[written.length .. $];
                     }
                 }, (TerminalCapability x) {});
