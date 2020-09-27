@@ -16,8 +16,9 @@ import logger = std.experimental.logger;
 import colorlog;
 
 import my.from_;
-import my.path;
 import my.fswatch : FdPoller, PollStatus, PollEvent, PollResult, FdPoll;
+import my.named_type;
+import my.path;
 
 import distssh.config;
 import distssh.metric;
@@ -28,7 +29,7 @@ struct ExecuteOnHostConf {
     string[] command;
     string importEnv;
     bool cloneEnv;
-    bool noImportEnv;
+    NamedType!(bool, Tag!"NoImportEnv") noImportEnv;
 }
 
 /** Execute a command on a remote host.

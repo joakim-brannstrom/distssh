@@ -34,6 +34,7 @@ import std.typecons : Flag;
 import colorlog;
 import miniorm : SpinSqlTimeout;
 import my.from_;
+import my.named_type;
 import my.set;
 import my.timer;
 
@@ -193,7 +194,8 @@ int cli(const Config fconf, Config.Daemon conf) {
         Config.Purge pconf;
         pconf.kill = true;
         pconf.userFilter = true;
-        auto econf = ExecuteOnHostConf(fconf.global.workDir, null, null, false, true);
+        auto econf = ExecuteOnHostConf(fconf.global.workDir, null, null, false,
+                NamedType!(bool, Tag!"NoImportEnv")(true));
         Set!Host clearedServers;
 
         logger.tracef("Server purge whitelist from %s is %s",

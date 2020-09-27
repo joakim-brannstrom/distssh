@@ -22,6 +22,7 @@ import std.variant : Algebraic, visit;
 static import std.getopt;
 
 import colorlog : VerboseMode;
+import my.named_type;
 
 import distssh.types;
 
@@ -34,7 +35,7 @@ struct Config {
         std.getopt.GetoptResult helpInfo;
         VerboseMode verbosity;
         string progName;
-        bool noImportEnv;
+        NamedType!(bool, Tag!"NoImportEnv") noImportEnv;
         bool cloneEnv;
         bool stdinMsgPackEnv;
         Duration timeout = defaultTimeout_s.dur!"seconds";
@@ -248,7 +249,7 @@ Config parseUserArgs(string[] args) {
                 "clone-env", "clone the current environment to the remote host without an intermediate file", &conf.global.cloneEnv,
                 "env-file", "file to load the environment from", &export_env_file,
                 "i|import-env", "import the env from the file (default: " ~ distsshEnvExport ~ ")", &conf.global.importEnv,
-                "no-import-env", "do not automatically import the environment from " ~ distsshEnvExport, &conf.global.noImportEnv,
+                "no-import-env", "do not automatically import the environment from " ~ distsshEnvExport, conf.global.noImportEnv.getPtr,
                 "stdin-msgpack-env", "import env from stdin as a msgpack stream", &conf.global.stdinMsgPackEnv,
                 "timeout", "timeout to use when checking remote hosts", &timeout_s,
                 "v|verbose", format("Set the verbosity (%-(%s, %))", [EnumMembers!(VerboseMode)]), &conf.global.verbosity,
