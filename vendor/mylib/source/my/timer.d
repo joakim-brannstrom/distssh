@@ -30,26 +30,26 @@ struct Timers {
         timers.stableInsert(Timer(t, action));
     }
 
-    /// Get how long until the next timer expire. The minimum is minSleep.
-    Duration expireAt(Duration minSleep) nothrow {
+    /// Get how long until the next timer expire. The default is defaultSleep.
+    Duration expireAt(Duration defaultSleep) nothrow {
         import std.algorithm : max;
 
         if (empty) {
-            return minSleep;
+            return defaultSleep;
         }
-        return max(minSleep, timers.front.expire - Clock.currTime);
+        return max(Duration.zero, timers.front.expire - Clock.currTime);
     }
 
     /// Sleep until the next action triggers.
-    void sleep(Duration minSleep) @trusted {
+    void sleep(Duration defaultSleep) @trusted {
         import core.thread : Thread;
 
-        Thread.sleep(expireAt(minSleep));
+        Thread.sleep(expireAt(defaultSleep));
     }
 
     /// Sleep until the next action triggers and execute it, if there are any.
-    void tick(Duration minSleep) {
-        sleep(minSleep);
+    void tick(Duration defaultSleep) {
+        sleep(defaultSleep);
         if (!empty) {
             front.action(this);
             popFront;
