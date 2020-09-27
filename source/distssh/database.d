@@ -105,7 +105,7 @@ Tuple!(HostLoad[], "online", HostLoad[], "unused") getServerLoads(ref Miniorm db
     import my.set;
 
     const lastUseLimit = Clock.currTime - maxAge;
-    auto onlineHostSet = toSet(filterBy_.map!(a => a.payload));
+    auto onlineHostSet = toSet(filterBy_.map!(a => a.get));
     bool filterBy(ServerTbl host) {
         return host.address in onlineHostSet && host.lastUpdate > lastUseLimit;
     }
@@ -148,7 +148,7 @@ void syncCluster(ref Miniorm db, const Host[] cluster) {
     foreach (const h; cluster) {
         spinSql!(() {
             stmt.get.reset;
-            stmt.get.bind(":address", h.payload);
+            stmt.get.bind(":address", h.get);
             stmt.get.bind(":lastUpdate", forceEarlyUpdate.toSqliteDateTime);
             stmt.get.bind(":accessTime", highAccessTime);
             stmt.get.bind(":loadAvg", highLoadAvg);
@@ -170,7 +170,7 @@ void updateLastUse(ref Miniorm db, const Host[] cluster) {
     foreach (const h; cluster) {
         spinSql!(() {
             stmt.get.reset;
-            stmt.get.bind(":address", h.payload);
+            stmt.get.bind(":address", h.get);
             stmt.get.bind(":lastUse", lastUse);
             stmt.get.execute;
         }, logger.trace)(timeout);
@@ -180,9 +180,9 @@ void updateLastUse(ref Miniorm db, const Host[] cluster) {
 /// Update the data for a server.
 void newServer(ref Miniorm db, HostLoad a) {
     spinSql!(() {
-        db.run(insertOrReplace!ServerTbl, ServerTbl(a.host.payload,
-            Clock.currTime, a.load.accessTime.total!"msecs", a.load.loadAvg,
-            a.load.unknown, Clock.currTime.toUnixTime));
+        db.run(insertOrReplace!ServerTbl, ServerTbl(a.host, Clock.currTime,
+            a.load.accessTime.total!"msecs", a.load.loadAvg, a.load.unknown,
+            Clock.currTime.toUnixTime));
     }, logger.trace)(timeout, 100.dur!"msecs", 300.dur!"msecs");
 }
 
@@ -191,7 +191,7 @@ void updateServer(ref Miniorm db, HostLoad a, SysTime updateTime = Clock.currTim
     spinSql!(() {
         // using IGNORE because the host could have been removed.
         auto stmt = db.prepare(`UPDATE OR IGNORE ServerTbl SET lastUpdate = :lastUpdate, accessTime = :accessTime, loadAvg = :loadAvg, unknown = :unknown WHERE address = :address`);
-        stmt.get.bind(":address", a.host.payload);
+        stmt.get.bind(":address", a.host.get);
         stmt.get.bind(":lastUpdate", updateTime.toSqliteDateTime);
         stmt.get.bind(":accessTime", a.load.accessTime.total!"msecs");
         stmt.get.bind(":loadAvg", a.load.loadAvg);
@@ -368,7 +368,7 @@ unittest {
 
     auto res = getServerLoads(db, db.hosts[0 .. $ / 2], 1.dur!"seconds", 10.dur!"minutes");
     res.online.length.shouldEqual(5);
-    res.online.map!(a => a.host.payload).array.shouldEqual([
+    res.online.map!(a => a.host).array.shouldEqual([
             "h0", "h1", "h2", "h3", "h4"
             ]);
     res.unused.length.shouldEqual(5);
@@ -384,8 +384,6 @@ unittest {
 
     auto res = getServerLoads(db, db.hosts[0 .. $ / 2], 1.dur!"seconds", 10.dur!"minutes");
     res.online.length.shouldEqual(4);
-    res.online.map!(a => a.host.payload).array.shouldEqual([
-            "h0", "h1", "h2", "h4"
-            ]);
+    res.online.map!(a => a.host).array.shouldEqual(["h0", "h1", "h2", "h4"]);
     res.unused.length.shouldEqual(6);
 }
