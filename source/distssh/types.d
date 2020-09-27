@@ -93,7 +93,4 @@ unittest {
 }
 
 /// Mirror of an environment.
-struct Env {
-    string[string] payload;
-    alias payload this;
-}
+alias Env = NamedType!(string[string], Tag!"Environment", null);
