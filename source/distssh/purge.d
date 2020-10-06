@@ -109,8 +109,8 @@ int cli(const Config fconf, Config.Purge conf) @trusted nothrow {
     }
 
     auto failed = appender!(Host[])();
-    auto econf = ExecuteOnHostConf(fconf.global.workDir, null,
-            fconf.global.importEnv, fconf.global.cloneEnv, fconf.global.noImportEnv);
+    auto econf = ExecuteOnHostConf(fconf.global.workDir, typeof(fconf.global.command)
+            .init, fconf.global.importEnv, fconf.global.cloneEnv, fconf.global.noImportEnv);
 
     foreach (a; hosts.map!(a => a.host)) {
         logger.info("Connecting to ", a).collectException;
@@ -141,22 +141,22 @@ int purgeServer(ExecuteOnHostConf econf, const Config.Purge pconf, Host host,
         } catch (Exception e) {
             r = ["distssh"];
         }
-        return r ~ "localpurge";
+        return typeof(econf.command)(r ~ "localpurge");
     }();
 
     try {
-        econf.command ~= ["-v", vmode.to!string];
+        econf.command.get ~= ["-v", vmode.to!string];
     } catch (Exception e) {
     }
 
     if (pconf.print) {
-        econf.command ~= "-p";
+        econf.command.get ~= "-p";
     }
     if (pconf.kill) {
-        econf.command ~= "-k";
+        econf.command.get ~= "-k";
     }
     if (pconf.userFilter) {
-        econf.command ~= "--user-filter";
+        econf.command.get ~= "--user-filter";
     }
 
     Set!string wlist;
@@ -164,7 +164,7 @@ int purgeServer(ExecuteOnHostConf econf, const Config.Purge pconf, Host host,
         wlist.add(a);
     }
 
-    econf.command ~= wlist.toArray.map!(a => ["--whitelist", a]).joiner.array;
+    econf.command.get ~= wlist.toArray.map!(a => ["--whitelist", a]).joiner.array;
 
     logger.trace("Purge command ", econf.command).collectException;
 

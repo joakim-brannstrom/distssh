@@ -25,10 +25,10 @@ import distssh.metric;
 import distssh.types;
 
 struct ExecuteOnHostConf {
-    string workDir;
-    string[] command;
-    string importEnv;
-    bool cloneEnv;
+    NamedType!(string, Tag!"Workdir") workDir;
+    NamedType!(string[], Tag!"Command", null, Lengthable) command;
+    NamedType!(string, Tag!"ImportEnvFile") importEnv;
+    NamedType!(bool, Tag!"CloneEnv") cloneEnv;
     NamedType!(bool, Tag!"NoImportEnv") noImportEnv;
 }
 
@@ -78,14 +78,16 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
 
         auto pwriter = PipeWriter(p.stdin);
 
-        ProtocolEnv env;
-        if (conf.cloneEnv)
-            env = cloneEnv;
-        else if (!conf.noImportEnv)
-            env = readEnv(conf.importEnv.absolutePath);
+        ProtocolEnv env = () {
+            if (conf.cloneEnv)
+                return cloneEnv;
+            else if (!conf.noImportEnv)
+                return readEnv(conf.importEnv.get.Path);
+            return ProtocolEnv.init;
+        }();
         pwriter.pack(env);
-        pwriter.pack(Command(conf.command.dup));
-        pwriter.pack(Workdir(conf.workDir));
+        pwriter.pack(Command(conf.command.get.dup));
+        pwriter.pack(Workdir(conf.workDir.get));
         if (isInteractive) {
             import core.sys.posix.termios;
 
@@ -213,7 +215,7 @@ struct PipeWriter {
     }
 }
 
-from.distssh.protocol.ProtocolEnv readEnv(string filename) nothrow {
+from.distssh.protocol.ProtocolEnv readEnv(Path filename) nothrow {
     import distssh.protocol : ProtocolEnv, EnvVariable, Deserialize;
     import std.file : exists;
     import std.stdio : File;
@@ -222,7 +224,7 @@ from.distssh.protocol.ProtocolEnv readEnv(string filename) nothrow {
 
     ProtocolEnv rval;
 
-    if (!exists(filename)) {
+    if (!exists(filename.toString)) {
         logger.trace("File to import the environment from do not exist: ",
                 filename).collectException;
         return rval;

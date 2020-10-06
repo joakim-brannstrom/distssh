@@ -194,8 +194,9 @@ int cli(const Config fconf, Config.Daemon conf) {
         Config.Purge pconf;
         pconf.kill = true;
         pconf.userFilter = true;
-        auto econf = ExecuteOnHostConf(fconf.global.workDir, null, null, false,
-                NamedType!(bool, Tag!"NoImportEnv")(true));
+        auto econf = ExecuteOnHostConf(fconf.global.workDir, typeof(fconf.global.command)
+                .init, typeof(fconf.global.importEnv).init,
+                typeof(fconf.global.cloneEnv)(false), typeof(fconf.global.noImportEnv)(true));
         Set!Host clearedServers;
 
         logger.tracef("Server purge whitelist from %s is %s",

@@ -110,8 +110,8 @@ int cli(const Config fconf, Config.Shell conf) {
 
             auto sw = StopWatch(AutoStart.yes);
 
-            auto exit_status = spawnProcess(sshShellArgs(host, fconf.global.workDir.Path).toArgs)
-                .wait;
+            auto exit_status = spawnProcess(sshShellArgs(host,
+                    fconf.global.workDir.get.Path).toArgs).wait;
 
             // #SPC-fallback_remote_host
             if (exit_status == 0 || sw.peek > timout_until_considered_successfull_connection) {
@@ -131,7 +131,7 @@ int cli(const Config fconf, Config.Shell conf) {
 }
 
 // #SPC-fast_env_startup
-int cli(const Config fconf, Config.Cmd conf) {
+int cli(Config fconf, Config.Cmd conf) {
     import std.stdio : stdout;
 
     if (fconf.global.command.empty) {
@@ -147,7 +147,7 @@ int cli(const Config fconf, Config.Cmd conf) {
         // to ensure connecting to is at the top of e.g. logfiles when the user run
         // distcmd env > log.txt
         stdout.flush;
-        return executeOnHost(ExecuteOnHostConf(fconf.global.workDir, fconf.global.command.dup,
+        return executeOnHost(ExecuteOnHostConf(fconf.global.workDir, fconf.global.command,
                 fconf.global.importEnv, fconf.global.cloneEnv, fconf.global.noImportEnv), host);
     }
 
@@ -157,7 +157,7 @@ int cli(const Config fconf, Config.Cmd conf) {
 }
 
 // #SPC-fast_env_startup
-int cli(const Config fconf, Config.LocalRun conf) {
+int cli(Config fconf, Config.LocalRun conf) {
     import core.time : dur;
     import std.datetime : Clock;
     import std.file : exists;
@@ -174,7 +174,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
 
         string[string] env;
         string[] cmd;
-        string workdir;
+        Path workdir;
         termios mode;
     }
 
@@ -188,7 +188,7 @@ int cli(const Config fconf, Config.LocalRun conf) {
 
     static string[string] readEnvFromFile(const Config fconf) {
         string[string] rval;
-        foreach (kv; readEnv(fconf.global.importEnv)) {
+        foreach (kv; readEnv(fconf.global.importEnv.get.Path)) {
             rval[kv.key] = kv.value;
         }
         return rval;
@@ -199,21 +199,21 @@ int cli(const Config fconf, Config.LocalRun conf) {
 
         auto localConf = () {
             LocalRunConf conf;
-            conf.cmd = fconf.global.command.dup;
-            conf.workdir = fconf.global.workDir;
+            conf.cmd = fconf.global.command.get;
+            conf.workdir = fconf.global.workDir.get.Path;
 
             // guard against an error occuring when transfering the data such
             // that ConfDone is trashed.
             const timeout = Clock.currTime + 5.dur!"minutes";
 
-            bool running = fconf.global.stdinMsgPackEnv;
+            bool running = fconf.global.stdinMsgPackEnv.get;
             while (running && Clock.currTime < timeout) {
                 pread.update;
                 pread.unpack().match!((None x) {}, (ConfDone x) {
                     running = false;
                 }, (ProtocolEnv x) { conf.env = readEnvFromStdin(x); }, (HeartBeat x) {
                 }, (Command x) { conf.cmd = x.value; }, (Workdir x) {
-                    conf.workdir = x.value;
+                    conf.workdir = x.value.Path;
                 }, (Key x) {}, (TerminalCapability x) { conf.mode = x.value; });
             }
 
@@ -337,8 +337,8 @@ int cli(const Config fconf, Config.Install conf, void delegate(string src, strin
     }
 
     try {
-        replace(fconf.global.selfBinary, buildPath(fconf.global.selfDir, distShell));
-        replace(fconf.global.selfBinary, buildPath(fconf.global.selfDir, distCmd));
+        replace(fconf.global.selfBinary.get, buildPath(fconf.global.selfDir.get, distShell));
+        replace(fconf.global.selfBinary.get, buildPath(fconf.global.selfDir.get, distCmd));
         return 0;
     } catch (Exception e) {
         logger.error(e.msg).collectException;
@@ -441,7 +441,7 @@ int cli(WriterT)(Config.LocalLoad conf, scope WriterT writer) {
     return 0;
 }
 
-int cli(const Config fconf, Config.RunOnAll conf) nothrow {
+int cli(Config fconf, Config.RunOnAll conf) nothrow {
     import std.algorithm : sort;
     import std.stdio : writefln, writeln, stdout;
 
@@ -461,9 +461,8 @@ int cli(const Config fconf, Config.RunOnAll conf) nothrow {
         } catch (Exception e) {
         }
 
-        auto status = executeOnHost(ExecuteOnHostConf(fconf.global.workDir,
-                fconf.global.command.dup, fconf.global.importEnv,
-                fconf.global.cloneEnv, fconf.global.noImportEnv), a);
+        auto status = executeOnHost(ExecuteOnHostConf(fconf.global.workDir, fconf.global.command,
+                fconf.global.importEnv, fconf.global.cloneEnv, fconf.global.noImportEnv), a);
 
         if (status != 0) {
             writeln("Failed, error code: ", status).collectException;
@@ -483,8 +482,8 @@ int cli(const Config fconf, Config.LocalShell conf) {
 
     try {
         auto pid = () {
-            if (exists(fconf.global.workDir))
-                return spawnProcess([userShell], null, Config.none, fconf.global.workDir);
+            if (exists(fconf.global.workDir.get))
+                return spawnProcess([userShell], null, Config.none, fconf.global.workDir.get);
             return spawnProcess([userShell]);
         }();
         return pid.wait;
@@ -498,7 +497,6 @@ int cli(const Config fconf, Config.LocalShell conf) {
 int cli(const Config fconf, Config.Env conf) {
     import std.algorithm : map, filter;
     import std.array : assocArray, array;
-    import std.path : absolutePath;
     import std.stdio : writeln, writefln;
     import std.string : split;
     import std.typecons : tuple;
@@ -506,8 +504,8 @@ int cli(const Config fconf, Config.Env conf) {
 
     if (conf.exportEnv) {
         try {
-            writeEnv(fconf.global.importEnv, cloneEnv);
-            logger.info("Exported environment to ", fconf.global.importEnv);
+            writeEnv(fconf.global.importEnv.get, cloneEnv);
+            logger.info("Exported environment to ", fconf.global.importEnv.get);
         } catch (Exception e) {
             logger.error(e.msg).collectException;
             return 1;
@@ -529,7 +527,7 @@ int cli(const Config fconf, Config.Env conf) {
     }
 
     try {
-        auto env = readEnv(fconf.global.importEnv.absolutePath).map!(a => tuple(a.key,
+        auto env = readEnv(fconf.global.importEnv.get.Path).map!(a => tuple(a.key,
                 a.value)).assocArray;
 
         foreach (k; conf.envDel.filter!(a => a in env)) {
@@ -550,7 +548,7 @@ int cli(const Config fconf, Config.Env conf) {
                 writefln(`%s="%s"`, kv.key, kv.value);
         }
 
-        writeEnv(fconf.global.importEnv,
+        writeEnv(fconf.global.importEnv.get,
                 ProtocolEnv(env.byKeyValue.map!(a => EnvVariable(a.key, a.value)).array));
     } catch (Exception e) {
         logger.error(e.msg).collectException;
@@ -568,7 +566,7 @@ int cli(const Config fconf, Config.Env conf) {
     import std.variant : tryVisit;
 
     // arrange
-    immutable remove_me = "remove_me.export";
+    immutable remove_me = "remove_me.export".Path;
     scope (exit)
         remove(remove_me);
 
@@ -613,8 +611,8 @@ int cli(const Config fconf, Config.Env conf) {
     }
 
     Config conf;
-    conf.global.selfBinary = "/foo/src";
-    conf.global.selfDir = "/bar";
+    conf.global.selfBinary = typeof(conf.global.selfBinary)("/foo/src");
+    conf.global.selfDir = typeof(conf.global.selfDir)("/bar");
 
     cli(conf, Config.Install.init, &fakeSymlink);
 
@@ -632,7 +630,7 @@ int cli(const Config fconf, Config.Env conf) {
     import std.variant : tryVisit;
 
     // arrange
-    immutable remove_me = "remove_me.export";
+    immutable remove_me = "remove_me.export".Path;
     scope (exit)
         remove(remove_me);
 
