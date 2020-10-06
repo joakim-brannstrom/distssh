@@ -141,6 +141,11 @@ struct NamedType(T, TagT = Tag!(T.stringof), T init = T.init, TraitsT...)
         return value;
     }
 
+    /// Useful for e.g. getopt integration
+    scope T* getPtr() {
+        return &value;
+    }
+
     static typeof(this) make(T v) {
         return typeof(this)(v);
     }
@@ -184,9 +189,7 @@ struct NamedType(T, TagT = Tag!(T.stringof), T init = T.init, TraitsT...)
                 return 0;
             }
         } else static if (is(Tr == Hashable)) {
-            import std.traits;
-
-            static if (hasMember!(T, "toHash")) {
+            static if (__traits(hasMember, T, "toHash")) {
                 size_t toHash(T2 = typeof(this))() {
                     return value.toHash;
                 }
@@ -225,6 +228,19 @@ struct NamedType(T, TagT = Tag!(T.stringof), T init = T.init, TraitsT...)
             }
         } else static if (is(Tr == ImplicitConvertable)) {
             alias get this;
+        } else static if (is(Tr == Lengthable)) {
+            static if (is(T : U[], U)) {
+            } else static if (!__traits(hasMember, T, "length")) {
+                static assert(0, ".length() is not implemented for " ~ T.stringof);
+            }
+
+            size_t length() inout {
+                return value.length;
+            }
+
+            bool empty() inout {
+                return value.length == 0;
+            }
         } else static if (is(Tr == Printable)) {
             import std.format : singleSpec, FormatSpec, formatValue;
 
@@ -286,6 +302,9 @@ struct Hashable {
 }
 
 struct Arithmetic {
+}
+
+struct Lengthable {
 }
 
 @("shall be possible to use a NamedType to express the intent of parameters")
@@ -383,4 +402,28 @@ unittest {
     alias A = NamedTypeT!(int);
     const b = A(20);
     assert(20 == b.get);
+}
+
+@("shall only use the Tag when printing")
+unittest {
+    import std.format : format;
+    import std.conv : to;
+
+    alias A = NamedTypeT!(int, Printable);
+    {
+        auto s = format!"value is %s"(A(10));
+        assert(s == "value is int(10)");
+    }
+
+    {
+        auto s = A(10).to!string;
+        assert(s == "int(10)");
+    }
+}
+
+@("shall expose .length when implementing Lengable")
+@safe unittest {
+    alias A = NamedTypeT!(int[], Lengthable);
+    const b = A([20, 30]);
+    assert(b.length == 2);
 }

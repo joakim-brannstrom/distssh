@@ -9,6 +9,7 @@ import core.thread : Thread;
 import std.datetime : SysTime, dur;
 
 public import my.path : Path;
+import my.named_type;
 
 immutable globalEnvHostKey = "DISTSSH_HOSTS";
 immutable globalEnvFileKey = "DISTSSH_IMPORT_ENV";
@@ -31,10 +32,7 @@ struct HostLoad {
     SysTime updated;
 }
 
-struct Host {
-    string payload;
-    alias payload this;
-}
+alias Host = NamedType!(string, Tag!"Host", null, Comparable, ImplicitConvertable);
 
 /// The load of a host.
 struct Load {
@@ -95,7 +93,4 @@ unittest {
 }
 
 /// Mirror of an environment.
-struct Env {
-    string[string] payload;
-    alias payload this;
-}
+alias Env = NamedType!(string[string], Tag!"Environment", null);

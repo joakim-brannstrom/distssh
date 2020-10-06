@@ -22,6 +22,7 @@ import std.variant : Algebraic, visit;
 static import std.getopt;
 
 import colorlog : VerboseMode;
+import my.named_type;
 
 import distssh.types;
 
@@ -33,18 +34,20 @@ struct Config {
     struct Global {
         std.getopt.GetoptResult helpInfo;
         VerboseMode verbosity;
-        string progName;
-        bool noImportEnv;
-        bool cloneEnv;
-        bool stdinMsgPackEnv;
-        Duration timeout = defaultTimeout_s.dur!"seconds";
 
-        string selfBinary;
-        string selfDir;
+        NamedType!(bool, Tag!"NoImportEnv") noImportEnv;
+        NamedType!(bool, Tag!"CloneEnv") cloneEnv;
+        NamedType!(bool, Tag!"StdinMsgPackEnv") stdinMsgPackEnv;
+        NamedType!(Duration, Tag!"Timeout", Duration.zero, ImplicitConvertable) timeout = defaultTimeout_s
+            .dur!"seconds";
 
-        string importEnv;
-        string workDir;
-        string[] command;
+        NamedType!(string, Tag!"ProgName") progName;
+        NamedType!(string, Tag!"SelfBinary") selfBinary;
+        NamedType!(string, Tag!"SelfDir") selfDir;
+
+        NamedType!(string, Tag!"ImportEnvFile") importEnv;
+        NamedType!(string, Tag!"Workdir") workDir;
+        NamedType!(string[], Tag!"Command", null, Lengthable) command;
 
         Path dbPath;
 
@@ -184,10 +187,11 @@ struct Config {
         template printers(T...) {
             static if (T.length == 1) {
                 static if (is(T[0] == Config.Help))
-                    alias printers = (T[0] a) => printHelpGroup(global.helpInfo, global.progName);
+                    alias printers = (T[0] a) => printHelpGroup(global.helpInfo,
+                            global.progName.get);
                 else
                     alias printers = (T[0] a) => printGroup!(T[0])(global.helpInfo,
-                            a.helpInfo, global.progName);
+                            a.helpInfo, global.progName.get);
             } else {
                 alias printers = AliasSeq!(printers!(T[0]), printers!(T[1 .. $]));
             }
@@ -208,13 +212,14 @@ Config parseUserArgs(string[] args) {
 
     Config conf;
     conf.data = Config.Help.init;
-    conf.global.progName = args[0].baseName;
-    conf.global.selfBinary = buildPath(thisExePath.dirName, args[0].baseName);
-    conf.global.selfDir = conf.global.selfBinary.dirName;
-    conf.global.workDir = getcwd;
+    conf.global.progName = typeof(conf.global.progName)(args[0].baseName);
+    conf.global.selfBinary = typeof(conf.global.selfBinary)(
+            buildPath(thisExePath.dirName, args[0].baseName));
+    conf.global.selfDir = typeof(conf.global.selfDir)(conf.global.selfBinary.get.dirName);
+    conf.global.workDir = typeof(conf.global.workDir)(getcwd);
     conf.global.dbPath = xdgRuntimeDir ~ Path("distssh.sqlite3");
 
-    switch (conf.global.selfBinary.baseName) {
+    switch (conf.global.selfBinary.get.baseName) {
     case distShell:
         conf.data = Config.Shell.init;
         conf.global.cluster = hostsFromEnv;
@@ -224,7 +229,7 @@ Config parseUserArgs(string[] args) {
             conf.data = Config.Help.init;
         else {
             conf.data = Config.Cmd.init;
-            conf.global.command = args.length > 1 ? args[1 .. $] : null;
+            conf.global.command = typeof(conf.global.command)(args.length > 1 ? args[1 .. $] : null);
             conf.global.cluster = hostsFromEnv;
             configImportEnvFile(conf);
         }
@@ -245,26 +250,26 @@ Config parseUserArgs(string[] args) {
 
             // dfmt off
             conf.global.helpInfo = std.getopt.getopt(args, std.getopt.config.passThrough, std.getopt.config.keepEndOfOptions,
-                "clone-env", "clone the current environment to the remote host without an intermediate file", &conf.global.cloneEnv,
+                "clone-env", "clone the current environment to the remote host without an intermediate file", conf.global.cloneEnv.getPtr,
                 "env-file", "file to load the environment from", &export_env_file,
-                "i|import-env", "import the env from the file (default: " ~ distsshEnvExport ~ ")", &conf.global.importEnv,
-                "no-import-env", "do not automatically import the environment from " ~ distsshEnvExport, &conf.global.noImportEnv,
-                "stdin-msgpack-env", "import env from stdin as a msgpack stream", &conf.global.stdinMsgPackEnv,
+                "i|import-env", "import the env from the file (default: " ~ distsshEnvExport ~ ")", conf.global.importEnv.getPtr,
+                "no-import-env", "do not automatically import the environment from " ~ distsshEnvExport, conf.global.noImportEnv.getPtr,
+                "stdin-msgpack-env", "import env from stdin as a msgpack stream", conf.global.stdinMsgPackEnv.getPtr,
                 "timeout", "timeout to use when checking remote hosts", &timeout_s,
                 "v|verbose", format("Set the verbosity (%-(%s, %))", [EnumMembers!(VerboseMode)]), &conf.global.verbosity,
-                "workdir", "working directory to run the command in", &conf.global.workDir,
+                "workdir", "working directory to run the command in", conf.global.workDir.getPtr,
                 );
             // dfmt on
             if (conf.global.helpInfo.helpWanted)
                 args ~= "-h";
 
             // must convert e.g. "."
-            conf.global.workDir = conf.global.workDir.absolutePath;
+            conf.global.workDir = typeof(conf.global.workDir)(conf.global.workDir.get.absolutePath);
 
-            conf.global.timeout = timeout_s.dur!"seconds";
+            conf.global.timeout.get = typeof(conf.global.timeout)(timeout_s.dur!"seconds");
 
             if (!export_env_file.empty)
-                conf.global.importEnv = export_env_file;
+                conf.global.importEnv = typeof(conf.global.importEnv)(export_env_file);
         }
 
         void helpParse() {
@@ -392,7 +397,7 @@ Config parseUserArgs(string[] args) {
         }
 
         if (args.length > 1) {
-            conf.global.command = args.find("--").drop(1).array();
+            conf.global.command = typeof(conf.global.command)(args.find("--").drop(1).array);
         }
         configImportEnvFile(conf);
     } catch (std.getopt.GetOptException e) {
@@ -419,12 +424,13 @@ void configImportEnvFile(ref Config opts) nothrow {
     import std.process : environment;
 
     if (opts.global.noImportEnv) {
-        opts.global.importEnv = null;
-    } else if (opts.global.importEnv.length != 0) {
+        opts.global.importEnv.get = null;
+    } else if (opts.global.importEnv.get.length != 0) {
         // do nothing. the user has specified a file
     } else {
         try {
-            opts.global.importEnv = environment.get(globalEnvFileKey, distsshEnvExport);
+            opts.global.importEnv = typeof(opts.global.importEnv)(environment.get(globalEnvFileKey,
+                    distsshEnvExport));
         } catch (Exception e) {
         }
     }
@@ -436,20 +442,20 @@ unittest {
     import std.file;
 
     auto opts = parseUserArgs(["distssh", "ls"]);
-    assert(opts.global.selfBinary[0] == '/');
-    assert(opts.global.selfBinary.baseName == "distssh");
+    assert(opts.global.selfBinary.get[0] == '/');
+    assert(opts.global.selfBinary.get.baseName == "distssh");
 
     opts = parseUserArgs(["distshell"]);
-    assert(opts.global.selfBinary[0] == '/');
-    assert(opts.global.selfBinary.baseName == "distshell");
+    assert(opts.global.selfBinary.get[0] == '/');
+    assert(opts.global.selfBinary.get.baseName == "distshell");
 
     opts = parseUserArgs(["distcmd"]);
-    assert(opts.global.selfBinary[0] == '/');
-    assert(opts.global.selfBinary.baseName == "distcmd");
+    assert(opts.global.selfBinary.get[0] == '/');
+    assert(opts.global.selfBinary.get.baseName == "distcmd");
 
     opts = parseUserArgs(["distcmd_recv", getcwd, distsshEnvExport]);
-    assert(opts.global.selfBinary[0] == '/');
-    assert(opts.global.selfBinary.baseName == "distcmd_recv");
+    assert(opts.global.selfBinary.get[0] == '/');
+    assert(opts.global.selfBinary.get.baseName == "distcmd_recv");
 }
 
 @("shall either return the default timeout or the user specified timeout")
@@ -485,7 +491,7 @@ unittest {
     import std.path : isAbsolute;
 
     auto opts = parseUserArgs(["distssh", "--workdir", "."]);
-    assert(opts.global.workDir.isAbsolute, "expected an absolute path");
+    assert(opts.global.workDir.get.isAbsolute, "expected an absolute path");
 }
 
 Host[] hostsFromEnv() nothrow {
