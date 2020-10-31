@@ -215,11 +215,21 @@ void daemonBeat(ref Miniorm db) {
     }, logger.trace)(timeout);
 }
 
+SysTime getDaemonBeatClock(ref Miniorm db) {
+    return spinSql!(() {
+        foreach (a; db.run(select!DaemonBeat.where("id = 0", null))) {
+            return a.beat;
+        }
+        return Clock.currTime;
+    }, logger.trace)(timeout);
+}
+
 /// The heartbeat when daemon was last executed.
 Duration getDaemonBeat(ref Miniorm db) {
     auto d = spinSql!(() {
-        foreach (a; db.run(select!DaemonBeat.where("id = 0", null)))
+        foreach (a; db.run(select!DaemonBeat.where("id = 0", null))) {
             return Clock.currTime - a.beat;
+        }
         return Duration.max;
     }, logger.trace)(timeout);
 

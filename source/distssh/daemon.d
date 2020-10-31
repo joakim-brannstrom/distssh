@@ -80,7 +80,7 @@ int cli(const Config fconf, Config.Daemon conf) {
     // the client beat error out in such a way that it is always "zero".
     const forceShutdown = Clock.currTime + 24.dur!"hours";
     auto clientBeat = db.getClientBeat;
-    auto lastDaemonBeat = db.getDaemonBeat;
+    auto lastDaemonBeat = db.getDaemonBeatClock;
 
     auto timers = makeTimers;
 
@@ -99,8 +99,11 @@ int cli(const Config fconf, Config.Daemon conf) {
         // this daemon wrote.  if it doesn't match it means there are multiple
         // daemons running thus roll the dice, 50% chance this instance should
         // shutdown.
-        auto beat = db.getDaemonBeat;
-        if (abs((lastDaemonBeat - beat).total!"msecs") > 2) {
+        const beat = db.getDaemonBeatClock;
+        const diff = abs((lastDaemonBeat - beat).total!"msecs");
+        logger.tracef("lastDaemonBeat: %s beat: %s diff: %s", lastDaemonBeat, beat, diff);
+
+        if (diff > 2) {
             Mt19937 gen;
             gen.seed(unpredictableSeed);
             running = gen.dice(0.5, 0.5) == 0;
@@ -133,7 +136,7 @@ int cli(const Config fconf, Config.Daemon conf) {
 
     makeInterval(timers, () @trusted {
         db.daemonBeat;
-        lastDaemonBeat = db.getDaemonBeat;
+        lastDaemonBeat = db.getDaemonBeatClock;
         return 15.dur!"seconds";
     }, 15.dur!"seconds");
 
