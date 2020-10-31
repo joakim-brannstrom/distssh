@@ -80,14 +80,35 @@ int cli(const Config fconf, Config.Daemon conf) {
     // the client beat error out in such a way that it is always "zero".
     const forceShutdown = Clock.currTime + 24.dur!"hours";
     auto clientBeat = db.getClientBeat;
+    auto lastDaemonBeat = db.getDaemonBeat;
 
     auto timers = makeTimers;
 
     makeInterval(timers, () @trusted {
+        // update the local clientBeat continiouesly
         clientBeat = db.getClientBeat;
         logger.tracef("client beat: %s timeout: %s", clientBeat, conf.timeout);
         return 10.dur!"seconds";
     }, 10.dur!"seconds");
+
+    makeInterval(timers, () @trusted {
+        import std.math : abs;
+        import std.random : Mt19937, dice, unpredictableSeed;
+
+        // the current daemon beat in the database should match the last one
+        // this daemon wrote.  if it doesn't match it means there are multiple
+        // daemons running thus roll the dice, 50% chance this instance should
+        // shutdown.
+        auto beat = db.getDaemonBeat;
+        if (abs((lastDaemonBeat - beat).total!"msecs") > 2) {
+            Mt19937 gen;
+            gen.seed(unpredictableSeed);
+            running = gen.dice(0.5, 0.5) == 0;
+            logger.trace(!running,
+                "multiple instances of distssh daemon is running. Terminating this instance.");
+        }
+        return 1.dur!"minutes";
+    }, 1.dur!"minutes");
 
     makeInterval(timers, () @trusted {
         clientBeat = db.getClientBeat;
@@ -110,7 +131,11 @@ int cli(const Config fconf, Config.Daemon conf) {
         return 5.dur!"seconds";
     }, 5.dur!"seconds");
 
-    makeInterval(timers, () @trusted { db.daemonBeat; return 15.dur!"seconds"; }, 15.dur!"seconds");
+    makeInterval(timers, () @trusted {
+        db.daemonBeat;
+        lastDaemonBeat = db.getDaemonBeat;
+        return 15.dur!"seconds";
+    }, 15.dur!"seconds");
 
     // the times are arbitrarily chosen.
     // assumption. The oldest statistic do not have to be updated that often
