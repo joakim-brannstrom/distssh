@@ -162,7 +162,7 @@ struct NamedType(T, TagT = Tag!(T.stringof), T init = T.init, TraitsT...)
     template ReplaceTrait(T) {
         static if (is(T == Arithmetic)) {
             alias ReplaceTrait = AliasSeq!(Incrementable, Decrementable, Addable,
-                    Subtractable, Modulable, Divisable, Multiplicable, Printable, Comparable);
+                    Subtractable, Modulable, Divisable, Multiplicable, Comparable);
         } else {
             alias ReplaceTrait = T;
         }
@@ -241,10 +241,10 @@ struct NamedType(T, TagT = Tag!(T.stringof), T init = T.init, TraitsT...)
             bool empty() inout {
                 return value.length == 0;
             }
-        } else static if (is(Tr == Printable)) {
+        } else static if (is(Tr == TagStringable)) {
             import std.format : singleSpec, FormatSpec, formatValue;
 
-            string toString(T2 = typeof(this))() {
+            string toString(T2 = typeof(this))() inout {
                 import std.array : appender;
 
                 auto buf = appender!string;
@@ -253,7 +253,7 @@ struct NamedType(T, TagT = Tag!(T.stringof), T init = T.init, TraitsT...)
                 return buf.data;
             }
 
-            void toString(Writer, T2 = typeof(this))(ref Writer w, scope const ref FormatSpec!char fmt)
+            void toString(Writer, T2 = typeof(this))(ref Writer w, scope const ref FormatSpec!char fmt) inout
                     if (isOutputRange!(Writer, char)) {
                 import std.range : put;
 
@@ -261,6 +261,31 @@ struct NamedType(T, TagT = Tag!(T.stringof), T init = T.init, TraitsT...)
                 put(w, "(");
                 formatValue(w, value, fmt);
                 put(w, ")");
+            }
+        } else static if (is(Tr == ForwardStringable)) {
+            import std.format : singleSpec, FormatSpec, formatValue;
+
+            string toString(T2 = typeof(this))() inout {
+                static if (__traits(hasMember, T, "toString"))
+                    return value.toString();
+                else
+                    return value;
+            }
+
+            void toString(Writer, T2 = typeof(this))(ref Writer w, scope const ref FormatSpec!char fmt) inout
+                    if (isOutputRange!(Writer, char)) {
+                import std.range : put;
+
+                static if (__traits(hasMember, T, "toString"))
+                    return value.toString(w, fmt);
+                else
+                    return put(w, value);
+            }
+        } else static if (is(Tr == ConvertStringable)) {
+            string toString(T2 = typeof(this))() inout {
+                import std.conv : to;
+
+                return value.to!string();
             }
         } else {
             static assert(0, "Unknown trait " ~ Tr.stringof);
@@ -292,7 +317,23 @@ struct Divisable {
 struct Multiplicable {
 }
 
-struct Printable {
+// Format the type to a string by using the Tag template parameter.
+//
+// `writeln(NamedType!(int, Tag!"MyInt", 0, TagToString)(42)`
+// is printed as:
+// `MyInt(42)`
+struct TagStringable {
+}
+
+// for backward compatibility
+alias Printable = TagStringable;
+
+/// Forward to the underlying type the toString.
+struct ForwardStringable {
+}
+
+/// Uses `std.conv.to!string` to convert the underlying type to a string.
+struct ConvertStringable {
 }
 
 struct ImplicitConvertable {
@@ -350,7 +391,6 @@ unittest {
     assert(y / x == A(2));
     assert(y * x == A(200));
     assert(x % y == A(10));
-    assert(x.toString == "x(10)");
 }
 
 @("shall implement a function that take a type that implement the Comparable trait")
@@ -404,26 +444,63 @@ unittest {
     assert(20 == b.get);
 }
 
-@("shall only use the Tag when printing")
-unittest {
-    import std.format : format;
-    import std.conv : to;
-
-    alias A = NamedTypeT!(int, Printable);
-    {
-        auto s = format!"value is %s"(A(10));
-        assert(s == "value is int(10)");
-    }
-
-    {
-        auto s = A(10).to!string;
-        assert(s == "int(10)");
-    }
-}
-
 @("shall expose .length when implementing Lengable")
 @safe unittest {
     alias A = NamedTypeT!(int[], Lengthable);
     const b = A([20, 30]);
     assert(b.length == 2);
+}
+
+@("shall only use the Tag when stringifying")
+unittest {
+    import std.format : format;
+    import std.conv : to;
+
+    alias A = NamedTypeT!(int, TagStringable);
+    const a = A(10);
+    {
+        auto s = format!"value is %s"(a);
+        assert(s == "value is int(10)");
+    }
+
+    {
+        auto s = a.to!string;
+        assert(s == "int(10)");
+    }
+}
+
+@("shall forward toString to the underlying type")
+unittest {
+    import std.format : format;
+    import std.conv : to;
+
+    alias A = NamedTypeT!(string, ForwardStringable);
+    const a = A("apa");
+    {
+        auto s = format!"value is %s"(a);
+        assert(s == "value is apa");
+    }
+
+    {
+        auto s = a.to!string;
+        assert(s == "apa");
+    }
+}
+
+@("shall convert the value to a string using std.conv.to")
+unittest {
+    import std.format : format;
+    import std.conv : to;
+
+    alias A = NamedTypeT!(int, ConvertStringable);
+    const a = A(10);
+    {
+        auto s = format!"value is %s"(a);
+        assert(s == "value is 10");
+    }
+
+    {
+        auto s = a.to!string;
+        assert(s == "10");
+    }
 }
