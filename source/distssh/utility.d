@@ -32,6 +32,13 @@ struct ExecuteOnHostConf {
     NamedType!(bool, Tag!"NoImportEnv") noImportEnv;
 }
 
+bool isInteractive() {
+    static import core.sys.posix.unistd;
+    import std.stdio : stdout;
+
+    return core.sys.posix.unistd.isatty(stdout.fileno) == 1;
+}
+
 /** Execute a command on a remote host.
  *
  * #SPC-automatic_env_import
@@ -52,12 +59,12 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
     import distssh.connection : sshCmdArgs, setupMultiplexDir;
 
     try {
-        const isInteractive = core.sys.posix.unistd.isatty(stdout.fileno) == 1;
+        const isInteractive_ = isInteractive;
 
         CBreak consoleChange;
         scope (exit)
             () {
-            if (isInteractive) {
+            if (isInteractive_) {
                 consoleChange.reset(stdin.fileno);
                 consoleChange.reset(stdout.fileno);
                 consoleChange.reset(stderr.fileno);
@@ -66,7 +73,7 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
 
         auto args = () {
             auto a = ["localrun", "--stdin-msgpack-env"];
-            if (isInteractive) {
+            if (isInteractive_) {
                 a ~= "--pseudo-terminal";
             }
             return sshCmdArgs(host, a).toArgs;
@@ -88,7 +95,7 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
         pwriter.pack(env);
         pwriter.pack(Command(conf.command.get.dup));
         pwriter.pack(Workdir(conf.workDir.get));
-        if (isInteractive) {
+        if (isInteractive_) {
             import core.sys.posix.termios;
 
             termios mode;
@@ -101,7 +108,7 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
         FdPoller poller;
         poller.put(FdPoll(stdin.fileno), [PollEvent.in_]);
 
-        if (isInteractive) {
+        if (isInteractive_) {
             consoleChange = setCBreak(stdin.fileno);
         }
 
