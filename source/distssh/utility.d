@@ -52,7 +52,7 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
     import distssh.connection : sshCmdArgs, setupMultiplexDir;
 
     try {
-        const isInteractive = core.sys.posix.unistd.isatty(stdin.fileno) == 1;
+        const isInteractive = core.sys.posix.unistd.isatty(stdout.fileno) == 1;
 
         CBreak consoleChange;
         scope (exit)
