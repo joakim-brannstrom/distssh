@@ -162,7 +162,7 @@ int cli(Config fconf, Config.LocalRun conf) {
     import std.datetime : Clock;
     import std.file : exists;
     import std.process : PConfig = Config, Redirect, userShell, thisProcessID;
-    import std.stdio : File, stdin, stdout;
+    import std.stdio : File, stdin, stdout, stderr;
     import std.utf : toUTF8;
     import proc;
     import sumtype;
@@ -235,7 +235,7 @@ int cli(Config fconf, Config.LocalRun conf) {
                 return p;
             }
             return pipeShell(localConf.cmd.joiner(" ").toUTF8,
-                    Redirect.stdin | Redirect.stdout | Redirect.stderrToStdout,
+                    Redirect.stdin | Redirect.stdout | Redirect.stderr,
                     localConf.env, PConfig.none, localConf.workdir).sandbox.scopeKill;
         }();
 
@@ -260,15 +260,32 @@ int cli(Config fconf, Config.LocalRun conf) {
             const timeout = Clock.currTime + 5.dur!"minutes";
 
             bool hasWritten;
-            while (res.stdout.hasPendingData && Clock.currTime < timeout) {
-                auto r = res.stdout.read(buf[]);
-                stdout.rawWrite(r);
-                hasWritten = true;
+            {
+                bool doFlush;
+                while (res.stdout.hasPendingData && Clock.currTime < timeout) {
+                    auto r = res.stdout.read(buf[]);
+                    stdout.rawWrite(r);
+                    hasWritten = true;
+                    doFlush = true;
+                }
+                if (doFlush) {
+                    stdout.flush;
+                }
             }
 
-            if (hasWritten) {
-                stdout.flush;
+            {
+                bool doFlush;
+                doFlush = true;
+                while (res.stderr.hasPendingData && Clock.currTime < timeout) {
+                    auto r = res.stderr.read(buf[]);
+                    stderr.rawWrite(r);
+                    hasWritten = true;
+                }
+                if (doFlush) {
+                    stderr.flush;
+                }
             }
+
             return hasWritten;
         }
 

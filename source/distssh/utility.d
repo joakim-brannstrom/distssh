@@ -33,10 +33,9 @@ struct ExecuteOnHostConf {
 }
 
 bool isInteractive() {
-    static import core.sys.posix.unistd;
-    import std.stdio : stdout;
+    import my.tty;
 
-    return core.sys.posix.unistd.isatty(stdout.fileno) == 1;
+    return isStdoutInteractive && isStderrInteractive;
 }
 
 /** Execute a command on a remote host.
