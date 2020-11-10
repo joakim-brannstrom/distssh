@@ -275,7 +275,6 @@ int cli(Config fconf, Config.LocalRun conf) {
 
             {
                 bool doFlush;
-                doFlush = true;
                 while (res.stderr.hasPendingData && Clock.currTime < timeout) {
                     auto r = res.stderr.read(buf[]);
                     stderr.rawWrite(r);
