@@ -279,6 +279,7 @@ int cli(Config fconf, Config.LocalRun conf) {
                     auto r = res.stderr.read(buf[]);
                     stderr.rawWrite(r);
                     hasWritten = true;
+                    doFlush = true;
                 }
                 if (doFlush) {
                     stderr.flush;
