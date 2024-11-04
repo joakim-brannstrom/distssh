@@ -1,25 +1,27 @@
 /++
-A sum type for modern D.
-
-[SumType] is an alternative to `std.variant.Algebraic` that features:
+[SumType] is a generic discriminated union implementation that uses
+design-by-introspection to generate safe and efficient code. Its features
+include:
 
 $(LIST
-    * [match|Improved pattern-matching.]
+    * [match|Pattern matching.]
+    * Support for self-referential types.
     * Full attribute correctness (`pure`, `@safe`, `@nogc`, and `nothrow` are
       inferred whenever possible).
     * A type-safe and memory-safe API compatible with DIP 1000 (`scope`).
     * No dependency on runtime type information (`TypeInfo`).
+    * Compatibility with BetterC.
 )
 
-License: MIT
-Authors: Paul Backus, Atila Neves
+License: Boost License 1.0
+Authors: Paul Backus
 +/
 module sumtype;
 
-/// $(H3 Basic usage)
 version (D_BetterC) {} else
+/// $(H3 Basic usage)
 @safe unittest {
-    import std.math: approxEqual;
+    import std.math: isClose;
 
     struct Fahrenheit { double degrees; }
     struct Celsius { double degrees; }
@@ -33,7 +35,6 @@ version (D_BetterC) {} else
     Temperature t3 = Kelvin(273);
 
     // Use pattern matching to access the value.
-    pure @safe @nogc nothrow
     Fahrenheit toFahrenheit(Temperature t)
     {
         return Fahrenheit(
@@ -45,12 +46,11 @@ version (D_BetterC) {} else
         );
     }
 
-    assert(toFahrenheit(t1).degrees.approxEqual(98.6));
-    assert(toFahrenheit(t2).degrees.approxEqual(212));
-    assert(toFahrenheit(t3).degrees.approxEqual(32));
+    assert(toFahrenheit(t1).degrees.isClose(98.6));
+    assert(toFahrenheit(t2).degrees.isClose(212));
+    assert(toFahrenheit(t3).degrees.isClose(32));
 
     // Use ref to modify the value in place.
-    pure @safe @nogc nothrow
     void freeze(ref Temperature t)
     {
         t.match!(
@@ -61,10 +61,9 @@ version (D_BetterC) {} else
     }
 
     freeze(t1);
-    assert(toFahrenheit(t1).degrees.approxEqual(32));
+    assert(toFahrenheit(t1).degrees.isClose(32));
 
     // Use a catch-all handler to give a default result.
-    pure @safe @nogc nothrow
     bool isFahrenheit(Temperature t)
     {
         return t.match!(
@@ -78,6 +77,7 @@ version (D_BetterC) {} else
     assert(!isFahrenheit(t3));
 }
 
+version (D_BetterC) {} else
 /** $(H3 Introspection-based matching)
  *
  * In the `length` and `horiz` functions below, the handlers for `match` do not
@@ -86,15 +86,13 @@ version (D_BetterC) {} else
  * properties will be matched by the `rect` handlers, and any type with `r` and
  * `theta` properties will be matched by the `polar` handlers.
  */
-version (D_BetterC) {} else
 @safe unittest {
-    import std.math: approxEqual, cos, PI, sqrt;
+    import std.math: isClose, cos, PI, sqrt;
 
     struct Rectangular { double x, y; }
     struct Polar { double r, theta; }
     alias Vector = SumType!(Rectangular, Polar);
 
-    pure @safe @nogc nothrow
     double length(Vector v)
     {
         return v.match!(
@@ -103,7 +101,6 @@ version (D_BetterC) {} else
         );
     }
 
-    pure @safe @nogc nothrow
     double horiz(Vector v)
     {
         return v.match!(
@@ -115,12 +112,13 @@ version (D_BetterC) {} else
     Vector u = Rectangular(1, 1);
     Vector v = Polar(1, PI/4);
 
-    assert(length(u).approxEqual(sqrt(2.0)));
-    assert(length(v).approxEqual(1));
-    assert(horiz(u).approxEqual(1));
-    assert(horiz(v).approxEqual(sqrt(0.5)));
+    assert(length(u).isClose(sqrt(2.0)));
+    assert(length(v).isClose(1));
+    assert(horiz(u).isClose(1));
+    assert(horiz(v).isClose(sqrt(0.5)));
 }
 
+version (D_BetterC) {} else
 /** $(H3 Arithmetic expression evaluator)
  *
  * This example makes use of the special placeholder type `This` to define a
@@ -128,8 +126,7 @@ version (D_BetterC) {} else
  * [https://en.wikipedia.org/wiki/Abstract_syntax_tree|abstract syntax tree] for
  * representing simple arithmetic expressions.
  */
-version (D_BetterC) {} else
-@safe unittest {
+@system unittest {
     import std.functional: partial;
     import std.traits: EnumMembers;
     import std.typecons: Tuple;
@@ -157,21 +154,18 @@ version (D_BetterC) {} else
     alias BinOp = Expr.Types[2];
 
     // Factory function for number expressions
-    pure @safe
     Expr* num(double value)
     {
         return new Expr(value);
     }
 
     // Factory function for variable expressions
-    pure @safe
     Expr* var(string name)
     {
         return new Expr(name);
     }
 
     // Factory function for binary operation expressions
-    pure @safe
     Expr* binOp(Op op, Expr* lhs, Expr* rhs)
     {
         return new Expr(BinOp(op, lhs, rhs));
@@ -184,7 +178,6 @@ version (D_BetterC) {} else
     alias quot = partial!(binOp, Op.Div);
 
     // Evaluate expr, looking up variables in env
-    pure @safe nothrow
     double eval(Expr expr, double[string] env)
     {
         return expr.match!(
@@ -204,7 +197,6 @@ version (D_BetterC) {} else
     }
 
     // Return a "pretty-printed" representation of expr
-    @safe
     string pprint(Expr expr)
     {
         import std.format;
@@ -227,22 +219,53 @@ version (D_BetterC) {} else
     assert(pprint(*myExpr) == "(a + (2 * b))");
 }
 
-// Converts an unsigned integer to a compile-time string constant.
-private enum toCtString(ulong n) = n.stringof[0 .. $ - 2];
+import std.format: FormatSpec, singleSpec;
+import std.meta: AliasSeq, Filter, IndexOf = staticIndexOf, Map = staticMap;
+import std.meta: NoDuplicates;
+import std.meta: anySatisfy, allSatisfy;
+import std.traits: hasElaborateCopyConstructor, hasElaborateDestructor;
+import std.traits: isAssignable, isCopyable, isRvalueAssignable, isStaticArray;
+import std.traits: ConstOf, ImmutableOf, InoutOf, TemplateArgsOf;
+import std.traits: CommonType;
+import std.typecons: ReplaceTypeUnless;
+import std.typecons: Flag;
 
+/// Placeholder used to refer to the enclosing [SumType].
+struct This {}
+
+// Converts an unsigned integer to a compile-time string constant.
+private enum toCtString(ulong n) = n.stringof[0 .. $ - "LU".length];
+
+// Check that .stringof does what we expect, since it's not guaranteed by the
+// lanugage spec.
 @safe unittest {
 	assert(toCtString!0 == "0");
 	assert(toCtString!123456 == "123456");
 }
 
-/// `This` placeholder, for use in self-referential types.
-public import std.variant: This;
+// True if a variable of type T can appear on the lhs of an assignment
+private enum isAssignableTo(T) =
+	isAssignable!T || (!isCopyable!T && isRvalueAssignable!T);
 
-import std.meta: NoDuplicates;
+// toHash is required by the language spec to be nothrow and @safe
+private enum isHashable(T) = __traits(compiles,
+	() nothrow @safe { hashOf(T.init); }
+);
+
+private enum hasPostblit(T) = __traits(hasPostblit, T);
+
+private enum isInout(T) = is(T == inout);
+
+// Workaround for dlang issue 19669
+private enum haveDip1000 = __traits(compiles, () @safe {
+	int x;
+	int* p;
+	p = &x;
+});
 
 /**
- * A tagged union that can hold a single value from any of a specified set of
- * types.
+ * A [tagged union](https://en.wikipedia.org/wiki/Tagged_union) that can hold a
+ * single value from any of a specified set of types.
  *
  * The value in a `SumType` can be operated on using [match|pattern matching].
  *
@@ -258,24 +281,15 @@ import std.meta: NoDuplicates;
  * first member type, just like a regular union. The version identifier
  * `SumTypeNoDefaultCtor` can be used to disable this behavior.
  *
- * Bugs:
- *   Types with `@disable`d `opEquals` overloads cannot be members of a
- *   `SumType`.
- *
  * See_Also: `std.variant.Algebraic`
  */
-struct SumType(TypeArgs...)
-	if (is(NoDuplicates!TypeArgs == TypeArgs) && TypeArgs.length > 0)
+struct SumType(Types...)
+	if (is(NoDuplicates!Types == Types) && Types.length > 0)
 {
-	import std.meta: AliasSeq, Filter, staticIndexOf, staticMap;
-	import std.meta: anySatisfy, allSatisfy;
-	import std.traits: hasElaborateCopyConstructor, hasElaborateDestructor;
-	import std.traits: isAssignable, isCopyable, isStaticArray;
-	import std.traits: ConstOf, ImmutableOf;
-	import std.typecons: ReplaceTypeUnless;
-
 	/// The types a `SumType` can hold.
-	alias Types = AliasSeq!(ReplaceTypeUnless!(isSumType, This, typeof(this), TypeArgs));
+	alias Types = AliasSeq!(
+		ReplaceTypeUnless!(isSumTypeInstance, This, typeof(this), TemplateArgsOf!SumType)
+	);
 
 private:
 
@@ -286,10 +300,11 @@ private:
 
 	union Storage
 	{
+		// Workaround for dlang issue 20068
 		template memberName(T)
-			if (staticIndexOf!(T, Types) >= 0)
+			if (IndexOf!(T, Types) >= 0)
 		{
-			enum tid = staticIndexOf!(T, Types);
+			enum tid = IndexOf!(T, Types);
 			mixin("enum memberName = `values_", toCtString!tid, "`;");
 		}
 
@@ -301,12 +316,28 @@ private:
 	Storage storage;
 	Tag tag;
 
-	@system
+	/**
+	 * Accesses the value stored in a SumType.
+	 *
+	 * This method is memory-safe, provided that:
+	 *
+	 *   1. A SumType's tag is always accurate.
+	 *   2. A SumType cannot be assigned to in @safe code if that assignment
+	 *      could cause unsafe aliasing.
+	 *
+	 * All code that accesses a SumType's tag or storage directly, including
+	 * @safe code in this module, must be manually checked to ensure that it
+	 * does not violate either of the above requirements.
+	 */
+	@trusted
 	ref inout(T) get(T)() inout
-		if (staticIndexOf!(T, Types) >= 0)
+		if (IndexOf!(T, Types) >= 0)
 	{
-		enum tid = staticIndexOf!(T, Types);
-		assert(tag == tid);
+		enum tid = IndexOf!(T, Types);
+		assert(tag == tid,
+			"This `" ~ SumType.stringof ~
+			"` does not contain a(n) `" ~ T.stringof ~ "`"
+		);
 		return __traits(getMember, storage, Storage.memberName!T);
 	}
 
@@ -314,61 +345,78 @@ public:
 
 	static foreach (tid, T; Types) {
 		/// Constructs a `SumType` holding a specific value.
-		this()(auto ref T value)
+		this(T value)
 		{
 			import core.lifetime: forward;
 
 			static if (isCopyable!T) {
-				mixin("Storage newStorage = { ",
-					Storage.memberName!T, ": value",
-				" };");
+				// Workaround for dlang issue 21542
+				__traits(getMember, storage, Storage.memberName!T) = __ctfe ? value : forward!value;
 			} else {
-				mixin("Storage newStorage = { ",
-					Storage.memberName!T, " : forward!value",
-				" };");
+				__traits(getMember, storage, Storage.memberName!T) = forward!value;
 			}
 
-			storage = newStorage;
 			tag = tid;
 		}
 
-		static if (isCopyable!T) {
-			/// ditto
-			this()(auto ref const(T) value) const
-			{
-				mixin("const(Storage) newStorage = { ",
-					Storage.memberName!T, ": value",
-				" };");
-
-				storage = newStorage;
-				tag = tid;
-			}
-
-			/// ditto
-			this()(auto ref immutable(T) value) immutable
-			{
-				mixin("immutable(Storage) newStorage = { ",
-					Storage.memberName!T, ": value",
-				" };");
-
-				storage = newStorage;
-				tag = tid;
+		static if (isCopyable!(const(T))) {
+			// Avoid defining the same constructor multiple times
+			static if (IndexOf!(const(T), Map!(ConstOf, Types)) == tid) {
+				/// ditto
+				this(const(T) value) const
+				{
+					__traits(getMember, storage, Storage.memberName!T) = value;
+					tag = tid;
+				}
 			}
 		} else {
 			@disable this(const(T) value) const;
+		}
+
+		static if (isCopyable!(immutable(T))) {
+			static if (IndexOf!(immutable(T), Map!(ImmutableOf, Types)) == tid) {
+				/// ditto
+				this(immutable(T) value) immutable
+				{
+					__traits(getMember, storage, Storage.memberName!T) = value;
+					tag = tid;
+				}
+			}
+		} else {
 			@disable this(immutable(T) value) immutable;
 		}
+
+		static if (isCopyable!(inout(T))) {
+			static if (IndexOf!(inout(T), Map!(InoutOf, Types)) == tid) {
+				/// ditto
+				this(Value)(Value value) inout
+					if (is(Value == DeducedParameterType!(inout(T))))
+				{
+					__traits(getMember, storage, Storage.memberName!T) = value;
+					tag = tid;
+				}
+			}
+		} else {
+			@disable this(Value)(Value value) inout
+				if (is(Value == DeducedParameterType!(inout(T))));
+		}
 	}
 
-	static if (allSatisfy!(isCopyable, Types)) {
-		static if (anySatisfy!(hasElaborateCopyConstructor, Types)) {
-			/// Constructs a `SumType` that's a copy of another `SumType`
-			this(ref SumType other)
+	static if (anySatisfy!(hasElaborateCopyConstructor, Types)) {
+		static if (
+			allSatisfy!(isCopyable, Map!(InoutOf, Types))
+			&& !anySatisfy!(hasPostblit, Map!(InoutOf, Types))
+			&& allSatisfy!(isInout, Map!(InoutOf, Types))
+		) {
+			/// Constructs a `SumType` that's a copy of another `SumType`.
+			this(ref inout(SumType) other) inout
 			{
 				storage = other.match!((ref value) {
-					alias T = typeof(value);
+					alias OtherTypes = Map!(InoutOf, Types);
+					enum tid = IndexOf!(typeof(value), OtherTypes);
+					alias T = Types[tid];
 
-					mixin("Storage newStorage = { ",
+					mixin("inout(Storage) newStorage = { ",
 						Storage.memberName!T, ": value",
 					" };");
 
@@ -377,89 +425,138 @@ public:
 
 				tag = other.tag;
 			}
+		} else {
+			static if (allSatisfy!(isCopyable, Types)) {
+				/// ditto
+				this(ref SumType other)
+				{
+					storage = other.match!((ref value) {
+						alias T = typeof(value);
 
-			/// ditto
-			this(ref const(SumType) other) const
-			{
-				storage = other.match!((ref value) {
-					alias OtherTypes = staticMap!(ConstOf, Types);
-					enum tid = staticIndexOf!(typeof(value), OtherTypes);
-					alias T = Types[tid];
+						mixin("Storage newStorage = { ",
+							Storage.memberName!T, ": value",
+						" };");
 
-					mixin("const(Storage) newStorage = { ",
-						Storage.memberName!T, ": value",
-					" };");
+						return newStorage;
+					});
 
-					return newStorage;
-				});
-
-				tag = other.tag;
+					tag = other.tag;
+				}
+			} else {
+				@disable this(ref SumType other);
 			}
 
-			/// ditto
-			this(ref immutable(SumType) other) immutable
-			{
-				storage = other.match!((ref value) {
-					alias OtherTypes = staticMap!(ImmutableOf, Types);
-					enum tid = staticIndexOf!(typeof(value), OtherTypes);
-					alias T = Types[tid];
+			static if (allSatisfy!(isCopyable, Map!(ConstOf, Types))) {
+				/// ditto
+				this(ref const(SumType) other) const
+				{
+					storage = other.match!((ref value) {
+						alias OtherTypes = Map!(ConstOf, Types);
+						enum tid = IndexOf!(typeof(value), OtherTypes);
+						alias T = Types[tid];
 
-					mixin("immutable(Storage) newStorage = { ",
-						Storage.memberName!T, ": value",
-					" };");
+						mixin("const(Storage) newStorage = { ",
+							Storage.memberName!T, ": value",
+						" };");
 
-					return newStorage;
-				});
+						return newStorage;
+					});
 
-				tag = other.tag;
+					tag = other.tag;
+				}
+			} else {
+				@disable this(ref const(SumType) other) const;
+			}
+
+			static if (allSatisfy!(isCopyable, Map!(ImmutableOf, Types))) {
+				/// ditto
+				this(ref immutable(SumType) other) immutable
+				{
+					storage = other.match!((ref value) {
+						alias OtherTypes = Map!(ImmutableOf, Types);
+						enum tid = IndexOf!(typeof(value), OtherTypes);
+						alias T = Types[tid];
+
+						mixin("immutable(Storage) newStorage = { ",
+							Storage.memberName!T, ": value",
+						" };");
+
+						return newStorage;
+					});
+
+					tag = other.tag;
+				}
+			} else {
+				@disable this(ref immutable(SumType) other) immutable;
 			}
 		}
-	} else {
-		/// `@disable`d if any member type is non-copyable.
-		@disable this(this);
 	}
 
-	version(SumTypeNoDefaultCtor) {
+	version (SumTypeNoDefaultCtor) {
 		@disable this();
 	}
 
 	static foreach (tid, T; Types) {
-		static if (isAssignable!T) {
+		static if (isAssignableTo!T) {
 			/**
 			 * Assigns a value to a `SumType`.
 			 *
-			 * Assigning to a `SumType` is `@system` if any of the
-			 * `SumType`'s members contain pointers or references, since
-			 * those members may be reachable through external references,
-			 * and overwriting them could therefore lead to memory
-			 * corruption.
+			 * If any of the `SumType`'s members other than the one being assigned
+			 * to contain pointers or references, it is possible for the assignment
+			 * to cause memory corruption (see the
+			 * ["Memory corruption" example](#memory-corruption) below for an
+			 * illustration of how). Therefore, such assignments are considered
+			 * `@system`.
 			 *
 			 * An individual assignment can be `@trusted` if the caller can
-			 * guarantee that there are no outstanding references to $(I any)
-			 * of the `SumType`'s members when the assignment occurs.
+			 * guarantee that there are no outstanding references to any `SumType`
+			 * members that contain pointers or references at the time the
+			 * assignment occurs.
+			 *
+			 * Examples:
+			 *
+			 * $(H3 Memory corruption)
+			 *
+			 * This example shows how assignment to a `SumType` can be used to
+			 * cause memory corruption in `@system` code. In `@safe` code, the
+			 * assignment `s = 123` would not be allowed.
+			 *
+			 * ---
+			 * SumType!(int*, int) s = new int;
+			 * s.tryMatch!(
+			 *     (ref int* p) {
+			 *         s = 123; // overwrites `p`
+			 *         return *p; // undefined behavior
+			 *     }
+			 * );
+			 * ---
 			 */
-			ref SumType opAssign()(auto ref T rhs)
+			ref SumType opAssign(T rhs)
 			{
 				import core.lifetime: forward;
 				import std.traits: hasIndirections, hasNested;
-				import std.meta: Or = templateOr;
+				import std.meta: AliasSeq, Or = templateOr;
 
-				enum mayContainPointers =
-					anySatisfy!(Or!(hasIndirections, hasNested), Types);
+				alias OtherTypes =
+					AliasSeq!(Types[0 .. tid], Types[tid + 1 .. $]);
+				enum unsafeToOverwrite =
+					anySatisfy!(Or!(hasIndirections, hasNested), OtherTypes);
 
-				static if (mayContainPointers) {
+				static if (unsafeToOverwrite) {
 					cast(void) () @system {}();
 				}
 
-				this.match!((ref value) {
-					static if (hasElaborateDestructor!(typeof(value))) {
-						destroy(value);
-					}
-				});
+				this.match!destroyIfOwner;
 
-				mixin("Storage newStorage = { ",
-					Storage.memberName!T, ": forward!rhs",
-				" };");
+				static if (isCopyable!T) {
+					mixin("Storage newStorage = { ",
+						Storage.memberName!T, ": __ctfe ? rhs : forward!rhs",
+					" };");
+				} else {
+					mixin("Storage newStorage = { ",
+						Storage.memberName!T, ": forward!rhs",
+					" };");
+				}
 
 				storage = newStorage;
 				tag = tid;
@@ -469,7 +566,7 @@ public:
 		}
 	}
 
-	static if (allSatisfy!(isAssignable, Types)) {
+	static if (allSatisfy!(isAssignableTo, Types)) {
 		static if (allSatisfy!(isCopyable, Types)) {
 			/**
 			 * Copies the value from another `SumType` into this one.
@@ -496,7 +593,14 @@ public:
 		{
 			import core.lifetime: move;
 
-			rhs.match!((ref value) { this = move(value); });
+			rhs.match!((ref value) {
+				static if (isCopyable!(typeof(value))) {
+					// Workaround for dlang issue 21542
+					this = __ctfe ? value : move(value);
+				} else {
+					this = move(value);
+				}
+			});
 			return this;
 		}
 	}
@@ -507,16 +611,21 @@ public:
 	 * Two `SumType`s are equal if they are the same kind of `SumType`, they
 	 * contain values of the same type, and those values are equal.
 	 */
-	bool opEquals()(auto ref const(SumType) rhs) const {
-		return this.match!((ref value) {
-			return rhs.match!((ref rhsValue) {
+	bool opEquals(this This, Rhs)(auto ref Rhs rhs)
+		if (!is(CommonType!(This, Rhs) == void))
+	{
+		static if (is(This == Rhs)) {
+			return AliasSeq!(this, rhs).match!((ref value, ref rhsValue) {
 				static if (is(typeof(value) == typeof(rhsValue))) {
 					return value == rhsValue;
 				} else {
 					return false;
 				}
 			});
-		});
+		} else {
+			alias CommonSumType = CommonType!(This, Rhs);
+			return cast(CommonSumType) this == cast(CommonSumType) rhs;
+		}
 	}
 
 	// Workaround for dlang issue 19407
@@ -532,24 +641,8 @@ public:
 		/// Calls the destructor of the `SumType`'s current value.
 		~this()
 		{
-			this.match!((ref value) {
-				static if (hasElaborateDestructor!(typeof(value))) {
-					destroy(value);
-				}
-			});
+			this.match!destroyIfOwner;
 		}
-	}
-
-	invariant {
-		this.match!((ref value) {
-			static if (is(typeof(value) == class)) {
-				if (value !is null) {
-					assert(value);
-				}
-			} else static if (is(typeof(value) == struct)) {
-				assert(&value);
-			}
-		});
 	}
 
 	version (D_BetterC) {} else
@@ -558,19 +651,35 @@ public:
 	 *
 	 * Not available when compiled with `-betterC`.
 	 */
-	string toString(this T)()
+	string toString(this This)()
 	{
 		import std.conv: to;
 
 		return this.match!(to!string);
 	}
 
-	// toHash is required by the language spec to be nothrow and @safe
-	private enum isHashable(T) = __traits(compiles,
-		() nothrow @safe { hashOf(T.init); }
-	);
+	version (D_BetterC) {} else
+	/**
+	 * Handles formatted writing of the `SumType`'s current value.
+	 *
+	 * Not available when compiled with `-betterC`.
+	 *
+	 * Params:
+	 *   sink = Output range to write to.
+	 *   fmt = Format specifier to use.
+	 *
+	 * See_Also: `std.format.formatValue`
+	 */
+	void toString(this This, Sink, Char)(ref Sink sink, const ref FormatSpec!Char fmt)
+	{
+		import std.format: formatValue;
 
-	static if (allSatisfy!(isHashable, staticMap!(ConstOf, Types))) {
+		this.match!((ref value) {
+			formatValue(sink, value, fmt);
+		});
+	}
+
+	static if (allSatisfy!(isHashable, Map!(ConstOf, Types))) {
 		// Workaround for dlang issue 20095
 		version (D_BetterC) {} else
 		/**
@@ -582,6 +691,18 @@ public:
 		{
 			return this.match!hashOf;
 		}
+	}
+
+	/**
+	 * Returns the index of the type of the `SumType`'s current value in the
+	 * `SumType`'s [Types].
+	 *
+	 * If the `SumType` is qualified, returns the index of the type in [Types]
+	 * whose qualified version matches the `SumType`'s current value.
+	 */
+	size_t typeIndex() const
+	{
+		return tag;
 	}
 }
 
@@ -616,16 +737,27 @@ public:
 @safe unittest {
 	alias MySum = SumType!(int, float);
 
-	MySum x = MySum(123);
-	MySum y = MySum(123);
-	MySum z = MySum(456);
-	MySum w = MySum(123.0);
-	MySum v = MySum(456.0);
+	assert(MySum(123) == MySum(123));
+	assert(MySum(123) != MySum(456));
+	assert(MySum(123) != MySum(123.0));
+	assert(MySum(123) != MySum(456.0));
 
-	assert(x == y);
-	assert(x != z);
-	assert(x != w);
-	assert(x != v);
+}
+
+// Equality of differently-qualified SumTypes
+// Disabled in BetterC due to use of dynamic arrays
+version (D_BetterC) {} else
+@safe unittest {
+	alias SumA = SumType!(int, float);
+	alias SumB = SumType!(const(int[]), int[]);
+	alias SumC = SumType!(int[], const(int[]));
+
+	int[] ma = [1, 2, 3];
+	const(int[]) ca = [1, 2, 3];
+
+	assert(const(SumA)(123) == SumA(123));
+	assert(const(SumB)(ma[]) == SumB(ca[]));
+	assert(const(SumC)(ma[]) == SumC(ca[]));
 }
 
 // Imported types
@@ -657,16 +789,6 @@ public:
 	alias MySum = SumType!(int, float, This*);
 
 	assert(is(MySum.Types == AliasSeq!(int, float, MySum*)));
-}
-
-// Works alongside Algebraic
-version (D_BetterC) {} else
-@safe unittest {
-	import std.variant;
-
-	alias Bar = Algebraic!(This*);
-
-	assert(is(Bar.AllowedTypes[0] == Bar*));
 }
 
 // Types with destructors and postblits
@@ -727,6 +849,7 @@ version (D_BetterC) {} else
 }
 
 // Doesn't destroy reference types
+// Disabled in BetterC due to use of classes
 version (D_BetterC) {} else
 @system unittest {
 	bool destroyed;
@@ -772,6 +895,7 @@ version (D_BetterC) {} else
 
 	assert(!__traits(compiles, MySum()));
 	assert(__traits(compiles, MySum(42)));
+	auto x = MySum(42);
 }
 
 // const SumTypes
@@ -808,6 +932,7 @@ version (D_BetterC) {} else
 }
 
 // toString
+// Disabled in BetterC due to use of std.conv.text
 version (D_BetterC) {} else
 @safe unittest {
 	import std.conv: text;
@@ -821,7 +946,32 @@ version (D_BetterC) {} else
 	assert((const(Sum)(Int(42))).text == (const(Int)(42)).text, (const(Sum)(Int(42))).text);
 }
 
+// string formatting
+// Disabled in BetterC due to use of std.format.format
+version (D_BetterC) {} else
+@safe unittest {
+	import std.format: format;
+
+	SumType!int x = 123;
+
+	assert(format!"%s"(x) == format!"%s"(123));
+	assert(format!"%x"(x) == format!"%x"(123));
+}
+
+// string formatting of qualified SumTypes
+// Disabled in BetterC due to use of std.format.format and dynamic arrays
+version (D_BetterC) {} else
+@safe unittest {
+	import std.format: format;
+
+	int[] a = [1, 2, 3];
+	const(SumType!(int[])) x = a;
+
+	assert(format!"%(%d, %)"(x) == format!"%(%s, %)"(a));
+}
+
 // Github issue #16
+// Disabled in BetterC due to use of dynamic arrays
 version (D_BetterC) {} else
 @safe unittest {
 	alias Node = SumType!(This[], string);
@@ -835,6 +985,7 @@ version (D_BetterC) {} else
 }
 
 // Github issue #16 with const
+// Disabled in BetterC due to use of dynamic arrays
 version (D_BetterC) {} else
 @safe unittest {
 	alias Node = SumType!(const(This)[], string);
@@ -848,6 +999,7 @@ version (D_BetterC) {} else
 }
 
 // Stale pointers
+// Disabled in BetterC due to use of dynamic arrays
 version (D_BetterC) {} else
 @system unittest {
 	alias MySum = SumType!(ubyte, void*[2]);
@@ -860,8 +1012,9 @@ version (D_BetterC) {} else
 }
 
 // Exception-safe assignment
+// Disabled in BetterC due to use of exceptions
 version (D_BetterC) {} else
-@system unittest {
+@safe unittest {
 	static struct A
 	{
 		int value = 123;
@@ -888,7 +1041,7 @@ version (D_BetterC) {} else
 
 // Types with @disable this(this)
 @safe unittest {
-	import std.algorithm.mutation: move;
+	import core.lifetime: move;
 
 	static struct NoCopy
 	{
@@ -914,6 +1067,7 @@ version (D_BetterC) {} else
 }
 
 // Github issue #22
+// Disabled in BetterC due to use of std.typecons.Nullable
 version (D_BetterC) {} else
 @safe unittest {
 	import std.typecons;
@@ -925,8 +1079,9 @@ version (D_BetterC) {} else
 }
 
 // Static arrays of structs with postblits
+// Disabled in BetterC due to use of dynamic arrays
 version (D_BetterC) {} else
-@system unittest {
+@safe unittest {
 	static struct S
 	{
 		int n;
@@ -945,11 +1100,12 @@ version (D_BetterC) {} else
 }
 
 // Replacement does not happen inside SumType
+// Disabled in BetterC due to use of associative arrays
 version (D_BetterC) {} else
 @safe unittest {
 	import std.typecons : Tuple, ReplaceTypeUnless;
 	alias A = Tuple!(This*,SumType!(This*))[SumType!(This*,string)[This]];
-	alias TR = ReplaceTypeUnless!(isSumType, This, int, A);
+	alias TR = ReplaceTypeUnless!(isSumTypeInstance, This, int, A);
 	static assert(is(TR == Tuple!(int*,SumType!(This*))[SumType!(This*, string)[int]]));
 }
 
@@ -959,6 +1115,17 @@ version (D_BetterC) {} else
 	alias Nat = SumType!(Flag!"0", Tuple!(This*));
 	static assert(__traits(compiles, SumType!(Nat)));
 	static assert(__traits(compiles, SumType!(Nat*, Tuple!(This*, This*))));
+}
+
+// Self-referential SumTypes inside Algebraic
+// Disabled in BetterC due to use of std.variant.Algebraic
+version (D_BetterC) {} else
+@safe unittest {
+	import std.variant: Algebraic;
+
+	alias T = Algebraic!(SumType!(This*));
+
+	assert(is(T.AllowedTypes[0].Types[0] == T.AllowedTypes[0]*));
 }
 
 // Doesn't call @system postblits in @safe code
@@ -990,35 +1157,8 @@ version (D_BetterC) {} else
 	}));
 }
 
-// Types with invariants
-version (D_BetterC) {} else
-@system unittest {
-	import std.exception: assertThrown;
-	import core.exception: AssertError;
-
-	struct S
-	{
-		int i;
-		invariant { assert(i >= 0); }
-	}
-
-	class C
-	{
-		int i;
-		invariant { assert(i >= 0); }
-	}
-
-	SumType!S x;
-	x.match!((ref v) { v.i = -1; });
-	assertThrown!AssertError(assert(&x));
-
-	SumType!C y = new C();
-	y.match!((ref v) { v.i = -1; });
-	assertThrown!AssertError(assert(&y));
-}
-
 // Calls value postblit on self-assignment
-@system unittest {
+@safe unittest {
 	static struct S
 	{
 		int n;
@@ -1051,6 +1191,7 @@ version (D_BetterC) {} else
 }
 
 // SumTypes as associative array keys
+// Disabled in BetterC due to use of associative arrays
 version (D_BetterC) {} else
 @safe unittest {
 	assert(__traits(compiles, {
@@ -1059,7 +1200,8 @@ version (D_BetterC) {} else
 }
 
 // toString with non-copyable types
-version(D_BetterC) {} else
+// Disabled in BetterC due to use of std.conv.to (in toString)
+version (D_BetterC) {} else
 @safe unittest {
 	struct NoCopy
 	{
@@ -1084,64 +1226,299 @@ version(D_BetterC) {} else
 	assert(((a = b) = MySum(123)) == MySum(123));
 }
 
-version(none) {
-	// Known bug; needs fix for dlang issue 19902
-	// Types with copy constructors
-	@safe unittest {
-		static struct S
+// Types with copy constructors
+@safe unittest {
+	static struct S
+	{
+		int n;
+
+		this(ref return scope inout S other) inout
 		{
-			int n;
-			this(ref return scope inout S other) inout { n++; }
+			n = other.n + 1;
 		}
+	}
 
-		SumType!S x = S();
-		SumType!S y = x;
+	SumType!S x = S();
+	SumType!S y = x;
 
-		auto xval = x.get!S.n;
-		auto yval = y.get!S.n;
+	auto xval = x.get!S.n;
+	auto yval = y.get!S.n;
 
-		assert(xval != yval);
+	assert(xval != yval);
+}
+
+// Copyable by generated copy constructors
+@safe unittest {
+	static struct Inner
+	{
+		ref this(ref inout Inner other) {}
+	}
+
+	static struct Outer
+	{
+		SumType!Inner inner;
+	}
+
+	Outer x;
+	Outer y = x;
+}
+
+// Types with qualified copy constructors
+@safe unittest {
+	static struct ConstCopy
+	{
+		int n;
+		this(inout int n) inout { this.n = n; }
+		this(ref const typeof(this) other) const { this.n = other.n; }
+	}
+
+	static struct ImmutableCopy
+	{
+		int n;
+		this(inout int n) inout { this.n = n; }
+		this(ref immutable typeof(this) other) immutable { this.n = other.n; }
+	}
+
+	const SumType!ConstCopy x = const(ConstCopy)(1);
+	immutable SumType!ImmutableCopy y = immutable(ImmutableCopy)(1);
+}
+
+// Types with disabled opEquals
+@safe unittest {
+	static struct S
+	{
+		@disable bool opEquals(const S rhs) const;
+	}
+
+	assert(__traits(compiles, SumType!S(S())));
+}
+
+// Types with non-const opEquals
+@safe unittest {
+	static struct S
+	{
+		int i;
+		bool opEquals(S rhs) { return i == rhs.i; }
+	}
+
+	assert(__traits(compiles, SumType!S(S(123))));
+}
+
+// Incomparability of different SumTypes
+@safe unittest {
+	SumType!(int, string) x = 123;
+	SumType!(string, int) y = 123;
+
+	assert(!__traits(compiles, x != y));
+}
+
+// Self-reference in return/parameter type of function pointer member
+@safe unittest {
+	assert(__traits(compiles, {
+		alias T = SumType!(int, This delegate(This));
+	}));
+}
+
+// Construction and assignment from implicitly-convertible lvalue
+@safe unittest {
+	alias MySum = SumType!bool;
+
+	const(bool) b = true;
+
+	assert(__traits(compiles, { MySum x = b; }));
+	assert(__traits(compiles, { MySum x; x = b; }));
+}
+
+// Type index
+@safe unittest {
+	alias MySum = SumType!(int, float);
+
+	static bool isIndexOf(Target, Types...)(size_t i)
+	{
+		switch (i) {
+			static foreach (tid, T; Types)
+				case tid: return is(T == Target);
+			default: return false;
+		}
+	}
+
+	assert(isIndexOf!(int, MySum.Types)(MySum(42).typeIndex));
+	assert(isIndexOf!(float, MySum.Types)(MySum(3.14).typeIndex));
+}
+
+// Type index for qualified SumTypes
+// Disabled in BetterC due to use of dynamic arrays
+version (D_BetterC) {} else
+@safe unittest {
+	alias MySum = SumType!(const(int[]), int[]);
+
+	static bool isIndexOf(Target, Types...)(size_t i)
+	{
+		switch (i) {
+			static foreach (tid, T; Types)
+				case tid: return is(T == Target);
+			default: return false;
+		}
+	}
+
+	int[] ma = [1, 2, 3];
+	// Construct as mutable and convert to const to get mismatched type + tag
+	auto x = MySum(ma);
+	const y = MySum(ma);
+	auto z = const(MySum)(ma);
+
+	assert(isIndexOf!(int[], MySum.Types)(x.typeIndex));
+	assert(isIndexOf!(const(int[]), Map!(ConstOf, MySum.Types))(y.typeIndex));
+	assert(isIndexOf!(const(int[]), Map!(ConstOf, MySum.Types))(z.typeIndex));
+}
+
+// Type index for differently-qualified versions of the same SumType
+// Disabled in BetterC due to use of dynamic arrays
+version (D_BetterC) {} else
+@safe unittest {
+	alias MySum = SumType!(const(int[]), int[]);
+
+	int[] ma = [1, 2, 3];
+	auto x = MySum(ma);
+	const y = x;
+
+	assert(x.typeIndex == y.typeIndex);
+}
+
+// @safe assignment to the only pointer in a SumType
+@safe unittest {
+	SumType!(string, int) sm = 123;
+
+	assert(__traits(compiles, () @safe {
+		sm = "this should be @safe";
+	}));
+}
+
+// Pointers to local variables
+@safe unittest {
+	enum haveDip1000 = __traits(compiles, () @safe {
+		int n;
+		int* p = &n;
+	});
+
+	static if (haveDip1000) {
+		int n = 123;
+		immutable int ni = 456;
+
+		SumType!(int*) s = &n;
+		const SumType!(int*) sc = &n;
+		immutable SumType!(int*) si = &ni;
 	}
 }
 
-version(none) {
-	// Known bug; needs fix for dlang issue 19458
-	// Types with disabled opEquals
-	@safe unittest {
-		static struct S
-		{
-			@disable bool opEquals(const S rhs) const;
-		}
+// Dlang issue 22572: immutable member type with copy constructor
+@safe unittest {
+	static struct CopyConstruct
+	{
+		this(ref inout CopyConstruct other) inout {}
+	}
 
-		assert(__traits(compiles, SumType!S(S())));
+	static immutable struct Value
+	{
+		CopyConstruct c;
+	}
+
+	SumType!Value s;
+}
+
+// Construction of inout-qualified SumTypes
+@safe unittest {
+	static inout(SumType!(int[])) example(inout(int[]) arr)
+	{
+		return inout(SumType!(int[]))(arr);
 	}
 }
 
-version(none) {
-	// Known bug; needs fix for dlang issue 19458
-	@safe unittest {
-		static struct S
-		{
-			int i;
-			bool opEquals(S rhs) { return i == rhs.i; }
-		}
-
-		assert(__traits(compiles, SumType!S(S(123))));
+// Assignment of struct with overloaded opAssign in CTFE
+@safe unittest {
+	static struct HasOpAssign
+	{
+		void opAssign(HasOpAssign rhs) {}
 	}
+
+	static SumType!HasOpAssign test()
+	{
+		SumType!HasOpAssign s;
+		// Test both overloads
+		s = HasOpAssign();
+		s = SumType!HasOpAssign();
+		return s;
+	}
+
+	enum result = test();
 }
 
-/// True if `T` is an instance of `SumType`, otherwise false.
-enum bool isSumType(T) = is(T == SumType!Args, Args...);
+/// True if `T` is an instance of the `SumType` template, otherwise false.
+private enum bool isSumTypeInstance(T) = is(T == SumType!Args, Args...);
 
-unittest {
+@safe unittest {
 	static struct Wrapper
 	{
 		SumType!int s;
 		alias s this;
 	}
 
+	assert(isSumTypeInstance!(SumType!int));
+	assert(!isSumTypeInstance!Wrapper);
+}
+
+/// True if `T` is a [SumType] or implicitly converts to one, otherwise false.
+template isSumType(T)
+{
+	static if (is(T : SumType!Args, Args...)) {
+		enum isSumType = true;
+	} else static if (is(T == struct) && __traits(getAliasThis, T).length > 0) {
+		// Workaround for dlang issue 21975
+		import std.traits: ReturnType;
+
+		alias AliasThisType = ReturnType!((T t) =>
+			__traits(getMember, t, __traits(getAliasThis, T)[0])
+		);
+		enum isSumType = .isSumType!AliasThisType;
+	} else {
+		enum isSumType = false;
+	}
+}
+
+///
+@safe unittest {
+	static struct ConvertsToSumType
+	{
+		SumType!int payload;
+		alias payload this;
+	}
+
+	static struct ContainsSumType
+	{
+		SumType!int payload;
+	}
+
 	assert(isSumType!(SumType!int));
-	assert(!isSumType!Wrapper);
+	assert(isSumType!ConvertsToSumType);
+	assert(!isSumType!ContainsSumType);
+}
+
+@safe unittest {
+	static struct AliasThisVar(T)
+	{
+		SumType!T payload;
+		alias payload this;
+	}
+
+	static struct AliasThisFunc(T)
+	{
+		SumType!T payload;
+		ref get() { return payload; }
+		alias get this;
+	}
+
+	static assert(isSumType!(AliasThisVar!int));
+	static assert(isSumType!(AliasThisFunc!int));
 }
 
 /**
@@ -1157,14 +1534,19 @@ unittest {
  * Every type must have a matching handler, and every handler must match at
  * least one type. This is enforced at compile time.
  *
- * Handlers may be functions, delegates, or objects with opCall overloads. If a
- * function with more than one overload is given as a handler, all of the
+ * Handlers may be functions, delegates, or objects with `opCall` overloads. If
+ * a function with more than one overload is given as a handler, all of the
  * overloads are considered as potential matches.
  *
  * Templated handlers are also accepted, and will match any type for which they
  * can be [implicitly instantiated](https://dlang.org/glossary.html#ifti). See
  * [sumtype#introspection-based-matching|"Introspection-based matching"] for an
  * example of templated handler usage.
+ *
+ * If multiple [SumType]s are passed to `match`, their values are passed to the
+ * handlers as separate arguments, and matching is done for each possible
+ * combination of value types. See [#multiple-dispatch|"Multiple dispatch"] for
+ * an example.
  *
  * Returns:
  *   The value returned from the handler that matches the currently-held type.
@@ -1179,12 +1561,12 @@ template match(handlers...)
 	 * The actual `match` function.
 	 *
 	 * Params:
-	 *   self = A [SumType] object
+	 *   args = One or more [SumType] objects.
 	 */
-	auto match(Self)(auto ref Self self)
-		if (is(Self : SumType!TypeArgs, TypeArgs...))
+	auto ref match(SumTypes...)(auto ref SumTypes args)
+		if (allSatisfy!(isSumType, SumTypes) && args.length > 0)
 	{
-		return self.matchImpl!(Yes.exhaustive, handlers);
+		return matchImpl!(Yes.exhaustive, handlers)(args);
 	}
 }
 
@@ -1233,14 +1615,70 @@ template match(handlers...)
     ));
 }
 
+/** $(H3 Multiple dispatch)
+ *
+ * Pattern matching can be performed on multiple `SumType`s at once by passing
+ * handlers with multiple arguments. This usually leads to more concise code
+ * than using nested calls to `match`, as show below.
+ */
+@safe unittest {
+    struct Point2D { double x, y; }
+    struct Point3D { double x, y, z; }
+
+    alias Point = SumType!(Point2D, Point3D);
+
+    version (none) {
+        // This function works, but the code is ugly and repetitive.
+        // It uses three separate calls to match!
+        @safe pure nothrow @nogc
+        bool sameDimensions(Point p1, Point p2)
+        {
+            return p1.match!(
+                (Point2D _) => p2.match!(
+                    (Point2D _) => true,
+                    _ => false
+                ),
+                (Point3D _) => p2.match!(
+                    (Point3D _) => true,
+                    _ => false
+                )
+            );
+        }
+    }
+
+    // This version is much nicer.
+    @safe pure nothrow @nogc
+    bool sameDimensions(Point p1, Point p2)
+    {
+        alias doMatch = match!(
+            (Point2D _1, Point2D _2) => true,
+            (Point3D _1, Point3D _2) => true,
+            (_1, _2) => false
+        );
+
+        return doMatch(p1, p2);
+    }
+
+    Point a = Point2D(1, 2);
+    Point b = Point2D(3, 4);
+    Point c = Point3D(5, 6, 7);
+    Point d = Point3D(8, 9, 0);
+
+    assert( sameDimensions(a, b));
+    assert( sameDimensions(c, d));
+    assert(!sameDimensions(a, c));
+    assert(!sameDimensions(d, b));
+}
+
+version (D_Exceptions)
 /**
  * Attempts to call a type-appropriate function with the value held in a
  * [SumType], and throws on failure.
  *
  * Matches are chosen using the same rules as [match], but are not required to
- * be exhaustive—in other words, a type is allowed to have no matching handler.
- * If a type without a handler is encountered at runtime, a [MatchException]
- * is thrown.
+ * be exhaustive—in other words, a type (or combination of types) is allowed to
+ * have no matching handler. If a type without a handler is encountered at
+ * runtime, a [MatchException] is thrown.
  *
  * Not available when compiled with `-betterC`.
  *
@@ -1253,7 +1691,6 @@ template match(handlers...)
  *
  * See_Also: `std.variant.tryVisit`
  */
-version (D_Exceptions)
 template tryMatch(handlers...)
 {
 	import std.typecons: No;
@@ -1262,23 +1699,24 @@ template tryMatch(handlers...)
 	 * The actual `tryMatch` function.
 	 *
 	 * Params:
-	 *   self = A [SumType] object
+	 *   args = One or more [SumType] objects.
 	 */
-	auto tryMatch(Self)(auto ref Self self)
-		if (is(Self : SumType!TypeArgs, TypeArgs...))
+	auto ref tryMatch(SumTypes...)(auto ref SumTypes args)
+		if (allSatisfy!(isSumType, SumTypes) && args.length > 0)
 	{
-		return self.matchImpl!(No.exhaustive, handlers);
+		return matchImpl!(No.exhaustive, handlers)(args);
 	}
 }
 
+version (D_Exceptions)
 /**
  * Thrown by [tryMatch] when an unhandled type is encountered.
  *
  * Not available when compiled with `-betterC`.
  */
-version (D_Exceptions)
 class MatchException : Exception
 {
+	///
 	pure @safe @nogc nothrow
 	this(string msg, string file = __FILE__, size_t line = __LINE__)
 	{
@@ -1287,12 +1725,24 @@ class MatchException : Exception
 }
 
 /**
- * True if `handler` is a potential match for `T`, otherwise false.
+ * True if `handler` is a potential match for `Ts`, otherwise false.
  *
  * See the documentation for [match] for a full explanation of how matches are
  * chosen.
  */
-enum bool canMatch(alias handler, T) = is(typeof((T arg) => handler(arg)));
+template canMatch(alias handler, Ts...)
+	if (Ts.length > 0)
+{
+	enum canMatch = is(typeof((ref Ts args) => handler(args)));
+}
+
+///
+@safe unittest {
+    alias handleInt = (int i) => "got an int";
+
+    assert( canMatch!(handleInt, int));
+    assert(!canMatch!(handleInt, string));
+}
 
 // Includes all overloads of the given handler
 @safe unittest {
@@ -1306,29 +1756,119 @@ enum bool canMatch(alias handler, T) = is(typeof((T arg) => handler(arg)));
 	assert(canMatch!(OverloadSet.fun, double));
 }
 
-import std.typecons: Flag;
+// Like aliasSeqOf!(iota(n)), but works in BetterC
+private template Iota(size_t n)
+{
+	static if (n == 0) {
+		alias Iota = AliasSeq!();
+	} else {
+		alias Iota = AliasSeq!(Iota!(n - 1), n - 1);
+	}
+}
+
+@safe unittest {
+	assert(is(Iota!0 == AliasSeq!()));
+	assert(Iota!1 == AliasSeq!(0));
+	assert(Iota!3 == AliasSeq!(0, 1, 2));
+}
+
+/* The number that the dim-th argument's tag is multiplied by when
+ * converting TagTuples to and from case indices ("caseIds").
+ *
+ * Named by analogy to the stride that the dim-th index into a
+ * multidimensional static array is multiplied by to calculate the
+ * offset of a specific element.
+ */
+private size_t stride(size_t dim, lengths...)()
+{
+	import core.checkedint: mulu;
+
+	size_t result = 1;
+	bool overflow = false;
+
+	static foreach (i; 0 .. dim) {
+		result = mulu(result, lengths[i], overflow);
+	}
+
+	/* The largest number matchImpl uses, numCases, is calculated with
+	 * stride!(SumTypes.length), so as long as this overflow check
+	 * passes, we don't need to check for overflow anywhere else.
+	 */
+	assert(!overflow, "Integer overflow");
+	return result;
+}
 
 private template matchImpl(Flag!"exhaustive" exhaustive, handlers...)
 {
-	auto matchImpl(Self)(auto ref Self self)
-		if (is(Self : SumType!TypeArgs, TypeArgs...))
+	auto ref matchImpl(SumTypes...)(auto ref SumTypes args)
+		if (allSatisfy!(isSumType, SumTypes) && args.length > 0)
 	{
-		alias Types = self.Types;
+		alias stride(size_t i) = .stride!(i, Map!(typeCount, SumTypes));
+
+		alias TagTuple = .TagTuple!SumTypes;
+
+		/*
+		 * A list of arguments to be passed to a handler needed for the case
+		 * labeled with `caseId`.
+		 */
+		template handlerArgs(size_t caseId)
+		{
+			enum tags = TagTuple.fromCaseId(caseId);
+			enum argsFrom(size_t i: tags.length) = "";
+			enum argsFrom(size_t i) = "args[" ~ toCtString!i ~ "].get!(SumTypes[" ~ toCtString!i ~ "]" ~
+				".Types[" ~ toCtString!(tags[i]) ~ "])(), " ~ argsFrom!(i + 1);
+			enum handlerArgs = argsFrom!0;
+		}
+
+		/* An AliasSeq of the types of the member values in the argument list
+		 * returned by `handlerArgs!caseId`.
+		 *
+		 * Note that these are the actual (that is, qualified) types of the
+		 * member values, which may not be the same as the types listed in
+		 * the arguments' `.Types` properties.
+		 */
+		template valueTypes(size_t caseId)
+		{
+			enum tags = TagTuple.fromCaseId(caseId);
+
+			template getType(size_t i)
+			{
+				enum tid = tags[i];
+				alias T = SumTypes[i].Types[tid];
+				alias getType = typeof(args[i].get!T());
+			}
+
+			alias valueTypes = Map!(getType, Iota!(tags.length));
+		}
+
+		/* The total number of cases is
+		 *
+		 *   Π SumTypes[i].Types.length for 0 ≤ i < SumTypes.length
+		 *
+		 * Conveniently, this is equal to stride!(SumTypes.length), so we can
+		 * use that function to compute it.
+		 */
+		enum numCases = stride!(SumTypes.length);
+
+		/* Guaranteed to never be a valid handler index, since
+		 * handlers.length <= size_t.max.
+		 */
 		enum noMatch = size_t.max;
 
+		// An array that maps caseIds to handler indices ("hids").
 		enum matches = () {
-			size_t[Types.length] matches;
+			size_t[numCases] matches;
 
 			// Workaround for dlang issue 19561
 			foreach (ref match; matches) {
 				match = noMatch;
 			}
 
-			static foreach (tid, T; Types) {
+			static foreach (caseId; 0 .. numCases) {
 				static foreach (hid, handler; handlers) {
-					static if (canMatch!(handler, typeof(self.get!T()))) {
-						if (matches[tid] == noMatch) {
-							matches[tid] = hid;
+					static if (canMatch!(handler, valueTypes!caseId)) {
+						if (matches[caseId] == noMatch) {
+							matches[caseId] = hid;
 						}
 					}
 				}
@@ -1347,48 +1887,107 @@ private template matchImpl(Flag!"exhaustive" exhaustive, handlers...)
 					? "template"
 					: typeof(handler).stringof
 				) ~ "` " ~
-				"never matches"
+				"never matches. Perhaps the handler failed to compile"
 			);
 		}
 
 		// Workaround for dlang issue 19993
+		enum handlerName(size_t hid) = "handler" ~ toCtString!hid;
+
 		static foreach (size_t hid, handler; handlers) {
-			mixin("alias handler", toCtString!hid, " = handler;");
+			mixin("alias ", handlerName!hid, " = handler;");
 		}
 
-		final switch (self.tag) {
-			static foreach (tid, T; Types) {
-				case tid: {
-					static if (matches[tid] != noMatch) {
-						mixin("alias handler = handler", toCtString!(matches[tid]), ";");
+		immutable argsId = TagTuple(args).toCaseId;
 
-						/* The call to `get` can be @trusted here because
-						 *
-						 *   - @safe's prohibition against taking the address
-						 *     of a function parameter makes it impossible for
-						 *     a reference to the accessed SumType member to
-						 *     escape from the handler.
-						 *
-						 *   - SumType.opAssign's forced-@system attribute
-						 *     for SumTypes that contain pointers makes it
-						 *     impossible for unsafe aliasing to occur in
-						 *     the body of the handler.
-						 */
-						return handler(ref () @trusted { return self.get!T; }());
+		final switch (argsId) {
+			static foreach (caseId; 0 .. numCases) {
+				case caseId:
+					static if (matches[caseId] != noMatch) {
+						return mixin(handlerName!(matches[caseId]), "(", handlerArgs!caseId, ")");
 					} else {
 						static if(exhaustive) {
 							static assert(false,
-								"No matching handler for type `" ~ T.stringof ~ "`");
+								"No matching handler for types `" ~ valueTypes!caseId.stringof ~ "`");
 						} else {
 							throw new MatchException(
-								"No matching handler for type `" ~ T.stringof ~ "`");
+								"No matching handler for types `" ~ valueTypes!caseId.stringof ~ "`");
 						}
 					}
-				}
 			}
 		}
 
-		assert(false); // unreached
+		assert(false, "unreachable");
+	}
+}
+
+private enum typeCount(SumType) = SumType.Types.length;
+
+/* A TagTuple represents a single possible set of tags that `args`
+ * could have at runtime.
+ *
+ * Because D does not allow a struct to be the controlling expression
+ * of a switch statement, we cannot dispatch on the TagTuple directly.
+ * Instead, we must map each TagTuple to a unique integer and generate
+ * a case label for each of those integers.
+ *
+ * This mapping is implemented in `fromCaseId` and `toCaseId`. It uses
+ * the same technique that's used to map index tuples to memory offsets
+ * in a multidimensional static array.
+ *
+ * For example, when `args` consists of two SumTypes with two member
+ * types each, the TagTuples corresponding to each case label are:
+ *
+ *   case 0:  TagTuple([0, 0])
+ *   case 1:  TagTuple([1, 0])
+ *   case 2:  TagTuple([0, 1])
+ *   case 3:  TagTuple([1, 1])
+ *
+ * When there is only one argument, the caseId is equal to that
+ * argument's tag.
+ */
+static struct TagTuple(SumTypes...)
+{
+	size_t[SumTypes.length] tags;
+	alias tags this;
+
+	alias stride(size_t i) = .stride!(i, Map!(typeCount, SumTypes));
+
+	invariant {
+		static foreach (i; 0 .. tags.length) {
+			assert(tags[i] < SumTypes[i].Types.length);
+		}
+	}
+
+	this(ref const(SumTypes) args)
+	{
+		static foreach (i; 0 .. tags.length) {
+			tags[i] = args[i].tag;
+		}
+	}
+
+	static TagTuple fromCaseId(size_t caseId)
+	{
+		TagTuple result;
+
+		// Most-significant to least-significant
+		static foreach_reverse (i; 0 .. result.length) {
+			result[i] = caseId / stride!i;
+			caseId %= stride!i;
+		}
+
+		return result;
+	}
+
+	size_t toCaseId()
+	{
+		size_t result;
+
+		static foreach (i; 0 .. tags.length) {
+			result += tags[i] * stride!i;
+		}
+
+		return result;
 	}
 }
 
@@ -1414,6 +2013,7 @@ private template matchImpl(Flag!"exhaustive" exhaustive, handlers...)
 }
 
 // Handlers with qualified parameters
+// Disabled in BetterC due to use of dynamic arrays
 version (D_BetterC) {} else
 @safe unittest {
 	alias MySum = SumType!(int[], float[]);
@@ -1426,6 +2026,7 @@ version (D_BetterC) {} else
 }
 
 // Handlers for qualified types
+// Disabled in BetterC due to use of dynamic arrays
 version (D_BetterC) {} else
 @safe unittest {
 	alias MySum = SumType!(immutable(int[]), immutable(float[]));
@@ -1447,6 +2048,7 @@ version (D_BetterC) {} else
 }
 
 // Delegate handlers
+// Disabled in BetterC due to use of closures
 version (D_BetterC) {} else
 @safe unittest {
 	alias MySum = SumType!(int, float);
@@ -1459,19 +2061,19 @@ version (D_BetterC) {} else
 	assert(!y.match!((int v) => v == answer, (float v) => v == answer));
 }
 
-version(unittest) {
-	version(D_BetterC) {
-		// std.math.approxEqual depends on core.runtime.math, so use a
+version (unittest) {
+	version (D_BetterC) {
+		// std.math.isClose depends on core.runtime.math, so use a
 		// libc-based version for testing with -betterC
 		@safe pure @nogc nothrow
-		private bool approxEqual(double lhs, double rhs)
+		private bool isClose(double lhs, double rhs)
 		{
 			import core.stdc.math: fabs;
 
-			return (lhs - rhs) < 1e-5;
+			return fabs(lhs - rhs) < 1e-5;
 		}
 	} else {
-		import std.math: approxEqual;
+		import std.math: isClose;
 	}
 }
 
@@ -1483,10 +2085,11 @@ version(unittest) {
 	MySum y = MySum(3.14);
 
 	assert(x.match!(v => v*2) == 84);
-	assert(y.match!(v => v*2).approxEqual(6.28));
+	assert(y.match!(v => v*2).isClose(6.28));
 }
 
 // Fallback to generic handler
+// Disabled in BetterC due to use of std.conv.to
 version (D_BetterC) {} else
 @safe unittest {
 	import std.conv: to;
@@ -1515,7 +2118,7 @@ version (D_BetterC) {} else
 	MySum w = MySum(chars[]);
 
 	assert(x.match!(v => v*2, v => v.length) == 84);
-	assert(y.match!(v => v*2, v => v.length).approxEqual(6.28));
+	assert(y.match!(v => v*2, v => v.length).isClose(6.28));
 	assert(w.match!(v => v*2, v => v.length) == 3);
 	assert(z.match!(v => v*2, v => v.length) == 3);
 }
@@ -1621,9 +2224,7 @@ version (D_Exceptions)
 }
 
 // Handlers with ref parameters
-@system unittest {
-	import std.meta: staticIndexOf;
-
+@safe unittest {
 	alias Value = SumType!(long, double);
 
 	auto value = Value(3.14);
@@ -1633,7 +2234,16 @@ version (D_Exceptions)
 		(ref double d) { d *= 2; }
 	);
 
-	assert(value.get!double.approxEqual(6.28));
+	assert(value.get!double.isClose(6.28));
+}
+
+// Handlers that return by ref
+@safe unittest {
+	SumType!int x = 123;
+
+	x.match!(ref (ref int n) => n) = 456;
+
+	assert(x.match!((int n) => n == 456));
 }
 
 // Unreachable handlers
@@ -1659,7 +2269,7 @@ version (D_Exceptions)
 }
 
 // Unsafe handlers
-unittest {
+@system unittest {
 	SumType!int x;
 	alias unsafeHandler = (int x) @system { return; };
 
@@ -1789,21 +2399,109 @@ unittest {
 	assert(__traits(compiles, D().match!(_ => true)));
 }
 
-version(SumTypeTestBetterC) {
-	version(D_BetterC) {}
-	else static assert(false, "Must compile with -betterC to run betterC tests");
+// Multiple dispatch
+@safe unittest {
+	alias MySum = SumType!(int, string);
 
-	version(unittest) {}
-	else static assert(false, "Must compile with -unittest to run betterC tests");
-
-	extern(C) int main()
+	static int fun(MySum x, MySum y)
 	{
-		import core.stdc.stdio: puts;
-		static foreach (test; __traits(getUnitTests, mixin(__MODULE__))) {
-			test();
+		import std.meta: Args = AliasSeq;
+
+		return Args!(x, y).match!(
+			(int    xv, int    yv) => 0,
+			(string xv, int    yv) => 1,
+			(int    xv, string yv) => 2,
+			(string xv, string yv) => 3
+		);
+	}
+
+	assert(fun(MySum(0),  MySum(0))  == 0);
+	assert(fun(MySum(""), MySum(0))  == 1);
+	assert(fun(MySum(0),  MySum("")) == 2);
+	assert(fun(MySum(""), MySum("")) == 3);
+}
+
+// inout SumTypes
+@safe unittest {
+	assert(__traits(compiles, {
+		inout(int[]) fun(inout(SumType!(int[])) x)
+		{
+			return x.match!((inout(int[]) a) => a);
+		}
+	}));
+}
+
+// return ref
+// issue: https://issues.dlang.org/show_bug.cgi?id=23101
+// Only test on compiler versions >= 2.100, to avoid compiler bugs
+static if (haveDip1000 && __VERSION__ >= 2100)
+@safe unittest {
+	assert(!__traits(compiles, () {
+		SumType!(int, string) st;
+		return st.match!(
+			function int* (string x) => null,
+			function int* (return ref int i) => &i,
+		);
+	}));
+
+	SumType!(int, string) st;
+	assert(__traits(compiles, () {
+		return st.match!(
+			function int* (string x) => null,
+			function int* (return ref int i) => &i,
+		);
+	}));
+}
+
+private void destroyIfOwner(T)(ref T value)
+{
+	static if (hasElaborateDestructor!T) {
+		destroy(value);
+	}
+}
+
+static if (__traits(compiles, { import std.traits: DeducedParameterType; })) {
+	import std.traits: DeducedParameterType;
+} else {
+	/**
+	 * The parameter type deduced by IFTI when an expression of type T is passed as
+	 * an argument to a template function.
+	 *
+	 * For all types other than pointer and slice types, `DeducedParameterType!T`
+	 * is the same as `T`. For pointer and slice types, it is `T` with the
+	 * outer-most layer of qualifiers dropped.
+	 */
+	private template DeducedParameterType(T)
+	{
+		import std.traits: Unqual;
+
+		static if (is(T == U*, U) || is(T == U[], U))
+			alias DeducedParameterType = Unqual!T;
+		else
+			alias DeducedParameterType = T;
+	}
+
+	@safe unittest
+	{
+		static assert(is(DeducedParameterType!(const(int)) == const(int)));
+		static assert(is(DeducedParameterType!(const(int[2])) == const(int[2])));
+
+		static assert(is(DeducedParameterType!(const(int*)) == const(int)*));
+		static assert(is(DeducedParameterType!(const(int[])) == const(int)[]));
+	}
+
+	@safe unittest
+	{
+		static struct NoCopy
+		{
+			@disable this(this);
 		}
 
-		puts("All unit tests have been run successfully.");
-		return 0;
+		static assert(is(DeducedParameterType!NoCopy == NoCopy));
+	}
+
+	@safe unittest
+	{
+		static assert(is(DeducedParameterType!(inout(int[])) == inout(int)[]));
 	}
 }

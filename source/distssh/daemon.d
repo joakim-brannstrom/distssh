@@ -53,7 +53,7 @@ int cli(const Config fconf, Config.Daemon conf) {
     const origNode = getInode(fconf.global.dbPath);
 
     if (fconf.global.verbosity == VerboseMode.trace)
-        db.log(true);
+        db.log((string s) => logger.trace(s));
 
     if (conf.background) {
         const beat = db.getDaemonBeat;
@@ -234,7 +234,10 @@ int cli(const Config fconf, Config.Daemon conf) {
             try {
                 purgeServer(db, econf, pconf, clearedServers, fconf.global.timeout);
             } catch (Exception e) {
-                logger.warning(e.msg).collectException;
+                try {
+                    logger.warning(e.msg);
+                } catch(Exception e) {
+                }
             }
             if (clientBeat < 2.dur!"minutes")
                 return 1.dur!"minutes";

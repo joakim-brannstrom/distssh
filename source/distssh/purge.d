@@ -166,7 +166,10 @@ int purgeServer(ExecuteOnHostConf econf, const Config.Purge pconf, Host host,
 
     econf.command.get ~= wlist.toArray.map!(a => ["--whitelist", a]).joiner.array;
 
-    logger.trace("Purge command ", econf.command).collectException;
+    try {
+        logger.trace("Purge command ", econf.command);
+    } catch(Exception e) {
+    }
 
     return () @trusted { return executeOnHost(econf, host); }();
 }

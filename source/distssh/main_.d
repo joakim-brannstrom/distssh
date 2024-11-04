@@ -253,7 +253,7 @@ int cli(Config fconf, Config.LocalRun conf) {
             return 500.dur!"msecs";
         }, 50.dur!"msecs");
 
-        ubyte[4096] buf;
+        auto buf = new ubyte[4096];
         bool pipeOutputToUser() @trusted {
             // guard against an error occuring when writing to the users
             // stdout.
@@ -263,7 +263,7 @@ int cli(Config fconf, Config.LocalRun conf) {
             {
                 bool doFlush;
                 while (res.stdout.hasPendingData && Clock.currTime < timeout) {
-                    auto r = res.stdout.read(buf[]);
+                    auto r = res.stdout.read(buf);
                     stdout.rawWrite(r);
                     hasWritten = true;
                     doFlush = true;
@@ -276,7 +276,7 @@ int cli(Config fconf, Config.LocalRun conf) {
             {
                 bool doFlush;
                 while (res.stderr.hasPendingData && Clock.currTime < timeout) {
-                    auto r = res.stderr.read(buf[]);
+                    auto r = res.stderr.read(buf);
                     stderr.rawWrite(r);
                     hasWritten = true;
                     doFlush = true;

@@ -1,16 +1,17 @@
 {
 	"name": "sumtype",
 	"authors": [
-		"Paul Backus",
-		"Atila Neves"
+		"Paul Backus"
 	],
 	"description": "A sum type with pattern matching",
 	"copyright": "Copyright © 2018, Paul Backus",
-	"license": "MIT",
+	"license": "BSL-1.0",
 
 	"toolchainRequirements": {
-		"frontend": ">=2.088.0"
+		"frontend": ">=2.098"
 	},
+
+	"dflags": ["-preview=fieldwise"],
 
 	"buildTypes": {
 		"unittest-dip1000": {

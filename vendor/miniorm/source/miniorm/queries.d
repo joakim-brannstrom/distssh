@@ -5,9 +5,9 @@ import std.conv : to;
 import std.exception : enforce;
 import std.format : format;
 import std.string : join;
+import std.sumtype : SumType;
 
 import d2sqlite3;
-import sumtype;
 
 import miniorm.api : Miniorm;
 import miniorm.exception;
@@ -41,6 +41,10 @@ struct Select(T) {
     /// Convert to a SQL statement that can e.g. be pretty printed.
     Sql toSql() {
         return query.Query.Sql;
+    }
+
+    void run(ref Miniorm db) {
+        db.run(toSql.toString);
     }
 
     /// Count the number of matching rows.
@@ -95,7 +99,7 @@ unittest {
 
     select!Foo.where("foo = :bar", Bind("bar")).or("batman IS NULL")
         .and("batman = :hero", Bind("hero")).toSql.toString.shouldEqual(
-                "SELECT * FROM Foo WHERE foo = :bar OR batman IS NULL AND batman = :hero;");
+            "SELECT * FROM Foo WHERE foo = :bar OR batman IS NULL AND batman = :hero;");
 }
 
 @("shall be possible to have a member of enum type")
@@ -156,19 +160,24 @@ struct Insert(T) {
 
     /// Returns: number of values that the query is sized for.
     size_t getValues() {
+        import std.sumtype : match;
+
         return query.values.value.match!((Values v) => 1 + v.optional.length, _ => 0);
     }
 
     /// Returns: number of columns to insert per value.
     size_t getColumns() {
+        import std.sumtype : match;
+
         return query.columns.value.match!((ColumnNames v) => 1 + v.optional.length, (None v) => 0);
     }
 
     /// Number of values the user wants to insert.
     auto values(size_t cnt)
-    in(cnt >= 1, "values must be >=1") {
+    in (cnt >= 1, "values must be >=1") {
         import std.array : array;
         import std.range : repeat;
+        import std.sumtype : match;
 
         Value val;
         val.required = Expr("?");
@@ -328,7 +337,6 @@ struct Delete(T) {
 }
 
 mixin template WhereMixin(T, QueryT, AstT) {
-    import std.datetime : SysTime;
     import std.traits : isNumeric, isSomeString;
 
     Bind[] binds;
@@ -344,7 +352,7 @@ mixin template WhereMixin(T, QueryT, AstT) {
     }
 
     /// Add a WHERE condition.
-    private auto where(string condition) @trusted pure {
+    auto where(string condition) @trusted pure {
         import miniorm.query_ast;
 
         static struct WhereOptional {
@@ -352,6 +360,8 @@ mixin template WhereMixin(T, QueryT, AstT) {
             alias value this;
 
             private auto where(string condition, WhereOp op, Bind[] b) @trusted pure {
+                import std.sumtype : tryMatch;
+
                 QueryT rval = value;
                 rval.binds ~= b;
 
@@ -390,6 +400,7 @@ mixin template WhereMixin(T, QueryT, AstT) {
 }
 
 struct Bind {
+    import std.datetime : SysTime;
     import std.range : isOutputRange, put;
 
     alias Key = SumType!(string, int);
@@ -404,6 +415,12 @@ struct Bind {
         key = Key(k);
     }
 
+    this(SysTime t) {
+        import miniorm.api : toSqliteDateTime;
+
+        key = Key(toSqliteDateTime(t));
+    }
+
     string toString() @safe pure const {
         import std.array : appender;
 
@@ -413,6 +430,8 @@ struct Bind {
     }
 
     void toString(Writer)(ref Writer w) const if (isOutputRange!(Writer, char)) {
+        import std.sumtype : match;
+
         key.match!((string k) { put(w, ":"); put(w, k); }, (int k) {
             put(w, k.to!string);
         });
@@ -435,6 +454,7 @@ auto count(T)() {
 }
 
 struct Count(T) {
+    static import miniorm.query_ast;
     import miniorm.query_ast : Sql;
 
     Select!T query_;

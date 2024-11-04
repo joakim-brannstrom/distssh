@@ -13,7 +13,8 @@ import std.exception : collectException, ifThrown;
 import std.meta : AliasSeq;
 import std.typecons : Nullable, Tuple;
 
-import miniorm;
+static import miniorm;
+import miniorm : ColumnName, TablePrimaryKey, Miniorm, spinSql, toSqliteDateTime;
 
 import distssh.types;
 
@@ -64,7 +65,7 @@ Miniorm openDatabase(string dbFile) nothrow {
         try {
             auto db = Miniorm(dbFile);
             const schemaVersion = () {
-                foreach (a; db.run(select!VersionTbl))
+                foreach (a; db.run(miniorm.select!VersionTbl))
                     return a;
                 return VersionTbl(0);
             }().ifThrown(VersionTbl(0));
@@ -75,8 +76,8 @@ Miniorm openDatabase(string dbFile) nothrow {
                 db.begin;
                 static foreach (tbl; Schema)
                     db.run("DROP TABLE " ~ tbl.stringof).collectException;
-                db.run(buildSchema!Schema);
-                db.run(insert!VersionTbl, VersionTbl(SchemaVersion));
+                db.run(miniorm.buildSchema!Schema);
+                db.run(miniorm.insert!VersionTbl, VersionTbl(SchemaVersion));
                 db.commit;
             }
             return db;
@@ -113,7 +114,7 @@ Tuple!(HostLoad[], "online", HostLoad[], "unused") getServerLoads(ref Miniorm db
     auto stopAt = Clock.currTime + timeout;
     while (Clock.currTime < stopAt) {
         typeof(return) rval;
-        foreach (a; spinSql!(() => db.run(select!ServerTbl), logger.trace)(timeout)) {
+        foreach (a; spinSql!(() => db.run(miniorm.select!ServerTbl), logger.trace)(timeout)) {
             auto h = HostLoad(Host(a.address), Load(a.loadAvg,
                     a.accessTime.dur!"msecs", a.unknown), a.lastUpdate);
             if (!a.unknown && filterBy(a)) {
@@ -180,7 +181,7 @@ void updateLastUse(ref Miniorm db, const Host[] cluster) {
 /// Update the data for a server.
 void newServer(ref Miniorm db, HostLoad a) {
     spinSql!(() {
-        db.run(insertOrReplace!ServerTbl, ServerTbl(a.host, Clock.currTime,
+        db.run(miniorm.insertOrReplace!ServerTbl, ServerTbl(a.host, Clock.currTime,
             a.load.accessTime.total!"msecs", a.load.loadAvg, a.load.unknown,
             Clock.currTime.toUnixTime));
     }, logger.trace)(timeout, 100.dur!"msecs", 300.dur!"msecs");
@@ -211,13 +212,13 @@ void removeUnusedServers(ref Miniorm db, Duration unused) {
 
 void daemonBeat(ref Miniorm db) {
     spinSql!(() {
-        db.run(insertOrReplace!DaemonBeat, DaemonBeat(0, Clock.currTime));
+        db.run(miniorm.insertOrReplace!DaemonBeat, DaemonBeat(0, Clock.currTime));
     }, logger.trace)(timeout);
 }
 
 SysTime getDaemonBeatClock(ref Miniorm db) {
     return spinSql!(() {
-        foreach (a; db.run(select!DaemonBeat.where("id = 0", null))) {
+        foreach (a; db.run(miniorm.select!DaemonBeat.where("id = 0", null))) {
             return a.beat;
         }
         return Clock.currTime;
@@ -227,7 +228,7 @@ SysTime getDaemonBeatClock(ref Miniorm db) {
 /// The heartbeat when daemon was last executed.
 Duration getDaemonBeat(ref Miniorm db) {
     auto d = spinSql!(() {
-        foreach (a; db.run(select!DaemonBeat.where("id = 0", null))) {
+        foreach (a; db.run(miniorm.select!DaemonBeat.where("id = 0", null))) {
             return Clock.currTime - a.beat;
         }
         return Duration.max;
@@ -245,13 +246,13 @@ Duration getDaemonBeat(ref Miniorm db) {
 
 void clientBeat(ref Miniorm db) {
     spinSql!(() {
-        db.run(insertOrReplace!ClientBeat, ClientBeat(0, Clock.currTime));
+        db.run(miniorm.insertOrReplace!ClientBeat, ClientBeat(0, Clock.currTime));
     }, logger.trace)(timeout);
 }
 
 Duration getClientBeat(ref Miniorm db) {
     auto d = spinSql!(() {
-        foreach (a; db.run(select!ClientBeat.where("id = 0", null)))
+        foreach (a; db.run(miniorm.select!ClientBeat.where("id = 0", null)))
             return Clock.currTime - a.beat;
         return Duration.max;
     }, logger.trace)(timeout);

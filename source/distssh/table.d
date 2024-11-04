@@ -85,7 +85,10 @@ struct Table(int columnsNr) {
                 columnWidth[a[0]] = a[1];
             }
         } catch (Exception e) {
-            logger.warning(e.msg).collectException;
+            try {
+                logger.warning(e.msg);
+            } catch(Exception e) {
+            }
         }
     }
 }
