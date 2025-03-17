@@ -30,6 +30,8 @@ sourcePath "source"
 
 //dflags "-preview=dip1000" "-verrors=context"
 libs "util"
+//dflags "-v" "-verrors=context" "-verror-supplements=0"
+//"-verrors=spec"
 
 configuration "application" {
 }

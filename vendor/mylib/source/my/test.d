@@ -24,8 +24,13 @@ TestArea makeTestArea(string name, string file = __FILE__) {
     return TestArea(buildPath(file.baseName, name));
 }
 
+struct ExecResult {
+    int status;
+    string output;
+}
+
 struct TestArea {
-    import std.file : rmdirRecurse, mkdirRecurse, exists, readText;
+    import std.file : rmdirRecurse, mkdirRecurse, exists, readText, chdir;
     import std.process : wait;
     import std.stdio : File, stdin;
     static import std.process;
@@ -33,7 +38,11 @@ struct TestArea {
     const AbsolutePath sandboxPath;
     private int commandLogCnt;
 
+    private AbsolutePath root;
+    private bool chdirToRoot;
+
     this(string name) {
+        root = AbsolutePath(".");
         sandboxPath = buildPath(tmpDir, name).AbsolutePath;
 
         if (exists(sandboxPath)) {
@@ -42,39 +51,53 @@ struct TestArea {
         mkdirRecurse(sandboxPath);
     }
 
+    ~this() {
+        if (chdirToRoot) {
+            chdir(root);
+        }
+    }
+
+    /// Change current working directory to the sandbox. It is reset in the dtor.
+    void chdirToSandbox() {
+        chdirToRoot = true;
+        chdir(sandboxPath);
+    }
+
     /// Execute a command in the sandbox.
-    string exec(Args...)(auto ref Args args_) {
+    ExecResult exec(Args...)(auto ref Args args_) {
         string[] args;
         static foreach (a; args_)
             args ~= a;
 
         const log = inSandbox(format!"command%s.log"(commandLogCnt++).Path);
 
+        int exitCode = 1;
         try {
             auto fout = File(log, "w");
             fout.writefln("%-(%s %)", args);
 
-            auto exitCode = std.process.spawnProcess(args, stdin, fout, fout,
-                    env, std.process.Config.none, sandboxPath).wait;
+            exitCode = std.process.spawnProcess(args, stdin, fout, fout, null,
+                    std.process.Config.none, sandboxPath).wait;
             fout.writeln("exit code: ", exitCode);
         } catch (Exception e) {
         }
-        return readText(log);
+        return ExecResult(exitCode, readText(log));
     }
 
-    string exec(string[] args, string[string] env) {
+    ExecResult exec(string[] args, string[string] env) {
         const log = inSandbox(format!"command%s.log"(commandLogCnt++).Path);
 
+        int exitCode = 1;
         try {
             auto fout = File(log, "w");
             fout.writefln("%-(%s %)", args);
 
-            auto exitCode = std.process.spawnProcess(args, stdin, fout, fout,
-                    env, std.process.Config.none, sandboxPath).wait;
+            exitCode = std.process.spawnProcess(args, stdin, fout, fout, env,
+                    std.process.Config.none, sandboxPath).wait;
             fout.writeln("exit code: ", exitCode);
         } catch (Exception e) {
         }
-        return readText(log);
+        return ExecResult(exitCode, readText(log));
     }
 
     Path inSandbox(string fileName) @safe pure nothrow const {
@@ -82,6 +105,49 @@ struct TestArea {
     }
 }
 
+/** Execute all classes in the current module as unittests.
+ *
+ * Each class must have the following members and they are executed in this order:
+ *
+ * void setup()
+ * void test()
+ * void shutdown()
+ */
+void runClassesAsUnittest(string module_ = __MODULE__)() {
+    import std.traits : hasMember;
+
+    mixin("import module1 = " ~ module_ ~ ";");
+
+    static foreach (member; __traits(allMembers, module1)) {
+        {
+            alias MemberT = __traits(getMember, module1, member);
+            static if (is(MemberT == class)) {
+                auto instance = new MemberT;
+                static if (hasMember!(MemberT, "setup")) {
+                    static if (__traits(getVisibility, instance.setup) == "public")
+                        instance.setup();
+                }
+                instance.test();
+                static if (hasMember!(MemberT, "shutdown")) {
+                    static if (__traits(getVisibility, instance.shutdown) == "public")
+                        instance.shutdown();
+                }
+            }
+        }
+    }
+}
+
+@("shall execute all classes as tests")
+unittest {
+    runClassesAsUnittest();
+}
+
+private class ATestCase {
+    void test() {
+    }
+}
+
+/// Copy the content of `src``to `dst`.
 void dirContentCopy(Path src, Path dst) {
     import std.algorithm;
     import std.file;
@@ -99,8 +165,10 @@ void dirContentCopy(Path src, Path dst) {
     }
 }
 
+/// Check that `rawRegex` match at least once for the elements of `array`.
 auto regexIn(T)(string rawRegex, T[] array, string file = __FILE__, in size_t line = __LINE__) {
     import std.regex : regex, matchFirst;
+    import unit_threaded.exception : fail;
 
     auto r = regex(rawRegex);
 
@@ -108,8 +176,6 @@ auto regexIn(T)(string rawRegex, T[] array, string file = __FILE__, in size_t li
         if (!matchFirst(v, r).empty)
             return;
     }
-
-    import unit_threaded.exception : fail;
 
     fail(formatValueInItsOwnLine("Value ",
             rawRegex) ~ formatValueInItsOwnLine("not in ", array), file, line);

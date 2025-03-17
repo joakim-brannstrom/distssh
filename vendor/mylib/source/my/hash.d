@@ -14,6 +14,8 @@ import std.format : FormatSpec;
 import std.format : formatValue, formattedWrite;
 import std.range.primitives : put;
 
+import my.path : AbsolutePath;
+
 alias BuildChecksum64 = CRC64ISO;
 alias Checksum64 = Crc64Iso;
 alias makeChecksum64 = makeCrc64Iso;
@@ -24,7 +26,21 @@ alias Checksum128 = Murmur3;
 alias makeChecksum128 = makeMurmur3;
 alias toChecksum128 = toMurmur3;
 
+/// Checksum a file.
+auto checksum(alias checksumFn)(AbsolutePath p) {
+    import std.mmfile : MmFile;
+
+    scope content = new MmFile(p.toString);
+    return checksumFn(cast(const(ubyte)[]) content[]);
+}
+
+@("shall calculate the checksum")
+unittest {
+    auto cs = checksum!makeMurmur3(AbsolutePath("/bin/true"));
+}
+
 /// Convert a value to its ubyte representation.
+/// Note: this is very slow. Prefer std.bitmanip.nativeToBigEndian.
 auto toBytes(T)(T v) @trusted pure nothrow @nogc {
     import std.conv : emplace;
 
@@ -147,6 +163,15 @@ struct Crc64Iso {
 
     bool opEquals(const typeof(this) s) @safe pure nothrow const @nogc scope {
         return c0 == s.c0;
+    }
+
+    int opCmp(ref const typeof(this) rhs) @safe pure nothrow const @nogc {
+        // return -1 if "this" is less than rhs, 1 if bigger and zero equal
+        if (c0 < rhs.c0)
+            return -1;
+        if (c0 > rhs.c0)
+            return 1;
+        return 0;
     }
 
     void toString(Writer, Char)(scope Writer w, FormatSpec!Char fmt) const {

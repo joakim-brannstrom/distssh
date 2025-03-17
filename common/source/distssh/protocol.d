@@ -8,7 +8,6 @@ This module defines the protocol for data transfer and functionality to use it.
 module distssh.protocol;
 
 import std.array : appender;
-import std.range : put;
 import logger = std.experimental.logger;
 
 import msgpack_ll;
@@ -32,6 +31,12 @@ enum Kind : ubyte {
 }
 
 enum KindSize = DataSize!(MsgpackType.uint8);
+
+void put(SinkT, T)(ref SinkT sink, scope T v) @trusted {
+    static import std.range;
+
+    std.range.put(sink, v);
+}
 
 struct Serialize(WriterT) {
 @safe:

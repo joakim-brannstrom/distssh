@@ -55,9 +55,10 @@ import std.path : buildPath;
 import std.range : isInputRange;
 import std.string : toStringz, fromStringz;
 import std.exception : collectException;
+import std.sumtype;
 
-import sumtype;
-
+import my.named_type;
+import my.optional;
 import my.path : AbsolutePath, Path;
 import my.set;
 
@@ -139,13 +140,13 @@ alias FileChangeEvent = SumType!(Event.Access, Event.Attribute, Event.CloseWrite
         Event.Modify, Event.MoveSelf, Event.Rename, Event.Open, Event.Overflow);
 
 /// Construct a FileWatch.
-auto fileWatch() {
+auto fileWatch(FileWatch.FollowSymlink follow = FileWatch.FollowSymlink.init) {
     int fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
     if (fd == -1) {
         throw new Exception(
                 "inotify_init1 returned invalid file descriptor. Error code " ~ errno.to!string);
     }
-    return FileWatch(fd);
+    return FileWatch(fd, follow);
 }
 
 /// Listens for create/modify/removal of files and directories.
@@ -159,6 +160,8 @@ enum MetadataEvents = IN_ACCESS | IN_ATTRIB | IN_OPEN | IN_CLOSE_NOWRITE | IN_EX
  */
 struct FileWatch {
     import std.functional : toDelegate;
+
+    alias FollowSymlink = NamedType!(bool, Tag!"FollowSymlink", bool.init, TagStringable);
 
     private {
         FdPoller poller;
@@ -174,10 +177,13 @@ struct FileWatch {
         }
 
         FDInfo[int] directoryMap; // map every watch descriptor to a directory
+
+        FollowSymlink follow;
     }
 
-    private this(int fd) {
+    private this(int fd, FollowSymlink follow) {
         this.fd = fd;
+        this.follow = follow;
         poller.put(FdPoll(fd), [PollEvent.in_]);
     }
 
@@ -200,6 +206,12 @@ struct FileWatch {
      * Returns: true if the path was successfully added.
      */
     bool watch(Path path, uint events = ContentEvents) {
+        import my.file : followSymlink;
+        import my.optional;
+
+        if (follow)
+            path = followSymlink(path).orElse(path);
+
         const wd = inotify_add_watch(fd, path.toStringz, events);
         if (wd != -1) {
             const fc = fcntl(fd, F_SETFD, FD_CLOEXEC);
@@ -611,6 +623,7 @@ struct MonitorResult {
 struct Monitor {
     import std.array : appender;
     import std.file : isDir;
+    import std.typecons : Tuple, tuple;
     import std.utf : UTFException;
     import my.filter : GlobFilter;
     import my.fswatch;
@@ -618,7 +631,9 @@ struct Monitor {
     private {
         Set!AbsolutePath roots;
         FileWatch fw;
+        // global additives to subFilters.
         GlobFilter fileFilter;
+        GlobFilter[AbsolutePath] subFilters;
         uint events;
 
         // roots that has been removed that may be re-added later on. the user
@@ -630,32 +645,44 @@ struct Monitor {
      * Params:
      *  roots = directories to recursively monitor
      */
-    this(AbsolutePath[] roots, GlobFilter fileFilter, uint events = ContentEvents) {
+    this(AbsolutePath[] roots, GlobFilter fileFilter,
+            FileWatch.FollowSymlink follow = FileWatch.FollowSymlink.init,
+            uint events = ContentEvents) {
+        this(roots, fileFilter, null, follow, events);
+    }
+
+    this(AbsolutePath[] roots, GlobFilter fileFilter, GlobFilter[AbsolutePath] subFilters,
+            FileWatch.FollowSymlink follow, uint events = ContentEvents) {
         this.roots = toSet(roots);
         this.fileFilter = fileFilter;
+        this.subFilters = subFilters;
         this.events = events;
 
         auto app = appender!(AbsolutePath[])();
-        fw = fileWatch();
+        fw = fileWatch(follow);
         foreach (r; roots) {
             app.put(fw.watchRecurse(r, events, (a) {
-                    return isInteresting(fileFilter, a);
+                    return isInteresting(fileFilter, subFilters, a);
                 }));
         }
 
         logger.trace(!app.data.empty, "unable to watch ", app.data);
     }
 
-    static bool isInteresting(GlobFilter fileFilter, string p) nothrow {
-        import my.file;
+    static bool isInteresting(GlobFilter rootFilter, ref GlobFilter[AbsolutePath] subFilters,
+            string p) nothrow {
+        import my.file : existsAnd;
+        import my.filter : closest, GlobFilterClosestMatch, merge;
 
         try {
             const ap = AbsolutePath(p);
 
-            if (existsAnd!isDir(ap)) {
+            if (existsAnd!isDir(ap))
                 return true;
-            }
-            return fileFilter.match(ap);
+            auto f = closest(subFilters, ap).orElse(GlobFilterClosestMatch(rootFilter,
+                    AbsolutePath(".")));
+            f.filter = merge(f.filter, rootFilter);
+            return f.match(ap.toString);
         } catch (Exception e) {
             collectException(logger.trace(e.msg));
         }
@@ -677,7 +704,7 @@ struct Monitor {
         {
             auto rm = appender!(AbsolutePath[])();
             foreach (a; monitorRoots.toRange.filter!(a => exists(a))) {
-                fw.watchRecurse(a, events, a => isInteresting(fileFilter, a));
+                fw.watchRecurse(a, events, a => isInteresting(fileFilter, subFilters, a));
                 rm.put(a);
                 rval.put(MonitorResult(MonitorResult.Kind.Create, a));
             }
@@ -706,12 +733,12 @@ struct Monitor {
                     rval.put(MonitorResult(MonitorResult.Kind.CloseNoWrite, x.path));
                 }, (Event.Create x) {
                     rval.put(MonitorResult(MonitorResult.Kind.Create, x.path));
-                    fw.watchRecurse(x.path, events, a => isInteresting(fileFilter, a));
+                    fw.watchRecurse(x.path, events, a => isInteresting(fileFilter, subFilters, a));
                 }, (Event.Modify x) {
                     rval.put(MonitorResult(MonitorResult.Kind.Modify, x.path));
                 }, (Event.MoveSelf x) {
                     rval.put(MonitorResult(MonitorResult.Kind.MoveSelf, x.path));
-                    fw.watchRecurse(x.path, events, a => isInteresting(fileFilter, a));
+                    fw.watchRecurse(x.path, events, a => isInteresting(fileFilter, subFilters, a));
 
                     if (x.path in roots) {
                         monitorRoots.add(x.path);
@@ -734,7 +761,7 @@ struct Monitor {
             logger.trace(e.msg);
         }
 
-        return rval.data.filter!(a => fileFilter.match(a.path)).array;
+        return rval.data.filter!(a => isInteresting(fileFilter, subFilters, a.path)).array;
     }
 
     /** Collects events from the monitored `roots` over a period.
@@ -851,10 +878,10 @@ struct FdPoller {
         foreach (a; fds.filter!(a => a.revents != 0)) {
             PollResult res;
             res.status = BitArray([
-                    (a.revents & POLLIN) != 0, (a.revents & POLLOUT) != 0,
-                    (a.revents & POLLPRI) != 0, (a.revents & POLLERR) != 0,
-                    (a.revents & POLLHUP) != 0, (a.revents & POLLNVAL) != 0,
-                    ]);
+                (a.revents & POLLIN) != 0, (a.revents & POLLOUT) != 0,
+                (a.revents & POLLPRI) != 0, (a.revents & POLLERR) != 0,
+                (a.revents & POLLHUP) != 0, (a.revents & POLLNVAL) != 0,
+            ]);
             res.fd = FdPoll(a.fd);
             results[idx] = res;
             idx++;

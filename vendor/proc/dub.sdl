@@ -7,12 +7,14 @@ license "BSL-1.0"
 targetPath "build"
 targetType "library"
 
-dependency "distssh:my" version="*"
-
-dflags "-verrors=context" platform="dmd"
-dflags "--verrors-context" platform="ldc"
+dependency "mylib" version="~>0.0.41"
 
 libs "util"
 
 configuration "library" {
+}
+
+configuration "unittest" {
+    dependency "silly" version="~>1.0.2"
+    dependency "beep" version="~>0.0.2"
 }

@@ -113,7 +113,6 @@ int cli(const Config fconf, Config.Shell conf) {
             auto exit_status = spawnProcess(sshShellArgs(host,
                     fconf.global.workDir.get.Path).toArgs).wait;
 
-            // #SPC-fallback_remote_host
             if (exit_status == 0 || sw.peek > timout_until_considered_successfull_connection) {
                 writefln("Connection to %s closed.", host);
                 return exit_status;
@@ -130,7 +129,6 @@ int cli(const Config fconf, Config.Shell conf) {
     return 1;
 }
 
-// #SPC-fast_env_startup
 int cli(Config fconf, Config.Cmd conf) {
     import std.stdio : stdout;
 
@@ -156,7 +154,6 @@ int cli(Config fconf, Config.Cmd conf) {
     return 1;
 }
 
-// #SPC-fast_env_startup
 int cli(Config fconf, Config.LocalRun conf) {
     import core.time : dur;
     import std.datetime : Clock;
@@ -253,7 +250,7 @@ int cli(Config fconf, Config.LocalRun conf) {
             return 500.dur!"msecs";
         }, 50.dur!"msecs");
 
-        ubyte[4096] buf;
+        auto buf = new ubyte[4096];
         bool pipeOutputToUser() @trusted {
             // guard against an error occuring when writing to the users
             // stdout.
@@ -263,7 +260,7 @@ int cli(Config fconf, Config.LocalRun conf) {
             {
                 bool doFlush;
                 while (res.stdout.hasPendingData && Clock.currTime < timeout) {
-                    auto r = res.stdout.read(buf[]);
+                    auto r = res.stdout.read(buf);
                     stdout.rawWrite(r);
                     hasWritten = true;
                     doFlush = true;
@@ -276,7 +273,7 @@ int cli(Config fconf, Config.LocalRun conf) {
             {
                 bool doFlush;
                 while (res.stderr.hasPendingData && Clock.currTime < timeout) {
-                    auto r = res.stderr.read(buf[]);
+                    auto r = res.stderr.read(buf);
                     stderr.rawWrite(r);
                     hasWritten = true;
                     doFlush = true;
@@ -364,7 +361,6 @@ int cli(const Config fconf, Config.Install conf, void delegate(string src, strin
     return 1;
 }
 
-// #SPC-measure_remote_hosts
 int cli(const Config fconf, Config.MeasureHosts conf) nothrow {
     import std.algorithm : sort;
     import std.conv : to;
@@ -424,10 +420,7 @@ int cli(const Config fconf, Config.MeasureHosts conf) nothrow {
     return 0;
 }
 
-/** Print the load of localhost.
- *
- * #SPC-measure_local_load
- */
+// Print the load of localhost.
 int cli(WriterT)(Config.LocalLoad conf, scope WriterT writer) {
     import std.ascii : newline;
     import std.conv : to;
@@ -473,7 +466,6 @@ int cli(Config fconf, Config.RunOnAll conf) nothrow {
             .map!(a => a.host)) {
         stdout.writefln("Connecting to %s", a).collectException;
         try {
-            // #SPC-flush_buffers
             stdout.flush;
         } catch (Exception e) {
         }
@@ -492,7 +484,6 @@ int cli(Config fconf, Config.RunOnAll conf) nothrow {
     return exit_status ? 0 : 1;
 }
 
-// #SPC-shell_current_dir
 int cli(const Config fconf, Config.LocalShell conf) {
     import std.file : exists;
     import std.process : spawnProcess, wait, userShell, Config, Pid;
@@ -510,10 +501,9 @@ int cli(const Config fconf, Config.LocalShell conf) {
     }
 }
 
-// #SPC-modify_env
 int cli(const Config fconf, Config.Env conf) {
     import std.algorithm : map, filter;
-    import std.array : assocArray, array;
+    import std.array : assocArray, array, join;
     import std.stdio : writeln, writefln;
     import std.string : split;
     import std.typecons : tuple;
@@ -535,8 +525,10 @@ int cli(const Config fconf, Config.Env conf) {
     try {
         set_envs = conf.envSet
             .map!(a => a.split('='))
-            .filter!(a => !a.empty)
-            .map!(a => tuple(a[0], a[1]))
+            .filter!(a => a.length >= 2)
+            .map!((a) {
+                return a.length > 2 ? tuple(a[0], join(a[1 .. $], '=')) : tuple(a[0], a[1]);
+            })
             .assocArray;
     } catch (Exception e) {
         writeln("Unable to parse supplied envs to modify: ", e.msg).collectException;

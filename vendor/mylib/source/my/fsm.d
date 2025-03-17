@@ -9,22 +9,26 @@ import std.format : format;
 
 /** A state machine derived from the types it is based on.
  *
- * Each state have its unique data that it works on.
+ * Each state have its unique, temporary data that it works on. If a state
+ * needs persistent data then look into using the `TypeDataMap`.
  *
  * The state transitions are calculated by `next` and the actions are performed
  * by `act`.
+ *
+ * See the unittests for example of how to use the implementation.
  */
 struct Fsm(StateTT...) {
-    static import sumtype;
+    static import std.sumtype;
 
-    alias StateT = sumtype.SumType!StateTT;
+    alias StateT = std.sumtype.SumType!StateTT;
 
     /// The states and state specific data.
     StateT state;
 
     /// Log messages of the last state transition (next).
     /// Only updated in debug build.
-    string logNext;
+    alias LogFn = void delegate(string msg) @safe;
+    LogFn logger;
 
     /// Helper function to convert the return type to `StateT`.
     static StateT opCall(T)(auto ref T a) {
@@ -34,11 +38,29 @@ struct Fsm(StateTT...) {
 
 /// Transition to the next state.
 template next(handlers...) {
-    void next(Self)(auto ref Self self) if (is(Self : Fsm!StateT, StateT...)) {
-        static import sumtype;
+    import std.traits : Parameters, ReturnType;
 
-        auto nextSt = sumtype.match!handlers(self.state);
-        debug self.logNext = format!"%s -> %s"(self.state, nextSt);
+    template CoerceReturn(Self, alias Matcher) {
+        alias P = Parameters!Matcher;
+        static if (is(ReturnType!Matcher == Self.StateT)) {
+            alias CoerceReturn = Matcher;
+        } else {
+            Self.StateT CoerceReturn(P[0] a) {
+                return Self.StateT(Matcher(a));
+            }
+        }
+    }
+
+    void next(Self)(auto ref Self self) if (is(Self : Fsm!StateT, StateT...)) {
+        import std.meta : staticMap;
+        static import std.sumtype;
+
+        alias CoerceReturnSelf(alias Matcher) = CoerceReturn!(Self, Matcher);
+        alias Handlers = staticMap!(CoerceReturnSelf, handlers);
+
+        auto nextSt = std.sumtype.match!Handlers(self.state);
+        if (self.logger)
+            self.logger(format!"%s -> %s"(self.state, nextSt));
 
         self.state = nextSt;
     }
@@ -47,9 +69,9 @@ template next(handlers...) {
 /// Act on the current state. Use `(ref S)` to modify the states data.
 template act(handlers...) {
     void act(Self)(auto ref Self self) if (is(Self : Fsm!StateT, StateT...)) {
-        static import sumtype;
+        static import std.sumtype;
 
-        sumtype.match!handlers(self.state);
+        std.sumtype.match!handlers(self.state);
     }
 }
 
@@ -80,12 +102,39 @@ unittest {
             if (a.x > 3)
                 return fsm(C(true));
             return fsm(a);
-        }, (C a) { running = false; return fsm(a); });
+        }, (C a) { running = false; return a; });
 
         fsm.act!((A a) {}, (ref B a) { a.x++; }, (C a) {});
     }
 
     assert(global.x == 1);
+}
+
+@("shall use a struct to provide the state callbacks")
+unittest {
+    static struct A {
+    }
+
+    static struct B {
+    }
+
+    static struct Foo {
+        Fsm!(A, B) fsm;
+        bool running = true;
+
+        void opCall(A a) {
+        }
+
+        void opCall(B b) {
+            running = false;
+        }
+    }
+
+    Foo foo;
+    while (foo.running) {
+        foo.fsm.next!((A a) => B.init, (B a) => a);
+        foo.fsm.act!foo;
+    }
 }
 
 /** Hold a mapping between a Type and data.

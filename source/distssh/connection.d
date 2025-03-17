@@ -163,6 +163,9 @@ void setupMultiplexDir() @safe nothrow {
             mkdirRecurse(p);
         }
     } catch (Exception e) {
-        logger.warning(e.msg).collectException;
+        try {
+            logger.warning(e.msg);
+        } catch(Exception e) {
+        }
     }
 }

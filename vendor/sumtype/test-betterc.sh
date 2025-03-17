@@ -1,2 +1,3 @@
 #!/bin/sh
-dmd -unittest -g -betterC -version=SumTypeTestBetterC -run src/sumtype.d
+DFLAGS="-preview=fieldwise"
+dmd $DFLAGS -unittest -g -betterC -I=src -i -run test_betterc.d
