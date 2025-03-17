@@ -503,7 +503,7 @@ int cli(const Config fconf, Config.LocalShell conf) {
 
 int cli(const Config fconf, Config.Env conf) {
     import std.algorithm : map, filter;
-    import std.array : assocArray, array;
+    import std.array : assocArray, array, join;
     import std.stdio : writeln, writefln;
     import std.string : split;
     import std.typecons : tuple;
@@ -525,8 +525,10 @@ int cli(const Config fconf, Config.Env conf) {
     try {
         set_envs = conf.envSet
             .map!(a => a.split('='))
-            .filter!(a => !a.empty)
-            .map!(a => tuple(a[0], a[1]))
+            .filter!(a => a.length >= 2)
+            .map!((a) {
+                return a.length > 2 ? tuple(a[0], join(a[1 .. $], '=')) : tuple(a[0], a[1]);
+            })
             .assocArray;
     } catch (Exception e) {
         writeln("Unable to parse supplied envs to modify: ", e.msg).collectException;
