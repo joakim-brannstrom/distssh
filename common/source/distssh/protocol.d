@@ -122,7 +122,7 @@ struct Serialize(WriterT) {
             KindSize +
             DataSize!(MsgpackType.uint32) +
             DataSize!(MsgpackType.uint32) +
-            cmd.value.map!(a => (cast(const(ubyte)[]) a).length).sum;
+            cmd.value.map!(a => DataSize!(MsgpackType.str32) + (cast(const(ubyte)[]) a).length).sum;
         // dfmt on
 
         pack(Kind.command);
@@ -346,7 +346,7 @@ struct Deserialize {
             return peek!(MsgpackType.uint32, uint)(s);
         }();
 
-        debug logger.trace("Bytes to unpack: ", totalSz);
+        debug logger.tracef("Bytes to unpack: %s %s", totalSz, buf.length);
 
         if (buf.length < totalSz)
             return typeof(return)();
@@ -358,6 +358,8 @@ struct Deserialize {
         Command cmd;
         const elems = demux!(MsgpackType.uint32, uint);
         foreach (_; 0 .. elems) {
+            if (buf.length == 0)
+                throw new Exception("Not enough data buffered. Internal serialization error");
             cmd.value ~= demux!string();
         }
 
