@@ -241,9 +241,8 @@ string tableName(T)() {
     enum hasName = nameAttrs.length;
     static if (hasName) {
         return nameAttrs[0].value;
-    } else {
+    } else
         return T.stringof;
-    }
 }
 
 string[] tableConstraints(T)() {

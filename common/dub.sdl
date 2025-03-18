@@ -6,5 +6,5 @@ license "BSL-1.0"
 
 targetPath "build"
 
-dependency "distssh:msgpack-ll" version="*"
-dependency "distssh:sumtype" version="*"
+dependency "msgpack-ll" version="0.1.4"
+dependency "sumtype" version="1.2.8"

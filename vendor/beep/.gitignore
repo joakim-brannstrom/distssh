@@ -1,0 +1,5 @@
+.dub
+dub.selections.json
+*.a
+*.lst
+beep-test-unittest

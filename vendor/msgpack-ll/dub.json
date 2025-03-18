@@ -1,10 +1,23 @@
 {
-	"name": "msgpack-ll",
 	"authors": [
 		"Johannes Pfau"
 	],
-	"description": "A low level @nogc, nothrow, @safe, pure and betterC compatible MessagePack library",
+	"configurations": [
+		{
+			"name": "library",
+			"targetType": "library"
+		}
+	],
 	"copyright": "Copyright © 2017, Johannes Pfau",
+	"description": "A low level @nogc, nothrow, @safe, pure and betterC compatible MessagePack library",
+	"importPaths": [
+		"src/"
+	],
 	"license": "BSL-1.0",
+	"name": "msgpack-ll",
+	"sourcePaths": [
+		"src/"
+	],
 	"targetType": "library",
+	"version": "0.1.4"
 }

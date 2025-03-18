@@ -1,0 +1,38 @@
+{
+	"authors": [
+		"Joakim Brännström"
+	],
+	"configurations": [
+		{
+			"name": "library",
+			"targetType": "library"
+		},
+		{
+			"dependencies": {
+				"beep": "~>0.0.2",
+				"silly": "~>1.0.2"
+			},
+			"name": "unittest",
+			"targetType": "library"
+		}
+	],
+	"copyright": "Copyright © 2020, Joakim Brännström",
+	"dependencies": {
+		"mylib": "~>0.0.41"
+	},
+	"description": "Library for managing running processes and trees of them",
+	"importPaths": [
+		"source/"
+	],
+	"libs": [
+		"util"
+	],
+	"license": "BSL-1.0",
+	"name": "proc",
+	"sourcePaths": [
+		"source/"
+	],
+	"targetPath": "build",
+	"targetType": "library",
+	"version": "1.1.5"
+}

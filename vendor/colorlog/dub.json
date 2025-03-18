@@ -1,0 +1,26 @@
+{
+	"authors": [
+		"Joakim Braennstroem"
+	],
+	"configurations": [
+		{
+			"name": "library",
+			"targetType": "library"
+		}
+	],
+	"copyright": "Copyright © 2018, Joakim Braennstroem",
+	"dependencies": {
+		"mylib": "~>0.0.41"
+	},
+	"description": "std.experimental.logger with color support",
+	"importPaths": [
+		"source/"
+	],
+	"license": "BSL-1.0",
+	"name": "colorlog",
+	"sourcePaths": [
+		"source/"
+	],
+	"targetType": "library",
+	"version": "0.0.10"
+}
