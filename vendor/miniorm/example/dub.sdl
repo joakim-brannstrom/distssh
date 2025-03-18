@@ -1,6 +1,0 @@
-name "example"
-
-debugVersions "miniorm"
-dependency "miniorm" path=".."
-
-targetPath "build"

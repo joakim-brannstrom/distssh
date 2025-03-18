@@ -88,15 +88,14 @@ package(d2sqlite3):
     this(Database db, string sql)
     {
         sqlite3_stmt* handle;
-        enforce(sql.length <= int.max, "Length of SQL statement exceeds `int.max`");
         version (_UnlockNotify)
         {
-            auto result = sqlite3_blocking_prepare_v2(db, sql.ptr, cast(int) sql.length,
+            auto result = sqlite3_blocking_prepare_v2(db, sql.toStringz, sql.length.to!int,
                 &handle, null);
         }
         else
         {
-            auto result = sqlite3_prepare_v2(db.handle(), sql.ptr, cast(int) sql.length,
+            auto result = sqlite3_prepare_v2(db.handle(), sql.toStringz, sql.length.to!int,
                 &handle, null);
         }
         enforce(result == SQLITE_OK, new SqliteException(errmsg(db.handle()), result, sql));

@@ -5,7 +5,7 @@ import std.conv : to;
 import std.exception : enforce;
 import std.format : format;
 import std.string : join;
-import std.sumtype : SumType;
+import std.sumtype;
 
 import d2sqlite3;
 
@@ -41,10 +41,6 @@ struct Select(T) {
     /// Convert to a SQL statement that can e.g. be pretty printed.
     Sql toSql() {
         return query.Query.Sql;
-    }
-
-    void run(ref Miniorm db) {
-        db.run(toSql.toString);
     }
 
     /// Count the number of matching rows.
@@ -160,15 +156,11 @@ struct Insert(T) {
 
     /// Returns: number of values that the query is sized for.
     size_t getValues() {
-        import std.sumtype : match;
-
         return query.values.value.match!((Values v) => 1 + v.optional.length, _ => 0);
     }
 
     /// Returns: number of columns to insert per value.
     size_t getColumns() {
-        import std.sumtype : match;
-
         return query.columns.value.match!((ColumnNames v) => 1 + v.optional.length, (None v) => 0);
     }
 
@@ -177,7 +169,6 @@ struct Insert(T) {
     in (cnt >= 1, "values must be >=1") {
         import std.array : array;
         import std.range : repeat;
-        import std.sumtype : match;
 
         Value val;
         val.required = Expr("?");
@@ -360,8 +351,6 @@ mixin template WhereMixin(T, QueryT, AstT) {
             alias value this;
 
             private auto where(string condition, WhereOp op, Bind[] b) @trusted pure {
-                import std.sumtype : tryMatch;
-
                 QueryT rval = value;
                 rval.binds ~= b;
 
@@ -430,8 +419,6 @@ struct Bind {
     }
 
     void toString(Writer)(ref Writer w) const if (isOutputRange!(Writer, char)) {
-        import std.sumtype : match;
-
         key.match!((string k) { put(w, ":"); put(w, k); }, (int k) {
             put(w, k.to!string);
         });

@@ -1,0 +1,29 @@
+{
+	"authors": [
+		"Anton Fediushin"
+	],
+	"configurations": [
+		{
+			"name": "library",
+			"targetType": "library"
+		},
+		{
+			"dependencies": {
+				"silly": ">=0.0.0"
+			},
+			"name": "unittest",
+			"targetType": "library"
+		}
+	],
+	"copyright": "Copyright © 2018, Anton Fediushin",
+	"description": "Advanced assertion library",
+	"importPaths": [
+		"."
+	],
+	"license": "MIT",
+	"name": "beep",
+	"sourceFiles": [
+		"beep.d"
+	],
+	"version": "0.0.2"
+}
