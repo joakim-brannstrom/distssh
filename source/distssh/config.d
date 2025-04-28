@@ -246,7 +246,7 @@ Config parseUserArgs(string[] args) {
     try {
         void globalParse() {
             string export_env_file;
-            ulong timeout_s = defaultTimeout_s;
+            ulong timeout_s;
 
             // dfmt off
             conf.global.helpInfo = std.getopt.getopt(args, std.getopt.config.passThrough, std.getopt.config.keepEndOfOptions,
@@ -266,7 +266,8 @@ Config parseUserArgs(string[] args) {
             // must convert e.g. "."
             conf.global.workDir = typeof(conf.global.workDir)(conf.global.workDir.get.absolutePath);
 
-            conf.global.timeout.get = typeof(conf.global.timeout)(timeout_s.dur!"seconds");
+            if (timeout_s != 0)
+                conf.global.timeout.get = typeof(conf.global.timeout)(timeout_s.dur!"seconds");
 
             if (!export_env_file.empty)
                 conf.global.importEnv = typeof(conf.global.importEnv)(export_env_file);

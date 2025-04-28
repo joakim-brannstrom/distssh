@@ -19,7 +19,7 @@ immutable globalEnvPurgeWhiteList = "DISTSSH_PURGE_WLIST";
 immutable distShell = "distshell";
 immutable distCmd = "distcmd";
 immutable distsshEnvExport = "distssh_env.export";
-immutable ulong defaultTimeout_s = 2;
+immutable ulong defaultTimeout_s = 4;
 /// Number of the top X candidates to choose a server from to put the work on.
 immutable topCandidades = 3;
 

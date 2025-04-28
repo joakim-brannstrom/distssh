@@ -6,12 +6,14 @@ Author: Joakim Brännström (joakim.brannstrom@gmx.com)
 module distssh.utility;
 
 import core.time : Duration;
+import logger = std.logger;
 import std.algorithm : splitter, map, filter, joiner;
 import std.array : empty;
+import std.conv : to;
+import std.datetime : Clock;
 import std.exception : collectException;
 import std.stdio : File;
 import std.typecons : Nullable, NullableRef;
-import logger = std.experimental.logger;
 
 import colorlog;
 
@@ -183,7 +185,7 @@ struct PipeReader {
 
     /// The returned slice is to a local, static array. It must be used/copied
     /// before next call to read.
-    private ubyte[] read() return  {
+    private ubyte[] read() return {
         static import core.sys.posix.unistd;
 
         auto res = poller.wait();
