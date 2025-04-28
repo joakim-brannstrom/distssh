@@ -6,12 +6,14 @@ Author: Joakim Brännström (joakim.brannstrom@gmx.com)
 module distssh.utility;
 
 import core.time : Duration;
+import logger = std.experimental.logger;
 import std.algorithm : splitter, map, filter, joiner;
 import std.array : empty;
+import std.conv : to;
+import std.datetime : Clock;
 import std.exception : collectException;
 import std.stdio : File;
 import std.typecons : Nullable, NullableRef;
-import logger = std.experimental.logger;
 
 import colorlog;
 
@@ -30,6 +32,7 @@ struct ExecuteOnHostConf {
     NamedType!(string, Tag!"ImportEnvFile") importEnv;
     NamedType!(bool, Tag!"CloneEnv") cloneEnv;
     NamedType!(bool, Tag!"NoImportEnv") noImportEnv;
+    NamedType!(Duration, Tag!"MaxRuntime", Duration.zero, ImplicitConvertable) maxRuntime;
 }
 
 bool isInteractive() {
@@ -75,6 +78,12 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
             if (isInteractive_) {
                 a ~= "--pseudo-terminal";
             }
+            a ~= [
+                "--max-runtime", conf.maxRuntime
+                    .get
+                    .total!"seconds"
+                    .to!"string"
+            ];
             return sshCmdArgs(host, a).toArgs;
         }();
 
@@ -134,6 +143,8 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
             return 100.dur!"msecs";
         }, 25.dur!"msecs");
 
+        auto maxRuntime = Clock.currTime + conf.maxRuntime;
+
         // dummy event to force the timer to return after 50ms
         makeInterval(timers, () @safe { return 50.dur!"msecs"; }, 50.dur!"msecs");
 
@@ -183,7 +194,7 @@ struct PipeReader {
 
     /// The returned slice is to a local, static array. It must be used/copied
     /// before next call to read.
-    private ubyte[] read() return  {
+    private ubyte[] read() return {
         static import core.sys.posix.unistd;
 
         auto res = poller.wait();

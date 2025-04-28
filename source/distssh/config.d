@@ -39,7 +39,8 @@ struct Config {
         NamedType!(bool, Tag!"CloneEnv") cloneEnv;
         NamedType!(bool, Tag!"StdinMsgPackEnv") stdinMsgPackEnv;
         NamedType!(Duration, Tag!"Timeout", Duration.zero, ImplicitConvertable) timeout = defaultTimeout_s
-            .dur!"seconds";
+            .dur!"seconds" * 2;
+        NamedType!(Duration, Tag!"MaxRuntime", Duration.zero, ImplicitConvertable) maxRuntime;
 
         NamedType!(string, Tag!"ProgName") progName;
         NamedType!(string, Tag!"SelfBinary") selfBinary;
@@ -246,13 +247,15 @@ Config parseUserArgs(string[] args) {
     try {
         void globalParse() {
             string export_env_file;
-            ulong timeout_s = defaultTimeout_s;
+            ulong timeout_s;
+            ulong maxRuntime_s;
 
             // dfmt off
             conf.global.helpInfo = std.getopt.getopt(args, std.getopt.config.passThrough, std.getopt.config.keepEndOfOptions,
                 "clone-env", "clone the current environment to the remote host without an intermediate file", conf.global.cloneEnv.getPtr,
                 "env-file", "file to load the environment from", &export_env_file,
                 "i|import-env", "import the env from the file (default: " ~ distsshEnvExport ~ ")", conf.global.importEnv.getPtr,
+                "max-runtime", "max runtime of the command if specified (seconds)", &maxRuntime_s,
                 "no-import-env", "do not automatically import the environment from " ~ distsshEnvExport, conf.global.noImportEnv.getPtr,
                 "stdin-msgpack-env", "import env from stdin as a msgpack stream", conf.global.stdinMsgPackEnv.getPtr,
                 "timeout", "timeout to use when checking remote hosts", &timeout_s,
@@ -266,7 +269,13 @@ Config parseUserArgs(string[] args) {
             // must convert e.g. "."
             conf.global.workDir = typeof(conf.global.workDir)(conf.global.workDir.get.absolutePath);
 
-            conf.global.timeout.get = typeof(conf.global.timeout)(timeout_s.dur!"seconds");
+            if (timeout_s != 0)
+                conf.global.timeout.get = typeof(conf.global.timeout)(timeout_s.dur!"seconds");
+            if (maxRuntime_s == 0)
+                conf.global.maxRuntime.get = typeof(conf.global.maxRuntime)(Duration.max);
+            else
+                conf.global.maxRuntime.get = typeof(conf.global.maxRuntime)(
+                        maxRuntime_s.dur!"seconds");
 
             if (!export_env_file.empty)
                 conf.global.importEnv = typeof(conf.global.importEnv)(export_env_file);
