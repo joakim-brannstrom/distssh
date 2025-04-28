@@ -82,7 +82,7 @@ int executeOnHost(const ExecuteOnHostConf conf, Host host) nothrow {
                 "--max-runtime", conf.maxRuntime
                     .get
                     .total!"seconds"
-                    .to!"string"
+                    .to!string
             ];
             return sshCmdArgs(host, a).toArgs;
         }();

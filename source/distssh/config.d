@@ -271,9 +271,7 @@ Config parseUserArgs(string[] args) {
 
             if (timeout_s != 0)
                 conf.global.timeout.get = typeof(conf.global.timeout)(timeout_s.dur!"seconds");
-            if (maxRuntime_s == 0)
-                conf.global.maxRuntime.get = typeof(conf.global.maxRuntime)(Duration.max);
-            else
+            if (maxRuntime_s != 0)
                 conf.global.maxRuntime.get = typeof(conf.global.maxRuntime)(
                         maxRuntime_s.dur!"seconds");
 
