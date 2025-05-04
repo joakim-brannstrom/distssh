@@ -330,6 +330,8 @@ int cli(Config fconf, Config.LocalRun conf) {
 
             timers.tick(25.dur!"msecs");
         }
+        if (wd.isTimeout)
+            exit_status = 2;
 
         return exit_status;
     } catch (Exception e) {
