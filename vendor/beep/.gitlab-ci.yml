@@ -1,0 +1,8 @@
+dmd:
+  image: ohboi/minidmd
+  script: dub test -b unittest-cov && dub fetch covered && dub run covered -- -a beep.lst
+  coverage: '/Average: \d+\.\d+%/'
+
+ldc:
+  image: ohboi/minildc
+  script: dub test

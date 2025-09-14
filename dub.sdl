@@ -7,7 +7,6 @@ license "BSL-1.0"
 dependency "colorlog" version="0.0.10"
 dependency "miniorm" version="0.0.10"
 dependency "msgpack-ll" version="0.1.4"
-dependency "sumtype" version="1.2.8"
 dependency "d2sqlite3" version="1.0.0"
 dependency "proc" version="1.1.5"
 
