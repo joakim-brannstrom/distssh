@@ -226,8 +226,8 @@ int cli(Config fconf, Config.LocalRun conf) {
                 import core.sys.posix.termios : tcsetattr, TCSAFLUSH;
 
                 auto p = ttyProcess([userShell] ~ shellSwitch(userShell) ~ [
-                        localConf.cmd.joiner(" ").toUTF8
-                        ], localConf.env, PConfig.none, localConf.workdir).sandbox.scopeKill;
+                    localConf.cmd.joiner(" ").toUTF8
+                ], localConf.env, PConfig.none, localConf.workdir).sandbox.scopeKill;
                 tcsetattr(p.stdin.file.fileno, TCSAFLUSH, &localConf.mode);
                 return p;
             }
@@ -302,7 +302,7 @@ int cli(Config fconf, Config.LocalRun conf) {
 
         int exit_status = 1;
 
-        auto wd = HeartBeatMonitor(fconf.global.timeout * 2);
+        auto wd = HeartBeatMonitor(fconf.global.timeout);
 
         while (!wd.isTimeout && loop_running) {
             pread.update;
@@ -330,6 +330,8 @@ int cli(Config fconf, Config.LocalRun conf) {
 
             timers.tick(25.dur!"msecs");
         }
+        if (wd.isTimeout)
+            exit_status = 2;
 
         return exit_status;
     } catch (Exception e) {
@@ -657,9 +659,9 @@ int cli(const Config fconf, Config.Env conf) {
 
     // act
     conf = parseUserArgs([
-            "distssh", "env", "-d", "FOO_DEL", "-s", "FOO_MOD=42", "--set",
-            "FOO_ADD=42", "--env-file", remove_me
-            ]);
+        "distssh", "env", "-d", "FOO_DEL", "-s", "FOO_MOD=42", "--set",
+        "FOO_ADD=42", "--env-file", remove_me
+    ]);
     envConf = conf.data.tryVisit!((Config.Env a) => a, () => Config.Env.init);
     cli(conf, envConf);
 

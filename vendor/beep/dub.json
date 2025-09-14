@@ -9,7 +9,7 @@
 		},
 		{
 			"dependencies": {
-				"silly": ">=0.0.0"
+				"silly": "*"
 			},
 			"name": "unittest",
 			"targetType": "library"
