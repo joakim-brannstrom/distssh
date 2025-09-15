@@ -38,14 +38,21 @@ alias Host = NamedType!(string, Tag!"Host", null, Comparable, ImplicitConvertabl
 struct Load {
     import std.datetime : Duration;
 
-    double loadAvg = int.max;
+    double loadAvg = 1.0;
+    double memoryUsed = 1.0;
     Duration accessTime = 1.dur!"hours";
     bool unknown = true;
+
+    double weight() @safe pure nothrow const @nogc {
+        if (unknown)
+            return 0;
+        return loadAvg + memoryUsed;
+    }
 
     bool opEquals(const typeof(this) o) nothrow @safe pure @nogc {
         if (unknown && o.unknown)
             return true;
-        return loadAvg == o.loadAvg && accessTime == o.accessTime;
+        return weight == o.weight && accessTime == o.accessTime;
     }
 
     int opCmp(const typeof(this) o) pure @safe @nogc nothrow {
@@ -56,9 +63,9 @@ struct Load {
         else if (o.unknown)
             return -1;
 
-        if (loadAvg < o.loadAvg)
+        if (weight < o.weight)
             return -1;
-        else if (loadAvg > o.loadAvg)
+        else if (weight > o.weight)
             return 1;
 
         if (accessTime < o.accessTime)
